@@ -1,0 +1,2 @@
+# Altyazı (konuşmayı yazıya çevirme). Kurulamazsa program altyazısız çalışır.
+faster-whisper>=1.1
