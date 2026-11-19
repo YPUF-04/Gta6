@@ -1,6 +1,19 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
+echo "%~dp0" | find /i "OneDrive" >nul
+if not errorlevel 1 (
+  echo.
+  echo ##########################################################
+  echo  UYARI: Bu klasor OneDrive icinde!
+  echo  OneDrive her dosyayi buluta yuklemeye calisir, bu yuzden
+  echo  kurulum ve program COK yavaslar, internetin dolar.
+  echo  Cozum: Clip klasorunu C:\ surucusune tasi, ornek: C:\Clip
+  echo  sonra oradan tekrar calistir.
+  echo ##########################################################
+  echo.
+  pause
+)
 title GTA 6 Klipci - CALISIYOR (kapatmak icin bu pencereyi kapat veya DURDUR.bat)
 if not exist ".venv\Scripts\python.exe" (
   echo Once KURULUM.bat'i calistir!
