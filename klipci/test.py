@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 import yaml
 
-from . import kesif
+from . import kesif, yuz
 from .chat import kick_chat, twitch_chat, youtube_chat
 from .kayit import Kaydedici, arac
 from .kurgu import ass_yaz, chat_sec, dikey_video
@@ -87,11 +87,15 @@ async def platform_dene(ad: str, kesifci, bot: Bot, klasor: Path) -> None:
         yaz(f"{ad}: klip kesme", True)
         try:
             t0 = parca[1][1]
+            analiz = await asyncio.to_thread(yuz.analiz_et, sonuc[0], sonuc[1], 20)
+            print(f"  ℹ️ yüz kamerası: {'bulundu → üstte yüz, altta oyun' if analiz.facecam else 'bulunamadı → tek ekran düzeni'}",
+                  flush=True)
             chat_pop = chat_sec([(t - t0, kim, m) for t, kim, m in mesajlar], 20)
             ass = klasor / f"{ad}.ass"
-            ass_yaz(ass, 20, f"TEST: {ad.upper()} çalışıyor ✅", f"🎥 {k.kredi}", "", [], chat_pop)
+            ass_yaz(ass, 20, f"test: {ad} çalışıyor", f"🎥 {k.kredi}", "@test", [], chat_pop,
+                    "yuz" if analiz.facecam else "tek")
             mp4 = klasor / f"TEST_{ad}.mp4"
-            await asyncio.to_thread(dikey_video, sonuc[0], sonuc[1], 20, mp4, ass, 1.3)
+            await asyncio.to_thread(dikey_video, sonuc[0], sonuc[1], 20, mp4, ass, 1.3, analiz.facecam)
             yaz(f"{ad}: dikey video", mp4.exists(), f"{mp4.stat().st_size // 1024} KB")
         except Exception as e:  # noqa: BLE001
             yaz(f"{ad}: dikey video", False, str(e)[:200])
@@ -114,6 +118,11 @@ async def ana() -> None:
     except Exception as e:  # noqa: BLE001
         yaz("FFmpeg", False, str(e))
         return
+    try:
+        import cv2  # noqa: F401
+        yaz("Görüntü paketi (yüz bulma)", True)
+    except Exception:  # noqa: BLE001
+        yaz("Görüntü paketi (yüz bulma)", False, "KURULUM.bat'ı tekrar çalıştır")
     try:
         import faster_whisper  # noqa: F401
         yaz("Altyazı paketi", True)

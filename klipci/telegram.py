@@ -26,6 +26,8 @@ class Bot:
         self.on_onay: Callable[[str], Awaitable[str]] | None = None
         self.on_sil: Callable[[str], Awaitable[None]] | None = None
         self.on_komut: Callable[[str], Awaitable[str]] | None = None
+        # buton: data -> (kısa cevap, yeni mesaj metni | None, yeni butonlar | None)
+        self.on_buton: Callable[[str], Awaitable[tuple]] | None = None
 
     async def _api(self, metod: str, **kw) -> dict:
         r = await self.http.post(API.format(token=self.token, metod=metod), **kw)
@@ -34,18 +36,27 @@ class Bot:
             raise RuntimeError(f"telegram {metod}: {j.get('description')}")
         return j["result"]
 
+    async def butonlu(self, metin: str, klavye: list) -> None:
+        await self.mesaj(metin, reply_markup=json.dumps({"inline_keyboard": klavye}, ensure_ascii=False))
+
+    async def html(self, metin: str, butonlar: list | None = None) -> None:
+        """HTML biçimli mesaj (<code> blokları telefonda dokununca kopyalanır)."""
+        ek = {"parse_mode": "HTML"}
+        if butonlar:
+            ek["reply_markup"] = json.dumps({"inline_keyboard": butonlar}, ensure_ascii=False)
+        await self.mesaj(metin, **ek)
+
     async def mesaj(self, metin: str, **ek) -> None:
         if not self.chat_id:
             log.warning("Telegram chat_id yok — botuna /start yaz")
             return
         await self._api("sendMessage", data={"chat_id": self.chat_id, "text": metin[:4000], **ek})
 
-    async def video_gonder(self, yol: Path, aciklama: str, klip_id: str) -> None:
+    async def video_gonder(self, yol: Path, aciklama: str, klip_id: str, butonlar: list | None = None) -> None:
         if not self.chat_id:
-            log.warning("Telegram chat_id yok — klip sadece klasöre kaydedildi: %s", yol)
-            return
-        klavye = {"inline_keyboard": [[
-            {"text": "✅ Paylaşacağım", "callback_data": f"ok:{klip_id}"},
+            raise RuntimeError("Telegram chat_id yok — botuna /start yaz")
+        klavye = {"inline_keyboard": butonlar or [[
+            {"text": "✅ Stoğa ekle", "callback_data": f"ok:{klip_id}"},
             {"text": "🗑 Sil", "callback_data": f"sil:{klip_id}"},
         ]]}
         with open(yol, "rb") as f:
@@ -56,7 +67,12 @@ class Bot:
 
     async def komut_menusu(self) -> None:
         """Telegram'da / yazınca çıkan komut listesi."""
-        komutlar = [("durum", "Neler izleniyor, kaç klip çıktı"), ("ekle", "Yayıncı ekle: /ekle kick adinross"),
+        komutlar = [("durum", "Neler izleniyor, kaç klip çıktı"), ("yayinlar", "Şu an açık GTA 6 yayınları — dokun, seç"),
+                    ("platform", "Twitch / Kick / YouTube aç-kapat"), ("istatistik", "Neyi sevdiğimi öğrendin?"),
+                    ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
+                    ("isim", "Videonun altındaki kullanıcı adı: /isim @hesap"),
+                    ("hesap", "TR / EN hesaplarını aç-kapat"),
+                    ("ekle", "Yayıncı ekle: /ekle kick adinross"),
                     ("cikar", "Yayıncıyı listeden çıkar"), ("yasakla", "Bu yayıncıyı asla klipleme"),
                     ("liste", "Eklediklerim ve yasaklılar"), ("duraklat", "Kliplemeyi durdur"),
                     ("devam", "Tekrar başlat"), ("yardim", "Tüm komutlar")]
@@ -75,7 +91,7 @@ class Bot:
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
-                log.warning("telegram hata: %s", e)
+                log.warning("telegram bağlantı sorunu (internet?): %r", e)
                 await asyncio.sleep(5)
 
     async def _isle(self, u: dict) -> None:
@@ -109,17 +125,28 @@ class Bot:
             try:
                 if islem == "ok" and self.on_onay:
                     metin = await self.on_onay(klip_id)
-                    cevap = "Hazır klasörüne taşındı ✅"
+                    cevap = "Stoğa eklendi ✅ (beğendiğini öğrendim)"
                     await self._api("editMessageReplyMarkup", data={
                         "chat_id": self.chat_id, "message_id": q["message"]["message_id"],
-                        "reply_markup": json.dumps({"inline_keyboard": [[{"text": "✅ Onaylandı", "callback_data": "x:"}]]})})
-                    # açıklamayı ayrı mesaj olarak at: basılı tut -> kopyala
-                    await self.mesaj(metin)
+                        "reply_markup": json.dumps({"inline_keyboard": [[{"text": "✅ Stokta", "callback_data": "x:"}]]})})
+                    if metin:
+                        await self.mesaj(metin)
                 elif islem == "sil" and self.on_sil:
                     await self.on_sil(klip_id)
-                    cevap = "Silindi 🗑"
+                    cevap = "Silindi 🗑 (bunu da öğrendim)"
                     await self._api("deleteMessage", data={
                         "chat_id": self.chat_id, "message_id": q["message"]["message_id"]})
+                elif islem not in ("x", "") and self.on_buton:
+                    cevap, yeni_metin, yeni_klavye = await self.on_buton(q.get("data", ""))
+                    mid = q["message"]["message_id"]
+                    if yeni_metin is not None:
+                        await self._api("editMessageText", data={
+                            "chat_id": self.chat_id, "message_id": mid, "text": yeni_metin[:4000],
+                            "reply_markup": json.dumps({"inline_keyboard": yeni_klavye or []}, ensure_ascii=False)})
+                    elif yeni_klavye is not None:
+                        await self._api("editMessageReplyMarkup", data={
+                            "chat_id": self.chat_id, "message_id": mid,
+                            "reply_markup": json.dumps({"inline_keyboard": yeni_klavye}, ensure_ascii=False)})
             except Exception as e:  # noqa: BLE001
                 cevap = f"Hata: {e}"[:190]
             await self._api("answerCallbackQuery", data={"callback_query_id": q["id"], "text": cevap})

@@ -28,6 +28,7 @@ class Kanal:
     platform: str   # "twitch" | "kick" | "youtube"
     ad: str         # twitch/kick: kullanıcı adı, youtube: video id
     isim: str = field(default="", compare=False)   # ekranda/açıklamada görünecek ad
+    tutamac: str = field(default="", compare=False)  # YouTube kanal adresi (@kullanici)
 
     @property
     def url(self) -> str:
@@ -291,8 +292,11 @@ def youtube_arama_ayikla(data: dict) -> list[tuple[Kanal, int]]:
                 canli = "LIVE" in ham or "watching" in metin(v.get("viewCountText")).lower()
                 baslik = metin(v.get("title"))
                 kanal = metin(v.get("ownerText")) or metin(v.get("longBylineText"))
+                yol = json.dumps(v.get("ownerText") or {})
+                m = re.search(r'"canonicalBaseUrl":\s*"/(@[^"]+)"', yol)
                 if canli and GTA_RE.search(baslik + " " + kanal):
-                    out.append((Kanal("youtube", v["videoId"], kanal), _sayi(metin(v.get("viewCountText")))))
+                    out.append((Kanal("youtube", v["videoId"], kanal, m.group(1) if m else ""),
+                                _sayi(metin(v.get("viewCountText")))))
                 return
             for x in o.values():
                 gez(x)
@@ -328,7 +332,8 @@ def youtube_kanal_canli(handle: str) -> Kanal | None:
     m = re.search(r'<link rel="canonical" href="https://www\.youtube\.com/watch\?v=([\w-]{11})"', r.text)
     if not m or '"isLiveNow":true' not in r.text.replace(" ", ""):
         return None
-    return Kanal("youtube", m.group(1), handle.lstrip("@"))
+    h2 = h if h.startswith("@") else handle
+    return Kanal("youtube", m.group(1), handle.lstrip("@"), h2)
 
 
 # ====================== Telegram'dan gelen link / isim ======================

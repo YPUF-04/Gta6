@@ -27,36 +27,86 @@ class Cozum:
         return " ".join(s[2] for s in self.segmentler).strip()
 
 
+def _nvidia_dll_yollari() -> None:
+    """Windows'ta pip ile kurulan NVIDIA kütüphanelerini (cuBLAS/cuDNN) bulunur hale getir."""
+    import os
+    import sys
+    if os.name != "nt":
+        return
+    for kok in sys.path:
+        nv = Path(kok) / "nvidia"
+        if nv.is_dir():
+            for bin_ in nv.glob("*/bin"):
+                try:
+                    os.add_dll_directory(str(bin_))
+                    os.environ["PATH"] = str(bin_) + os.pathsep + os.environ.get("PATH", "")
+                except OSError:
+                    pass
+
+
 class Yaziya:
     def __init__(self, model: str = "small", cihaz: str = "auto"):
         self.model_adi, self.cihaz = model, cihaz
         self._model = None
         self._kilit = threading.Lock()   # birden çok kurgu işçisi aynı modeli paylaşır
+        self.durum = "yüklenmedi"
 
     def _yukle(self):
         with self._kilit:
             return self._yukle_kilitli()
 
+    def _dene(self, cihaz: str):
+        from faster_whisper import WhisperModel
+        tip = "float16" if cihaz == "cuda" else "int8"
+        m = WhisperModel(self.model_adi, device=cihaz, compute_type=tip)
+        if cihaz == "cuda":   # ekran kartı gerçekten çalışıyor mu? (eksik DLL burada patlar)
+            import numpy as np
+            list(m.transcribe(np.zeros(16000, dtype=np.float32), language="en")[0])
+        return m
+
     def _yukle_kilitli(self):
-        if self._model is None:
-            from faster_whisper import WhisperModel
-            cihaz = self.cihaz
-            if cihaz == "auto":
-                try:
-                    import ctranslate2
-                    cihaz = "cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu"
-                except Exception:  # noqa: BLE001
+        if self._model is not None:
+            return self._model
+        cihaz = self.cihaz
+        if cihaz in ("auto", "cuda"):
+            _nvidia_dll_yollari()
+            try:
+                import ctranslate2
+                if ctranslate2.get_cuda_device_count() == 0:
                     cihaz = "cpu"
-            tip = "float16" if cihaz == "cuda" else "int8"
-            log.info("whisper modeli yükleniyor (%s, %s) — ilk sefer indirir, biraz sürer", self.model_adi, cihaz)
-            self._model = WhisperModel(self.model_adi, device=cihaz, compute_type=tip)
+                else:
+                    cihaz = "cuda"
+            except Exception:  # noqa: BLE001
+                cihaz = "cpu"
+        log.info("altyazı modeli yükleniyor (%s, %s) — ilk sefer ~500 MB indirir", self.model_adi, cihaz)
+        if cihaz == "cuda":
+            try:
+                self._model = self._dene("cuda")
+                self.durum = "hazır (ekran kartı)"
+                log.info("altyazı modeli hazır (ekran kartı ile, hızlı)")
+                return self._model
+            except Exception as e:  # noqa: BLE001
+                log.warning("ekran kartıyla olmadı (%r), işlemciyle devam", e)
+        self._model = self._dene("cpu")
+        self.durum = "hazır (işlemci)"
+        log.info("altyazı modeli hazır (işlemci ile)")
         return self._model
+
+    def onyukle(self, deneme: int = 0) -> bool:
+        """Program açılınca arka planda modeli hazırla (ilk klip beklemesin). İnternet yoksa sonra tekrar."""
+        try:
+            self._yukle()
+            return True
+        except Exception as e:  # noqa: BLE001
+            self.durum = f"hazırlanamadı: {e!r}"[:200]
+            log.warning("altyazı modeli şimdilik hazırlanamadı (%r) — sonra tekrar denenecek", e)
+            return False
 
     def coz(self, wav: Path) -> Cozum | None:
         try:
             m = self._yukle()
         except Exception as e:  # noqa: BLE001
-            log.warning("whisper kullanılamıyor: %s", e)
+            log.warning("altyazı modeli kullanılamıyor: %r", e)
             return None
         segs, info = m.transcribe(str(wav), word_timestamps=True, vad_filter=True)
         segler, kelimeler = [], []

@@ -1,0 +1,3 @@
+# NVIDIA ekran kartı varsa altyazıyı hızlandırır (KURULUM.bat sadece NVIDIA varsa kurar)
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*

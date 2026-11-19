@@ -57,3 +57,14 @@ def test_mesaj_puani():
     assert mesaj_puani("LMAOOOO")[0] > 1
     assert mesaj_puani("clip that")[0] == 1.5 or mesaj_puani("clip that")[1] == "clip"
     assert mesaj_puani("merhaba")[0] == 1.0
+
+
+def test_kes_eksik_kayit(tmp_path):
+    import time
+    from datetime import datetime
+    from klipci.kayit import Kaydedici
+    k = Kaydedici("x", tmp_path, "best", 9999)
+    simdi = time.time()
+    for t in (simdi - 400, simdi - 396, simdi - 8, simdi - 4, simdi):   # arada büyük boşluk
+        (tmp_path / (datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S") + ".ts")).write_bytes(b"x")
+    assert k.kes(simdi - 200, simdi - 170, tmp_path / "o.ts") is None

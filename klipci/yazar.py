@@ -9,45 +9,71 @@ log = logging.getLogger("yazar")
 
 DIL_ADI = {"tr": "Turkish", "en": "English", "es": "Spanish", "de": "German", "pt": "Portuguese"}
 
-# Viral GTA klip sayfalarının (Instagram/TikTok/Shorts) ortak kalıpları — modele stil rehberi
-STIL = """You write for a viral GTA 6 short-form clip page (Reels / TikTok / Shorts).
-What works on the biggest clip pages:
-- On-screen hook: 3-7 words, curiosity or reaction, no spoilers of the punchline, max 1 emoji.
-  Patterns: "Chat couldn't believe this 💀", "He did NOT expect that", "GTA 6 physics are insane",
-  "Wait for it...", "Bro really tried it". Never clickbait that lies about the clip.
-- Post caption: 1 short punchy line + streamer credit line + 4-6 hashtags.
-  Always include #gta6 #gtavi and the streamer credit.
-- Write naturally in the target language as a native young gamer would (slang ok, no cringe).
-- Base everything ONLY on the transcript and chat reaction you are given."""
+# Gerçek GTA 6 klip sayfalarından (Kasım 2026, Instagram/TikTok) çıkan ders:
+#  TUTAN:    "Kai Cenat couldn't believe how hard it is to run from the cops in GTA 6 😂😭 #kaicenat #gta6"  (31K beğeni)
+#            "N3on is officially the first streamer to play GTA6… he's 18 hours ahead 🤯 #n3on #gta6"     (1.2M izlenme)
+#  TUTMAYAN: "Wait for it… Kai Cenat in GTA 6 🤯", "Kai Cenat goes CRAZY in GTA 6 😂 Follow for daily clips",
+#            "Clip from Kai Cenat's GTA 6 stream. All credit to…"                                           (8-265 izlenme)
+# Yani: yayıncının adı + TAM OLARAK ne olduğu + 1-2 emoji + 2-3 hashtag. Genel/klişe laf = yapay zekâ kokusu.
+STIL = """You write the text for a GTA 6 streamer-clip page on Instagram Reels / TikTok / YouTube Shorts.
+Sound like a real human clip-page admin, not like an AI or a marketer.
+
+What actually performs (real posts, Nov 2026):
+- "Kai Cenat couldn't believe how hard it is to run from the cops in GTA 6 😂😭 #kaicenat #gta6"  -> 31K likes
+- "RaKai left Kai Cenat speechless after calling him to ask how to play GTA VI 😂😭 #kaicenat #rakai #gta6"
+- "Bro walked up to two NPCs in GTA 6 and immediately got called a virgin 💀😂"
+What flops (generic, AI-sounding): "Wait for it…", "X goes CRAZY in GTA 6", "You won't believe this",
+"Watch till the end", "insane moment", "Follow for daily clips", "All credit to…", "epic", "wild ride".
+
+Rules:
+- Say WHAT SPECIFICALLY HAPPENED, using the streamer's name and the concrete event from the transcript/chat.
+  Pattern: "<Streamer> <did/said/couldn't believe/got ...> <concrete thing> in GTA 6 😂😭".
+- If you can't tell what happened from the transcript and chat, keep it short and plain
+  (e.g. "Kai Cenat GTA 6'da 😭") and set baslik to "" — never invent events.
+- baslik = the on-screen text: the same idea, shorter (max ~9 words), lowercase-ish casual, no hashtags.
+- aciklama = the post caption sentence (no hashtags). 1 sentence. Max 2 emoji, only from 😂😭💀🤯😳.
+- youtube_baslik = a YouTube Shorts title for the same moment (max 80 chars, specific, like a human wrote it).
+- hashtagler = exactly 2-3: the streamer's name as one tag, #gta6, optionally one more relevant name tag.
+  Never #fyp #viral #trending #keşfet spam.
+- Never use: "wait for it", "sonuna kadar izle", "inanılmaz an", "çıldırdı", "epic", "insane", "follow",
+  "takip et", "beğenmeyi unutma", "link in bio", em dashes.
+- Write like a native young speaker of the target language would type it on their phone (casual, natural slang).
+- puan: honest 1-10 for how funny/surprising the moment really is for a GTA 6 audience."""
 
 SEMA = {
     "type": "object",
     "properties": {
-        "baslik": {"type": "string", "description": "on-screen hook, 3-7 words"},
-        "aciklama": {"type": "string", "description": "one punchy caption line, no hashtags"},
+        "baslik": {"type": "string", "description": "on-screen text, max ~9 words, or empty string"},
+        "aciklama": {"type": "string", "description": "one specific caption sentence, no hashtags"},
+        "youtube_baslik": {"type": "string", "description": "YouTube Shorts title, max 80 chars, specific, no hashtags"},
         "hashtagler": {"type": "array", "items": {"type": "string"}},
         "altyazi": {"type": "array", "items": {"type": "string"},
                     "description": "translation of each transcript segment, same count and order"},
-        "puan": {"type": "integer", "description": "1-10 how likely this clip goes viral"},
+        "puan": {"type": "integer", "description": "1-10 how funny/surprising this moment really is"},
     },
-    "required": ["baslik", "aciklama", "hashtagler", "altyazi", "puan"],
+    "required": ["baslik", "aciklama", "youtube_baslik", "hashtagler", "altyazi", "puan"],
     "additionalProperties": False,
 }
 
+# Anahtar yoksa: ne olduğunu bilmeden uydurma; sade, insan gibi kısa yaz, ekrana yazı koyma.
 SABLON = {
-    "tr": ["Chat buna inanamadı 💀", "Bunu beklemiyordu 😂", "GTA 6'da olanlara bak", "Sonuna kadar izle...",
-           "Kardeşim ne yaptın 💀", "Chat koptu 😂"],
-    "en": ["Chat couldn't believe this 💀", "He did NOT expect that 😂", "GTA 6 is unreal",
-           "Wait for it...", "Bro really tried it 💀", "Chat lost it 😂"],
+    "tr": ["{ad} GTA 6'da 😭", "{ad} GTA 6 😂😭", "{ad} ve GTA 6 💀"],
+    "en": ["{ad} in GTA 6 😭", "{ad} GTA 6 😂😭", "{ad} playing GTA 6 💀"],
 }
-TAGS = {"tr": ["#gta6", "#gtavi", "#gta", "#keşfet", "#oyun"],
-        "en": ["#gta6", "#gtavi", "#gta", "#gaming", "#fyp"]}
+YASAK_KALIP = ["wait for it", "sonuna kadar", "follow for", "takip et", "link in bio", "all credit", "goes crazy",
+               "inanılmaz an", "çıldırdı", "you won't believe", "watch till", "—"]
+
+
+def etiket(ad: str) -> str:
+    import re
+    return "#" + re.sub(r"[^\w]", "", ad.lower())
 
 
 class Yazar:
     def __init__(self, api_key: str = "", model: str = "claude-opus-5-5"):
         self.model = model
         self.client = None
+        self.trend = ""   # günlük trend araştırmasının özeti
         if api_key:
             try:
                 import anthropic
@@ -62,7 +88,7 @@ class Yazar:
                 return self._claude(dil, yayinci, platform, segmentler, kaynak_dil, chat, kelimeler)
             except Exception as e:  # noqa: BLE001
                 log.warning("Claude başarısız, şablon kullanılıyor: %s", e)
-        return self._sablon(dil, segmentler, kaynak_dil)
+        return self._sablon(dil, segmentler, kaynak_dil, yayinci)
 
     def _claude(self, dil, yayinci, platform, segmentler, kaynak_dil, chat, kelimeler) -> dict:
         hedef = DIL_ADI.get(dil, dil)
@@ -74,7 +100,7 @@ class Yazar:
             f"Clip transcript (numbered segments):\n{transkript}\n\n"
             f"Live chat exploded right here. Top reactions: {', '.join(kelimeler) or '-'}\n"
             f"Sample chat messages:\n" + "\n".join(chat[-20:]) + "\n\n"
-            f"Write the hook (baslik), caption line (aciklama), 4-6 hashtags, a 1-10 virality score, and "
+            f"Following the rules, write baslik, aciklama, 2-3 hashtags, an honest 1-10 puan, and "
             f"'altyazi': each transcript segment translated to {hedef} (keep count/order; if already {hedef}, "
             f"copy it cleaned up; keep it short and spoken-style)."
         )
@@ -84,7 +110,8 @@ class Yazar:
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": SEMA}},
-            system=STIL,
+            system=STIL + (f"\n\nFresh research on what is trending right now (use it as a style hint only):\n{self.trend}"
+                           if self.trend else ""),
             messages=[{"role": "user", "content": istek}],
         )
         if r.stop_reason == "refusal":
@@ -93,20 +120,76 @@ class Yazar:
         out = json.loads(metin)
         if len(out.get("altyazi", [])) != len(segmentler):
             out["altyazi"] = []
+        # klişe/yapay zekâ kokan kalıp kaçarsa ekrandan kaldır
+        for alan in ("baslik", "aciklama"):
+            if any(k in out.get(alan, "").lower() for k in YASAK_KALIP):
+                out[alan] = "" if alan == "baslik" else random.choice(SABLON.get(dil, SABLON["en"])).format(ad=yayinci)
+        tags = [t if t.startswith("#") else "#" + t for t in out.get("hashtagler", [])
+                if t.lower().lstrip("#") not in ("fyp", "viral", "trending", "keşfet", "kesfet", "foryou", "explore")]
+        out["hashtagler"] = (tags or [etiket(yayinci), "#gta6"])[:3]
         return out
 
-    def _sablon(self, dil, segmentler, kaynak_dil) -> dict:
+    def _sablon(self, dil, segmentler, kaynak_dil, yayinci="") -> dict:
+        ad = yayinci or "bro"
         return {
-            "baslik": random.choice(SABLON.get(dil, SABLON["en"])),
-            "aciklama": random.choice(SABLON.get(dil, SABLON["en"])),
-            "hashtagler": TAGS.get(dil, TAGS["en"]),
+            "baslik": "",   # ne olduğunu bilmiyoruz: ekrana uydurma yazı koyma
+            "aciklama": random.choice(SABLON.get(dil, SABLON["en"])).format(ad=ad),
+            "youtube_baslik": (f"{ad} GTA 6'da" if dil == "tr" else f"{ad} plays GTA 6") + " 😭",
+            "hashtagler": [etiket(ad), "#gta6"],
             # çeviri yok: konuşma zaten hedef dildeyse göster, değilse altyazı koyma
             "altyazi": [t for _, _, t in segmentler] if kaynak_dil == dil else [],
             "puan": 5,
         }
 
 
-def paylasim_metni(veri: dict, kanal, dil: str) -> str:
-    kredi = {"tr": "🎥 Yayıncı", "en": "🎥 Streamer"}.get(dil, "🎥")
+def paylasim_metni(veri: dict, kanal, dil: str, kredi: bool = True) -> str:
     tags = " ".join(t if t.startswith("#") else "#" + t for t in veri.get("hashtagler", []))
-    return f"{veri.get('aciklama', '')}\n\n{kredi}: {kanal.gorunen} ({kanal.kredi})\n\n{tags}".strip()
+    satir = f"{veri.get('aciklama', '').strip()} {tags}".strip()
+    if kredi:
+        satir += f"\n\n📺 {kanal.kredi}"
+    return satir
+
+
+def platform_metinleri(veri: dict, kanal, dil: str) -> dict:
+    """Instagram / TikTok / YouTube için ayrı, kopyala-yapıştır hazır metinler."""
+    tags = [t if t.startswith("#") else "#" + t for t in veri.get("hashtagler", [])][:3]
+    cumle = veri.get("aciklama", "").strip()
+    kredi = f"📺 {kanal.kredi}"
+    yt_baslik = (veri.get("youtube_baslik") or cumle).strip()
+    if len(yt_baslik) > 90:
+        yt_baslik = yt_baslik[:87].rstrip() + "..."
+    return {
+        "instagram": f"{cumle} {' '.join(tags)}\n\n{kredi}".strip(),
+        "tiktok": f"{cumle} {' '.join(tags)}".strip(),
+        "youtube_baslik": f"{yt_baslik} #shorts",
+        "youtube_aciklama": f"{cumle}\n\n{kredi}\n{' '.join(tags)} #shorts".strip(),
+    }
+
+
+TREND_ISTEK = """Search the web for what GTA 6 streamer clips are doing well on Instagram Reels, TikTok and
+YouTube Shorts in the last few days (today is {bugun}). Look at real clip pages and real captions.
+Answer in under 120 words, plain text, as practical notes for a clip-page admin:
+- which streamers / moments are getting the most views right now,
+- 3 real example captions that performed well (quote them),
+- any caption/format patterns that are working or flopping.
+No intro, no sign-off."""
+
+
+def trend_arastir(yazar: "Yazar") -> str:
+    """Claude'un web aramasıyla son günlerde tutan GTA 6 klip tarzlarını özetler (günde 1 kez)."""
+    if not yazar.client:
+        return ""
+    from datetime import date
+    mesajlar = [{"role": "user", "content": TREND_ISTEK.format(bugun=date.today().isoformat())}]
+    araclar = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}]
+    r = None
+    for _ in range(4):   # uzun aramalarda "pause_turn" ile devam
+        r = yazar.client.messages.create(model=yazar.model, max_tokens=4000, tools=araclar,
+                                         output_config={"effort": "low"}, messages=mesajlar)
+        if r.stop_reason != "pause_turn":
+            break
+        mesajlar = [mesajlar[0], {"role": "assistant", "content": r.content}]
+    if r is None or r.stop_reason == "refusal":
+        return ""
+    metin = "".join(b.text for b in r.content if b.type == "text").strip()
+    return metin[:1500]

@@ -15,7 +15,7 @@ set "PY=py -3.11"
 py -3.11 -c "import sys" >nul 2>nul
 if not errorlevel 1 goto python_tamam
 
-echo [1/4] Python 3.12 kuruluyor (diger Python'una dokunmaz)...
+echo [1/5] Python 3.12 kuruluyor (diger Python'una dokunmaz)...
 winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements
 set "PY=py -3.12"
 py -3.12 -c "import sys" >nul 2>nul
@@ -29,13 +29,13 @@ pause
 exit /b 1
 
 :python_tamam
-echo [1/4] Python tamam (%PY%).
+echo [1/5] Python tamam (%PY%).
 
 REM ---- FFmpeg (proje klasorune indirilir) ----
 if exist "ffmpeg\bin\ffmpeg.exe" goto ffmpeg_tamam
-echo [2/4] FFmpeg indiriliyor (~100 MB) - asagida ilerleme cubugu gorunur...
+echo [2/5] FFmpeg indiriliyor (~100 MB) - asagida ilerleme cubugu gorunur...
 curl.exe -L --progress-bar --retry 3 -o ffmpeg.zip https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
-echo [2/4] FFmpeg aciliyor...
+echo [2/5] FFmpeg aciliyor...
 if exist ffmpeg_tmp rmdir /s /q ffmpeg_tmp
 mkdir ffmpeg_tmp
 tar -xf ffmpeg.zip -C ffmpeg_tmp
@@ -47,29 +47,32 @@ echo FFmpeg indirilemedi! Internetini kontrol et ve tekrar dene.
 pause
 exit /b 1
 :ffmpeg_tamam
-echo [2/4] FFmpeg tamam.
+echo [2/5] FFmpeg tamam.
 
 REM ---- Sanal ortam: yanlis Python surumuyle kurulmussa sil, bastan kur ----
 if not exist ".venv\Scripts\python.exe" goto venv_kur
 ".venv\Scripts\python.exe" -c "import sys; sys.exit(0 if sys.version_info[:2] in ((3,11),(3,12)) else 1)" >nul 2>nul
 if not errorlevel 1 goto venv_tamam
-echo [3/4] Eski Python ortami siliniyor (yanlis surum)...
+echo [3/5] Eski Python ortami siliniyor (yanlis surum)...
 rmdir /s /q .venv
 :venv_kur
-echo [3/4] Python ortami olusturuluyor...
+echo [3/5] Python ortami olusturuluyor...
 %PY% -m venv .venv
 :venv_tamam
 
-echo [3/4] Paketler yukleniyor (birkac dakika surebilir)...
-".venv\Scripts\python.exe" -m pip install --upgrade pip -q
-".venv\Scripts\python.exe" -m pip install -r requirements.txt -q
+echo.
+echo [3/5] Paketler yukleniyor. Her paketin yaninda yuzde ve kalan sure gorunur.
+echo       (Satirlar akiyorsa donmamistir, calisiyordur.)
+".venv\Scripts\python.exe" -m pip install --upgrade pip --progress-bar on
+".venv\Scripts\python.exe" -m pip install -r requirements.txt --progress-bar on
 if errorlevel 1 (
   echo.
   echo Paket kurulumu basarisiz oldu. Bu pencerenin ekran goruntusunu at.
   pause
   exit /b 1
 )
-echo [3/4] Altyazi paketi yukleniyor (buyuk, biraz surer)...
+echo.
+echo [3/5] Altyazi paketi yukleniyor (buyuk, biraz surer)...
 ".venv\Scripts\python.exe" -m pip install -r requirements-altyazi.txt --progress-bar on
 if errorlevel 1 (
   echo.
@@ -77,10 +80,24 @@ if errorlevel 1 (
   echo Bu pencerenin ekran goruntusunu at, duzeltelim. Kuruluma devam ediliyor...
   echo.
 )
+where nvidia-smi >nul 2>nul
+if errorlevel 1 goto gpu_yok
+echo.
+echo [3/5] NVIDIA ekran karti bulundu: altyazi hizlandirma paketleri yukleniyor (~1 GB)...
+".venv\Scripts\python.exe" -m pip install -r requirements-gpu.txt --progress-bar on
+if errorlevel 1 echo UYARI: Hizlandirma kurulamadi, altyazi islemciyle (biraz daha yavas) yapilacak.
+:gpu_yok
+
+REM ---- Modeller (onceden indir ki ilk klip beklemesin) ----
+if not exist "config.yaml" copy config.example.yaml config.yaml >nul
+echo.
+echo [4/5] Yapay zeka modelleri indiriliyor (yuzde gorunur)...
+set HF_HUB_DISABLE_SYMLINKS_WARNING=1
+".venv\Scripts\python.exe" -m klipci.indir
 
 REM ---- Ayar dosyasi ----
-if not exist "config.yaml" copy config.example.yaml config.yaml >nul
-echo [4/4] Ayar dosyasi aciliyor. Telegram bot token'ini yapistir, kaydet, kapat.
+echo.
+echo [5/5] Ayar dosyasi aciliyor. Telegram bot token'ini yapistir, kaydet, kapat.
 echo.
 notepad config.yaml
 echo.

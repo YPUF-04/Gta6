@@ -97,16 +97,22 @@ class Kaydedici:
         if len(tum) < 2:
             return None
         bitmis = tum[:-1]  # sonuncusu hâlâ yazılıyor
+        azami = PARCA_SN + 2   # bir parça en fazla bu kadar sürer (arada boşluk varsa yanlış uzamasın)
         secilen = []
         for i, (p, t) in enumerate(bitmis):
-            sonraki = bitmis[i + 1][1] if i + 1 < len(bitmis) else tum[-1][1]
-            if sonraki > bas and t < bit:
-                secilen.append((p, t))
+            bitis = min(tum[i + 1][1], t + azami)
+            if bitis > bas and t < bit:
+                secilen.append((p, t, bitis))
         if not secilen:
+            return None
+        # kayıt bu aralığı kesintisiz kapsıyor mu? (bilgisayar uyuduysa / yayın koptuysa eksik olur)
+        kesintisiz = all(b[1] - a[1] <= azami for a, b in zip(secilen, secilen[1:]))
+        if not kesintisiz or secilen[0][1] > bas + 2 or secilen[-1][2] < bit - 2:
+            log.warning("kayıt bu anı tam kapsamıyor (bilgisayar uyumuş ya da yayın kopmuş olabilir), klip atlandı")
             return None
         hedef.parent.mkdir(parents=True, exist_ok=True)
         liste = hedef.with_suffix(".txt")
-        liste.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p, _ in secilen), encoding="utf-8")
+        liste.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p, _, _ in secilen), encoding="utf-8")
         subprocess.run([arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
                         "-f", "concat", "-safe", "0", "-i", str(liste), "-c", "copy", str(hedef)],
                        check=True, creationflags=_PENCERESIZ)

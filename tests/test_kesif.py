@@ -67,3 +67,13 @@ def test_kanal_coz():
     assert kanal_coz("kick Adinross") == ("kick", "adinross")
     assert kanal_coz("yt IShowSpeed") == ("youtube", "@IShowSpeed")
     assert kanal_coz("merhaba nasılsın") is None
+
+
+def test_sablon_yapay_degil():
+    from klipci.yazar import Yazar, paylasim_metni
+    v = Yazar().yaz("tr", "KaiCenat", "twitch", [], "en", [], [])
+    assert v["baslik"] == ""
+    assert "KaiCenat" in v["aciklama"] and v["hashtagler"] == ["#kaicenat", "#gta6"]
+    m = paylasim_metni(v, Kanal("twitch", "kaicenat", "KaiCenat"), "tr")
+    assert "#kaicenat #gta6" in m and "twitch.tv/kaicenat" in m
+    assert "sonuna kadar" not in m.lower()

@@ -45,15 +45,26 @@ Sen sadece ✅ ya da 🗑 basarsın, beğendiğini paylaşırsın.
 
 | Komut | Ne yapar |
 |---|---|
-| `/durum` | Hangi yayınlar izleniyor (⭐ senin eklediğin, 🤖 otomatik bulunan), kaç klip çıktı |
-| `/ekle kick adinross` | Yayıncı ekler (`twitch`, `kick`, `youtube`). Direkt linki atman da yeter: `https://twitch.tv/kaicenat` |
-| `/cikar twitch xqc` | Listeden çıkarır |
-| `/yasakla xqc` | O yayıncı bir daha asla kliplenmez |
-| `/yasak_kaldir xqc` | Yasağı kaldırır |
-| `/liste` | Eklediklerin ve yasaklılar |
+| `/yayinlar` | Şu an açık GTA 6 yayınları — dokun: ⭐ izle, ⛔ asla klipleme |
+| `/platform` | Twitch / Kick / YouTube aç-kapat; "otomatik bul" ya da "sadece benim seçtiklerim" |
+| `/durum` | Neler izleniyor, kaç klip çıktı, altyazı hazır mı |
+| `/plan` | Bugünün paylaşım saatleri |
+| `/stok` | TR / EN hesaplarında kaç video hazır |
+| `/isim @hesabim` | Videonun altındaki isim (sadece biri için: `/isim en @x`, kaldırmak: `/isim sil`) |
+| `/hesap` | TR / EN hesaplarını aç-kapat |
+| `/istatistik` | Beğenilerinden ne öğrendiği |
+| `/ekle kick adinross` ya da link | Yayıncı ekler |
+| `/cikar`, `/yasakla`, `/yasak_kaldir`, `/liste` | Listeyi yönetir |
 | `/duraklat` / `/devam` | Kliplemeyi durdurur / başlatır |
 
-Senin eklediğin yayıncı açıldığında izleme sınırı doluysa, otomatik bulunan birini çıkarıp onun yerine geçer.
+## Günlük akış
+
+1. Klip gelir: üstte yayıncının yüzü, altta oyun, chat mesajları, altyazı, puan (⭐ 7.8/10) ve neden o puanı aldığı.
+2. **✅ Stoğa ekle** ya da **🗑 Sil**. Her kararından neyi sevdiğini öğrenir, sonraki klipleri ona göre puanlar.
+3. Her gün her hesap için en iyi 5 video, günün farklı saatlerine dağıtılır (saatler her gün değişir).
+4. Saati gelince Telegram'a gelir: video + **Instagram / TikTok / YouTube** açıklamaları (dokununca kopyalanır).
+   Paylaşınca **✅ Paylaştım**.
+5. Her akşam 21:30'da yarın için stok durumu gelir (hedef: hesap başına 15 video).
 
 ## Ayarlar (`config.yaml`)
 
