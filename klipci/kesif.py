@@ -329,3 +329,31 @@ def youtube_kanal_canli(handle: str) -> Kanal | None:
     if not m or '"isLiveNow":true' not in r.text.replace(" ", ""):
         return None
     return Kanal("youtube", m.group(1), handle.lstrip("@"))
+
+
+# ====================== Telegram'dan gelen link / isim ======================
+_LINK = [
+    ("twitch", re.compile(r"(?:https?://)?(?:www\.|m\.)?twitch\.tv/([A-Za-z0-9_]{2,25})", re.I)),
+    ("kick", re.compile(r"(?:https?://)?(?:www\.)?kick\.com/([A-Za-z0-9_\-]{2,30})", re.I)),
+    ("youtube", re.compile(r"(?:https?://)?(?:www\.|m\.)?youtube\.com/(@[\w.\-]{2,40})", re.I)),
+]
+PLATFORM_ADI = {"twitch": "twitch", "tw": "twitch", "kick": "kick", "k": "kick",
+                "youtube": "youtube", "yt": "youtube", "y": "youtube"}
+
+
+def kanal_coz(metin: str) -> tuple[str, str] | None:
+    """'https://kick.com/adinross' / 'twitch kaicenat' / 'youtube @IShowSpeed' -> (platform, ad)."""
+    metin = metin.strip()
+    for platform, rx in _LINK:
+        m = rx.search(metin)
+        if m:
+            ad = m.group(1)
+            return platform, ad if platform == "youtube" else ad.lower()
+    parca = metin.split()
+    if len(parca) >= 2 and parca[0].lower() in PLATFORM_ADI:
+        platform, ad = PLATFORM_ADI[parca[0].lower()], parca[1].strip()
+        if platform == "youtube":
+            return platform, ad if ad.startswith("@") else "@" + ad
+        if re.fullmatch(r"[A-Za-z0-9_\-]{2,30}", ad):
+            return platform, ad.lower()
+    return None

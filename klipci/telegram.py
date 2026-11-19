@@ -54,6 +54,15 @@ class Bot:
                 "width": "1080", "height": "1920", "reply_markup": json.dumps(klavye),
             }, files={"video": (yol.name, f, "video/mp4")})
 
+    async def komut_menusu(self) -> None:
+        """Telegram'da / yazınca çıkan komut listesi."""
+        komutlar = [("durum", "Neler izleniyor, kaç klip çıktı"), ("ekle", "Yayıncı ekle: /ekle kick adinross"),
+                    ("cikar", "Yayıncıyı listeden çıkar"), ("yasakla", "Bu yayıncıyı asla klipleme"),
+                    ("liste", "Eklediklerim ve yasaklılar"), ("duraklat", "Kliplemeyi durdur"),
+                    ("devam", "Tekrar başlat"), ("yardim", "Tüm komutlar")]
+        await self._api("setMyCommands", data={"commands": json.dumps(
+            [{"command": k, "description": a} for k, a in komutlar], ensure_ascii=False)})
+
     async def dinle(self) -> None:
         while True:
             try:
@@ -80,12 +89,17 @@ class Bot:
                     self._kaydet(cid)
                 if cid == self.chat_id:
                     await self.mesaj("👋 Hazırım! Chat patlayan GTA 6 anlarını buraya yollayacağım.\n"
-                                     "Komutlar: /durum /duraklat /devam")
+                                     "Yardım için /yardim yaz.")
                 return
             if cid != self.chat_id:
                 return  # yabancılara cevap verme
-            if self.on_komut and metin.startswith("/"):
-                await self.mesaj(await self.on_komut(metin.split()[0].lower()))
+            if self.on_komut and metin:
+                try:
+                    cevap = await self.on_komut(metin)
+                except Exception as e:  # noqa: BLE001
+                    cevap = f"Hata: {e}"
+                if cevap:
+                    await self.mesaj(cevap)
         elif "callback_query" in u:
             q = u["callback_query"]
             if str(q["message"]["chat"]["id"]) != self.chat_id:

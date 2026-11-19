@@ -56,3 +56,14 @@ def test_youtube_chat():
     msgs, cont, bekle = youtube_chat_ayikla(j)
     assert msgs == [(1795000000.0, "veli", "LMAO :skull:")]
     assert cont == "NEXT" and bekle == 2.0
+
+
+def test_kanal_coz():
+    from klipci.kesif import kanal_coz
+    assert kanal_coz("https://www.twitch.tv/KaiCenat") == ("twitch", "kaicenat")
+    assert kanal_coz("kick.com/adinross?x=1") == ("kick", "adinross")
+    assert kanal_coz("https://youtube.com/@IShowSpeed/live") == ("youtube", "@IShowSpeed")
+    assert kanal_coz("twitch xqc") == ("twitch", "xqc")
+    assert kanal_coz("kick Adinross") == ("kick", "adinross")
+    assert kanal_coz("yt IShowSpeed") == ("youtube", "@IShowSpeed")
+    assert kanal_coz("merhaba nasılsın") is None

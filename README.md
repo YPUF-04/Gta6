@@ -41,10 +41,19 @@ Sen sadece ✅ ya da 🗑 basarsın, beğendiğini paylaşırsın.
 
 İlk açışta Telegram'da botuna **/start** yaz. Bot seni tanır ve klipleri sana yollamaya başlar.
 
-**Telegram komutları:**
-- `/durum`: hangi yayınları izliyor, kaç klip çıkardı
-- `/duraklat`: kliplemeyi durdurur
-- `/devam`: tekrar başlatır
+**Telegram komutları** (Telegram'da `/` yazınca liste çıkar):
+
+| Komut | Ne yapar |
+|---|---|
+| `/durum` | Hangi yayınlar izleniyor (⭐ senin eklediğin, 🤖 otomatik bulunan), kaç klip çıktı |
+| `/ekle kick adinross` | Yayıncı ekler (`twitch`, `kick`, `youtube`). Direkt linki atman da yeter: `https://twitch.tv/kaicenat` |
+| `/cikar twitch xqc` | Listeden çıkarır |
+| `/yasakla xqc` | O yayıncı bir daha asla kliplenmez |
+| `/yasak_kaldir xqc` | Yasağı kaldırır |
+| `/liste` | Eklediklerin ve yasaklılar |
+| `/duraklat` / `/devam` | Kliplemeyi durdurur / başlatır |
+
+Senin eklediğin yayıncı açıldığında izleme sınırı doluysa, otomatik bulunan birini çıkarıp onun yerine geçer.
 
 ## Ayarlar (`config.yaml`)
 

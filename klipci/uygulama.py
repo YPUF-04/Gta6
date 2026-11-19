@@ -76,6 +76,7 @@ class Uygulama:
         self.kuyruk: asyncio.Queue[Is] = asyncio.Queue()
         self.duraklat = False
         self.sayac = {"klip": 0, "onay": 0}
+        self._uyandir = asyncio.Event()
         self._kapali: dict[str, float] = {}   # yakın zamanda kapalı bulunan kanallar
 
     # ---------- durum ----------
@@ -88,14 +89,32 @@ class Uygulama:
     def _chat_id_kaydet(self, cid: str) -> None:
         d = self._durum_oku()
         d["chat_id"] = cid
-        self.durum_yolu.write_text(json.dumps(d), encoding="utf-8")
+        self._durum_yaz(d)
         log.info("Telegram bağlandı (chat_id=%s)", cid)
 
     # ---------- kanal yönetimi ----------
+    # ---------- elle eklenenler: config.yaml + Telegram'dan eklenenler (durum.json) ----------
+    def _liste(self, platform: str) -> list[str]:
+        kn = (self.cfg.get("kanallar") or {}).get(platform) or []
+        tg = (self._durum_oku().get("ekli") or {}).get(platform) or []
+        cikan = set((self._durum_oku().get("cikarilan") or {}).get(platform) or [])
+        out = []
+        for a in [str(x).strip() for x in list(kn) + list(tg) if x]:
+            a = a if platform == "youtube" else a.lower()
+            if a not in out and a not in cikan:
+                out.append(a)
+        return out
+
+    def _yasaklar(self) -> set[str]:
+        kn = (self.cfg.get("kanallar") or {}).get("yasakli") or []
+        return {str(y).strip().lower().lstrip("@") for y in list(kn) + (self._durum_oku().get("yasakli") or [])}
+
+    def _durum_yaz(self, d: dict) -> None:
+        self.durum_yolu.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+
     def _adaylar_elle(self) -> list[kesif.Kanal]:
-        kn = self.cfg.get("kanallar") or {}
-        return ([kesif.Kanal("twitch", str(a).strip().lower()) for a in (kn.get("twitch") or []) if a]
-                + [kesif.Kanal("kick", str(a).strip().lower()) for a in (kn.get("kick") or []) if a])
+        return ([kesif.Kanal("twitch", a) for a in self._liste("twitch")]
+                + [kesif.Kanal("kick", a) for a in self._liste("kick")])
 
     async def _adaylar_oto(self, adet: int) -> list[tuple[kesif.Kanal, int]]:
         if not self.oto_acik or not self.kesifler:
@@ -113,12 +132,11 @@ class Uygulama:
         return out
 
     async def _youtube_elle(self) -> list[kesif.Kanal]:
-        hs = [str(h).strip() for h in ((self.cfg.get("kanallar") or {}).get("youtube") or []) if h]
+        hs = self._liste("youtube")
         sonuc = await asyncio.gather(*(asyncio.to_thread(kesif.youtube_kanal_canli, h) for h in hs))
         return [k for k in sonuc if k]
 
     async def yonetici(self) -> None:
-        yasak = {y.lower() for y in ((self.cfg.get("kanallar") or {}).get("yasakli") or [])}
         en_fazla = int(self.cfg.get("ayni_anda_en_fazla_kanal", 8))
         while True:
             try:
@@ -138,24 +156,38 @@ class Uygulama:
                             log.info("yayın bitti: %s", anahtar)
                             await self._birak(anahtar)
                 if not self.duraklat:
-                    adaylar: list[tuple[kesif.Kanal, bool]] = [(k, False) for k in self._adaylar_elle()]
-                    adaylar += [(k, True) for k in await self._youtube_elle()]   # canlı oldukları kesin
+                    # (kanal, otomatik mi, canlı olduğu zaten belli mi)
+                    adaylar: list[tuple[kesif.Kanal, bool, bool]] = [(k, False, False) for k in self._adaylar_elle()]
+                    adaylar += [(k, False, True) for k in await self._youtube_elle()]
                     if len(self.izleyiciler) < en_fazla:
-                        adaylar += [(k, True) for k, _ in await self._adaylar_oto(en_fazla * 2)]
-                    for k, oto in adaylar:
-                        if len(self.izleyiciler) >= en_fazla:
-                            break
+                        adaylar += [(k, True, True) for k, _ in await self._adaylar_oto(en_fazla * 2)]
+                    yasak = self._yasaklar()
+                    for k, oto, kesin in adaylar:
                         if k.ad.lower() in yasak or k.gorunen.lower() in yasak or k.anahtar in self.izleyiciler:
                             continue
                         if time.time() - self._kapali.get(k.anahtar, 0) < 300:
                             continue
-                        if oto or await asyncio.to_thread(kesif.yayinda_mi, k):
-                            await self._baslat(k, oto)
-                        else:
+                        dolu = len(self.izleyiciler) >= en_fazla
+                        if dolu and oto:
+                            break
+                        if not (kesin or await asyncio.to_thread(kesif.yayinda_mi, k)):
                             self._kapali[k.anahtar] = time.time()
+                            continue
+                        if dolu:   # senin eklediğin yayıncı açıldı: otomatik bulunan birini çıkar, yer aç
+                            oto_iz = [a for a, iz in self.izleyiciler.items() if iz.oto]
+                            if not oto_iz:
+                                continue
+                            log.info("yer açılıyor: %s çıkarıldı, %s giriyor", oto_iz[-1], k.anahtar)
+                            await self._birak(oto_iz[-1])
+                            self._kapali.pop(oto_iz[-1], None)
+                        await self._baslat(k, oto)
             except Exception:  # noqa: BLE001
                 log.exception("yönetici hatası")
-            await asyncio.sleep(90)
+            self._uyandir.clear()
+            try:   # 90 sn bekle; Telegram'dan /ekle gelirse hemen uyan
+                await asyncio.wait_for(self._uyandir.wait(), 90)
+            except asyncio.TimeoutError:
+                pass
 
     async def _baslat(self, k: kesif.Kanal, oto: bool) -> None:
         a = self.cfg.get("algilama") or {}
@@ -306,12 +338,83 @@ class Uygulama:
     async def _sil(self, kid: str) -> None:
         shutil.rmtree(self.klasor / "bekleyen" / kid, ignore_errors=True)
 
-    async def _komut(self, komut: str) -> str:
+    YARDIM = (
+        "📋 Komutlar\n\n"
+        "/durum — neler izleniyor, kaç klip çıktı\n"
+        "/ekle kick adinross — yayıncı ekle (twitch / kick / youtube)\n"
+        "   ya da direkt linki at: https://twitch.tv/kaicenat\n"
+        "/cikar twitch xqc — listeden çıkar\n"
+        "/yasakla xqc — bu yayıncıyı asla klipleme\n"
+        "/yasak_kaldir xqc — yasağı kaldır\n"
+        "/liste — eklediklerin ve yasaklılar\n"
+        "/duraklat — kliplemeyi durdur\n"
+        "/devam — tekrar başlat")
+
+    async def _komut(self, metin: str) -> str:
+        parca = metin.strip().split(maxsplit=1)
+        komut = parca[0].lower().split("@")[0] if parca[0].startswith("/") else ""
+        arg = parca[1] if len(parca) > 1 else ""
+        if not komut:   # komutsuz mesaj: içinde yayın linki varsa ekle
+            return await self._ekle(metin) if kesif.kanal_coz(metin) and "." in metin else ""
         if komut == "/durum":
-            kanal = "\n".join(f"• {k}" for k in self.izleyiciler) or "— (şu an açık yayın yok)"
+            satir = []
+            for k, iz in self.izleyiciler.items():
+                satir.append(f"• {iz.kanal.gorunen} ({iz.kanal.platform})" + (" 🤖" if iz.oto else " ⭐"))
+            kanal = "\n".join(satir) or "— (şu an açık yayın yok)"
             return (f"{'⏸ DURAKLATILDI' if self.duraklat else '▶ Çalışıyor'}\n"
-                    f"İzlenen yayınlar:\n{kanal}\n\nBu oturumda: {self.sayac['klip']} klip, "
+                    f"İzlenen yayınlar ({len(self.izleyiciler)}):\n{kanal}\n"
+                    f"⭐ = senin eklediğin, 🤖 = otomatik bulunan\n\nBu oturumda: {self.sayac['klip']} klip, "
                     f"{self.sayac['onay']} onay. Kuyrukta: {self.kuyruk.qsize()}")
+        if komut == "/ekle":
+            return await self._ekle(arg) if arg else "Örnek: /ekle kick adinross  ya da  /ekle https://twitch.tv/kaicenat"
+        if komut in ("/cikar", "/çıkar", "/sil"):
+            kc = kesif.kanal_coz(arg)
+            if not kc:
+                return "Örnek: /cikar twitch xqc"
+            platform, ad = kc
+            d = self._durum_oku()
+            ekli = d.setdefault("ekli", {}).setdefault(platform, [])
+            if ad in ekli:
+                ekli.remove(ad)
+            d.setdefault("cikarilan", {}).setdefault(platform, [])
+            if ad not in d["cikarilan"][platform]:
+                d["cikarilan"][platform].append(ad)
+            self._durum_yaz(d)
+            for anahtar, iz in list(self.izleyiciler.items()):
+                if iz.kanal.platform == platform and not iz.oto and ad.lower().lstrip("@") in (
+                        iz.kanal.ad.lower(), iz.kanal.gorunen.lower()):
+                    await self._birak(anahtar)
+            return f"🗑 {ad} ({platform}) listeden çıkarıldı. (Otomatik bulunursa yine izlenebilir; hiç istemiyorsan /yasakla {ad.lstrip('@')})"
+        if komut == "/yasakla":
+            ad = (kesif.kanal_coz(arg) or ("", arg.strip()))[1].lower().lstrip("@")
+            if not ad:
+                return "Örnek: /yasakla xqc"
+            d = self._durum_oku()
+            if ad not in d.setdefault("yasakli", []):
+                d["yasakli"].append(ad)
+            self._durum_yaz(d)
+            for anahtar, iz in list(self.izleyiciler.items()):
+                if ad in (iz.kanal.ad.lower(), iz.kanal.gorunen.lower()):
+                    await self._birak(anahtar)
+            return f"⛔ {ad} yasaklandı, bir daha kliplenmeyecek."
+        if komut in ("/yasak_kaldir", "/yasakkaldir"):
+            ad = arg.strip().lower().lstrip("@")
+            d = self._durum_oku()
+            if ad in (d.get("yasakli") or []):
+                d["yasakli"].remove(ad)
+                self._durum_yaz(d)
+                return f"✅ {ad} yasağı kaldırıldı."
+            return f"{ad} yasaklılarda yok (config.yaml'daki yasaklıları oradan silmen lazım)."
+        if komut == "/liste":
+            out = []
+            for p in ("twitch", "kick", "youtube"):
+                lst = self._liste(p)
+                out.append(f"{p.capitalize()}: " + (", ".join(lst) if lst else "—"))
+            yas = sorted(self._yasaklar())
+            out.append("⛔ Yasaklı: " + (", ".join(yas) if yas else "—"))
+            out.append(f"\n🤖 Otomatik bulma: {'açık' if self.oto_acik else 'kapalı'} "
+                       f"({', '.join(self.kesifler) or '-'}), en az {self.en_az_izleyici} izleyici")
+            return "\n".join(out)
         if komut == "/duraklat":
             self.duraklat = True
             for a in list(self.izleyiciler):
@@ -320,8 +423,42 @@ class Uygulama:
         if komut == "/devam":
             self.duraklat = False
             self._kapali.clear()
+            self._uyandir.set()
             return "▶ Devam ediyor, yayınlar aranıyor..."
-        return "Komutlar: /durum /duraklat /devam"
+        return self.YARDIM
+
+    async def _ekle(self, metin: str) -> str:
+        kc = kesif.kanal_coz(metin)
+        if not kc:
+            return "Anlayamadım. Örnek: /ekle kick adinross  ya da linki at: https://twitch.tv/kaicenat"
+        platform, ad = kc
+        d = self._durum_oku()
+        ekli = d.setdefault("ekli", {}).setdefault(platform, [])
+        if ad not in ekli:
+            ekli.append(ad)
+        cik = (d.get("cikarilan") or {}).get(platform) or []
+        if ad in cik:
+            cik.remove(ad)
+        y = d.get("yasakli") or []
+        if ad.lower().lstrip("@") in y:
+            y.remove(ad.lower().lstrip("@"))
+        self._durum_yaz(d)
+        self._kapali.pop(f"{platform}:{ad.lower()}", None)
+        canli = None
+        if platform == "kick":
+            b = await asyncio.to_thread(kesif.kick_bilgi, ad)
+            canli = bool(b and b.get("canli")) if b else None
+        elif platform == "twitch":
+            canli = await asyncio.to_thread(kesif.yayinda_mi, kesif.Kanal("twitch", ad))
+        else:
+            canli = bool(await asyncio.to_thread(kesif.youtube_kanal_canli, ad))
+        self._uyandir.set()
+        durum = ("🔴 şu an yayında, hemen izlemeye başlıyorum" if canli
+                 else "⚫ şu an yayında değil, açtığı an izlemeye başlayacağım" if canli is False
+                 else "kanal bilgisine ulaşılamadı, yine de listeye ekledim")
+        dolu = len(self.izleyiciler) >= int(self.cfg.get("ayni_anda_en_fazla_kanal", 8))
+        ek = "\n⚠️ İzleme sınırı dolu; yer açılınca girer (ayni_anda_en_fazla_kanal'ı artırabilirsin)." if dolu and canli else ""
+        return f"✅ {ad} ({platform}) eklendi — {durum}.{ek}"
 
     # ---------- çalıştır ----------
     async def calistir(self) -> None:
@@ -331,6 +468,10 @@ class Uygulama:
         n_isci = max(1, int(self.cfg.get("ayni_anda_kurgu", 2)))
         gorevler = [asyncio.create_task(self.bot.dinle()), asyncio.create_task(self.yonetici())]
         gorevler += [asyncio.create_task(self.isci()) for _ in range(n_isci)]
+        try:
+            await self.bot.komut_menusu()
+        except Exception:  # noqa: BLE001
+            pass
         try:
             await self.bot.mesaj("▶ GTA 6 Klipçi açıldı. Yayınlar aranıyor... (/durum)")
         except Exception as e:  # noqa: BLE001
