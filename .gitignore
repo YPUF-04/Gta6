@@ -1,0 +1,10 @@
+.venv/
+ffmpeg/
+config.yaml
+durum.json
+klipler/
+logs/
+klipci.pid
+__pycache__/
+*.pyc
+.pytest_cache/

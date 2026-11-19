@@ -1,0 +1,88 @@
+# ============================================================
+#  GTA 6 KLIPÇİ — AYARLAR
+#  KURULUM.bat bu dosyayı config.yaml olarak kopyalar.
+#  Sen sadece config.yaml'ı düzenle.
+# ============================================================
+
+# ---------- TELEGRAM (zorunlu) ----------
+# 1) Telegram'da @BotFather'a yaz -> /newbot -> sana bir token verir, buraya yapıştır.
+# 2) Programı başlat, botuna /start yaz. Bot seni otomatik tanır (chat_id'yi kendisi kaydeder).
+telegram:
+  bot_token: ""
+  chat_id: ""          # boş bırak, /start yazınca otomatik dolar
+
+# ---------- YAPAY ZEKA (önerilir) ----------
+# Türkçe başlık, açıklama, hashtag ve altyazı çevirisi için.
+# https://console.anthropic.com adresinden API anahtarı al.
+# Boş bırakırsan hazır şablon başlıklar kullanılır.
+anthropic_api_key: ""
+claude_model: "claude-opus-5-5"
+
+# ---------- HANGİ YAYINLAR İZLENSİN ----------
+kanallar:
+  # Elle eklediğin yayıncılar. Bunlar açıldığı an izlenmeye başlar.
+  twitch:
+    - kaicenat
+    - xqc
+    - summit1g
+  kick:
+    - adinross
+
+  # Twitch'te şu an "Grand Theft Auto VI" yayını yapan en büyük kanalları otomatik bul.
+  # https://dev.twitch.tv/console -> "Register Your Application" -> Client ID + Secret al.
+  # (Category: "Other", OAuth Redirect: http://localhost)  Boş bırakırsan sadece yukarıdaki liste.
+  twitch_otomatik_kesif:
+    acik: true
+    client_id: ""
+    client_secret: ""
+    oyun_adi: "Grand Theft Auto VI"
+    dil: ""                 # "en", "tr" ... boş = hepsi
+    en_az_izleyici: 2000
+
+  # Kara liste — bunları asla klipleme
+  yasakli: []
+
+# Aynı anda kaç yayın izlensin (her biri ~3 Mbps internet ve biraz CPU yer)
+ayni_anda_en_fazla_kanal: 4
+
+# ---------- KLİP ALGILAMA ----------
+algilama:
+  pencere_sn: 10            # chat bu kadar saniyelik pencerede sayılır (videodaki gibi 10 sn)
+  kat: 3.0                  # normal chat hızının kaç katı olursa "patlama" sayılır
+  en_az_mesaj: 25           # küçük yayınlarda saçma klip çıkmasın diye alt sınır
+  bekleme_sn: 120           # aynı kanaldan iki klip arası en az bu kadar süre
+  isinma_sn: 90             # yayına girince önce chat'in normal hızını öğren
+
+klip:
+  once_sn: 22               # patlamadan kaç saniye önce başlasın (chat geç tepki verir)
+  sonra_sn: 12              # patlamadan sonra kaç saniye devam etsin
+  tampon_sn: 240            # bilgisayarda her yayının son kaç saniyesi tutulsun
+  kalite: "720p60,720p,best"
+  zoom: 1.3                 # oyun görüntüsünü ortadan ne kadar yakınlaştır (1.0 = hiç)
+
+# ---------- CHAT EKRANDA ----------
+# Chat'te yazılanlar (LMAO, NO WAY, CLIP THAT...) kısa süreliğine videonun üstüne düşer
+chat_ekrani:
+  acik: true
+  en_fazla_satir: 3         # aynı anda ekranda kaç mesaj
+  sure_sn: 2.2              # her mesaj kaç saniye görünsün
+
+# ---------- ALTYAZI ----------
+altyazi:
+  acik: true
+  whisper_model: "small"    # tiny / base / small / medium  (büyüdükçe daha iyi ama yavaş)
+  cihaz: "auto"             # auto / cpu / cuda (NVIDIA ekran kartın varsa cuda çok hızlı)
+
+# ---------- HESAPLAR ----------
+# Her hesap için ayrı video + ayrı açıklama üretilir.
+# Şimdilik sadece Türkçe. İngilizce sayfa açınca alttaki satırların başındaki # işaretini kaldır.
+hesaplar:
+  - ad: "TR"
+    dil: "tr"
+    imza: ""                # videonun altına yazılacak senin sayfa adın, örn: "@gta6klipleri"
+  # - ad: "EN"
+  #   dil: "en"
+  #   imza: "@gta6clipsdaily"
+
+# Klipler buraya kaydedilir
+klasor: "klipler"
