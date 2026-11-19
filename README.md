@@ -1,13 +1,13 @@
 # GTA 6 Klipçi 🎮✂️
 
-Twitch ve Kick'teki GTA 6 yayınlarını **kendisi bulur**, chat'in patladığı anları
+Twitch, Kick ve YouTube'daki GTA 6 yayınlarını **kendisi bulur**, chat'in patladığı anları
 (herkesin "LMAO", "NO WAY", "CLIP THAT" yazdığı an) **otomatik keser**, dikey
 Reels/Shorts/TikTok videosuna çevirir ve **Telegram'dan telefonuna yollar**.
 Sen sadece ✅ ya da 🗑 basarsın, beğendiğini paylaşırsın.
 
 ## Ne yapıyor?
 
-1. **Yayın bulur.** `config.yaml`'daki yayıncıları ve (istersen) Twitch'te o an en çok izlenen GTA 6 yayınlarını izler.
+1. **Yayın bulur.** Twitch, Kick ve YouTube'da o an GTA 6 oynayan en çok izlenen yayınları kendisi bulur ve aynı anda hepsini izler. İsim yazmana gerek yok.
 2. **Chat'i sayar.** Her 10 saniyede kaç mesaj geldiğine bakar. Normalin 3 katına çıkınca bir şey olmuş demektir. "LMAO", "KEKW", "💀" ve "clip" gibi tepkiler ekstra puan alır.
 3. **Geri sarıp keser.** Yayının son 4 dakikası bilgisayarında tutulur. Klip, patlamadan 22 saniye önce başlar ve 12 saniye sonra biter, çünkü chat olaydan sonra tepki verir.
 4. **Kurgular.** Video 1080x1920 dikey olur:
@@ -30,9 +30,7 @@ Sen sadece ✅ ya da 🗑 basarsın, beğendiğini paylaşırsın.
 3. **`KURULUM.bat`'a çift tıkla.** Python, FFmpeg ve gerekli paketleri kendisi kurar, en sonda `config.yaml` dosyasını Not Defteri'nde açar.
 4. Açılan dosyada `bot_token: ""` satırına token'ı yapıştır, kaydet, kapat.
 5. *(Önerilir)* Türkçe başlık ve çeviri için https://console.anthropic.com adresinden bir API anahtarı al, `anthropic_api_key` satırına yapıştır.
-6. *(Önerilir)* Yayınları otomatik bulmak için https://dev.twitch.tv/console adresine git:
-   - **Register Your Application**'a tıkla. Category: **Other**, OAuth Redirect: `http://localhost`.
-   - Sana verilen **Client ID** ve **Secret**'ı `twitch_otomatik_kesif` kısmına yapıştır.
+6. **`TEST.bat`**'a çift tıkla. Her platformda gerçek bir yayına bağlanıp test klibi yapar ve neyin çalıştığını ✅ / ❌ ile yazar (3-4 dakika).
 
 ## Kullanım: aç / kapa
 
@@ -50,7 +48,8 @@ Sen sadece ✅ ya da 🗑 basarsın, beğendiğini paylaşırsın.
 
 ## Ayarlar (`config.yaml`)
 
-- `kanallar.twitch` / `kanallar.kick`: izlenecek yayıncılar.
+- `otomatik_bul`: hangi platformlarda otomatik arasın, en az kaç izleyicili yayınlara baksın.
+- `kanallar.twitch` / `kick` / `youtube`: kesin izlenmesini istediğin yayıncılar (isteğe bağlı).
 - `yasakli`: asla kliplenmeyecek yayıncılar.
 - `ayni_anda_en_fazla_kanal`: aynı anda kaç yayın izlensin. Her yayın yaklaşık 3 Mbps internet kullanır.
 - `algilama.kat`: düşürürsen daha çok klip gelir, yükseltirsen daha az ama daha iyi klip gelir.

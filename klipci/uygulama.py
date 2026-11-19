@@ -11,9 +11,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+import httpx
+
 from . import kesif
 from .altyazi import Yaziya, kelime_parcala, segment_parcala, tr_buyuk
-from .chat import kick_chat, twitch_chat
+from .chat import kick_chat, twitch_chat, youtube_chat
 from .kayit import PARCA_SN, Kaydedici
 from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar
 from .spike import Spike, SpikeDetector
@@ -55,10 +57,21 @@ class Uygulama:
         self.yazar = Yazar(cfg.get("anthropic_api_key", ""), cfg.get("claude_model", "claude-opus-5-5"))
         a = cfg.get("altyazi") or {}
         self.yaziya = Yaziya(a.get("whisper_model", "small"), a.get("cihaz", "auto")) if a.get("acik", True) else None
-        k = (cfg.get("kanallar") or {}).get("twitch_otomatik_kesif") or {}
-        self.twitch_kesif = (kesif.TwitchKesif(k["client_id"], k["client_secret"], k.get("oyun_adi", "Grand Theft Auto VI"),
-                                               k.get("dil", ""), int(k.get("en_az_izleyici", 0)))
-                             if k.get("acik") and k.get("client_id") and k.get("client_secret") else None)
+        eski = (cfg.get("kanallar") or {}).get("twitch_otomatik_kesif") or {}   # eski ayar dosyası uyumu
+        ob = cfg.get("otomatik_bul") or {}
+        self.oto_acik = bool(ob.get("acik", eski.get("acik", True)))
+        oyun = ob.get("oyun_adi", eski.get("oyun_adi", "Grand Theft Auto VI"))
+        dil = ob.get("dil", eski.get("dil", ""))
+        self.en_az_izleyici = int(ob.get("en_az_izleyici", eski.get("en_az_izleyici", 300)))
+        self.kesifler: dict[str, object] = {}
+        if ob.get("twitch", True):
+            self.kesifler["twitch"] = kesif.TwitchKesif(oyun, ob.get("twitch_client_id", eski.get("client_id", "")),
+                                                        ob.get("twitch_client_secret", eski.get("client_secret", "")), dil)
+        if ob.get("kick", True):
+            self.kesifler["kick"] = kesif.KickKesif(oyun, ob.get("kick_client_id", ""),
+                                                    ob.get("kick_client_secret", ""), dil)
+        if ob.get("youtube", True):
+            self.kesifler["youtube"] = kesif.YoutubeKesif(ob.get("youtube_arama", "GTA 6"))
         self.izleyiciler: dict[str, Izleyici] = {}
         self.kuyruk: asyncio.Queue[Is] = asyncio.Queue()
         self.duraklat = False
@@ -81,8 +94,28 @@ class Uygulama:
     # ---------- kanal yönetimi ----------
     def _adaylar_elle(self) -> list[kesif.Kanal]:
         kn = self.cfg.get("kanallar") or {}
-        return ([kesif.Kanal("twitch", a.strip().lower()) for a in (kn.get("twitch") or []) if a]
-                + [kesif.Kanal("kick", a.strip().lower()) for a in (kn.get("kick") or []) if a])
+        return ([kesif.Kanal("twitch", str(a).strip().lower()) for a in (kn.get("twitch") or []) if a]
+                + [kesif.Kanal("kick", str(a).strip().lower()) for a in (kn.get("kick") or []) if a])
+
+    async def _adaylar_oto(self, adet: int) -> list[tuple[kesif.Kanal, int]]:
+        if not self.oto_acik or not self.kesifler:
+            return []
+        out: list[tuple[kesif.Kanal, int]] = []
+        async with httpx.AsyncClient(timeout=25, follow_redirects=True) as c:
+            sonuclar = await asyncio.gather(*(k.bul(c, adet) for k in self.kesifler.values()), return_exceptions=True)
+        for ad, r in zip(self.kesifler, sonuclar):
+            if isinstance(r, BaseException):
+                log.warning("%s otomatik bulma hatası: %s", ad, r)
+                continue
+            log.info("%s: %d GTA 6 yayını bulundu", ad, len(r))
+            out += [x for x in r if x[1] >= self.en_az_izleyici]
+        out.sort(key=lambda x: -x[1])   # en çok izlenenler önce
+        return out
+
+    async def _youtube_elle(self) -> list[kesif.Kanal]:
+        hs = [str(h).strip() for h in ((self.cfg.get("kanallar") or {}).get("youtube") or []) if h]
+        sonuc = await asyncio.gather(*(asyncio.to_thread(kesif.youtube_kanal_canli, h) for h in hs))
+        return [k for k in sonuc if k]
 
     async def yonetici(self) -> None:
         yasak = {y.lower() for y in ((self.cfg.get("kanallar") or {}).get("yasakli") or [])}
@@ -96,21 +129,23 @@ class Uygulama:
                         if canli and not self.duraklat:
                             log.info("kayıt yeniden başlatılıyor: %s", anahtar)
                             iz.kayit.durdur()
+                            if iz.kanal.platform == "kick":   # imzalı yayın linki yenilenmeli
+                                b = await asyncio.to_thread(kesif.kick_bilgi, iz.kanal.ad)
+                                if b and b.get("playback_url"):
+                                    iz.kayit.url = "hls://" + b["playback_url"]
                             iz.kayit.baslat()
                         else:
                             log.info("yayın bitti: %s", anahtar)
                             await self._birak(anahtar)
                 if not self.duraklat:
                     adaylar: list[tuple[kesif.Kanal, bool]] = [(k, False) for k in self._adaylar_elle()]
-                    if self.twitch_kesif:
-                        try:
-                            adaylar += [(k, True) for k, _ in await self.twitch_kesif.bul(en_fazla * 2)]
-                        except Exception as e:  # noqa: BLE001
-                            log.warning("twitch keşif hatası: %s", e)
+                    adaylar += [(k, True) for k in await self._youtube_elle()]   # canlı oldukları kesin
+                    if len(self.izleyiciler) < en_fazla:
+                        adaylar += [(k, True) for k, _ in await self._adaylar_oto(en_fazla * 2)]
                     for k, oto in adaylar:
                         if len(self.izleyiciler) >= en_fazla:
                             break
-                        if k.ad in yasak or k.anahtar in self.izleyiciler:
+                        if k.ad.lower() in yasak or k.gorunen.lower() in yasak or k.anahtar in self.izleyiciler:
                             continue
                         if time.time() - self._kapali.get(k.anahtar, 0) < 300:
                             continue
@@ -127,12 +162,16 @@ class Uygulama:
         kl = self.cfg.get("klip") or {}
         det = SpikeDetector(a.get("pencere_sn", 10), a.get("kat", 3.0), a.get("en_az_mesaj", 25),
                             a.get("bekleme_sn", 120), a.get("isinma_sn", 90))
+        url = k.url
         if k.platform == "kick":
-            room = await asyncio.to_thread(kesif.kick_chatroom_id, k.ad)
-            if room is None:
+            bilgi = await asyncio.to_thread(kesif.kick_bilgi, k.ad)
+            if not bilgi or not bilgi.get("chatroom_id") or not bilgi.get("canli"):
                 self._kapali[k.anahtar] = time.time()
                 return
-        kayit = Kaydedici(k.url, self.klasor / "_tampon" / k.anahtar.replace(":", "_"),
+            room = bilgi["chatroom_id"]
+            if bilgi.get("playback_url"):
+                url = "hls://" + bilgi["playback_url"]   # Kick'in kendi yayın linki (tarayıcı gerekmez)
+        kayit = Kaydedici(url, self.klasor / "_tampon" / k.anahtar.replace(":", "_"),
                           kl.get("kalite", "720p,720p60,best"), int(kl.get("tampon_sn", 240)))
         kayit.baslat()
         iz = Izleyici(k, kayit, det, oto=oto)
@@ -141,7 +180,12 @@ class Uygulama:
             det.ekle(ts, metin)
             iz.chat_log.append((ts, kim, metin))
 
-        chat = twitch_chat(k.ad, mesaj_geldi) if k.platform == "twitch" else kick_chat(room, mesaj_geldi, k.ad)
+        if k.platform == "twitch":
+            chat = twitch_chat(k.ad, mesaj_geldi)
+        elif k.platform == "kick":
+            chat = kick_chat(room, mesaj_geldi, k.ad)
+        else:
+            chat = youtube_chat(k.ad, mesaj_geldi)
         iz.gorevler = [asyncio.create_task(chat), asyncio.create_task(self._izle(iz))]
         self.izleyiciler[k.anahtar] = iz
         log.info("▶ izleniyor: %s%s", k.anahtar, " (otomatik bulundu)" if oto else "")
@@ -216,7 +260,7 @@ class Uygulama:
                     if ce.get("acik", True) else [])
         for h in (self.cfg.get("hesaplar") or [{"ad": "TR", "dil": "tr"}]):
             dil, ad = h.get("dil", "tr"), h.get("ad", "TR")
-            veri = await asyncio.to_thread(self.yazar.yaz, dil, is_.kanal.ad, is_.kanal.platform, segler,
+            veri = await asyncio.to_thread(self.yazar.yaz, dil, is_.kanal.gorunen, is_.kanal.platform, segler,
                                            kaynak_dil, is_.spike.ornek_mesajlar, is_.spike.kelimeler)
             if veri.get("altyazi") and len(veri["altyazi"]) == len(segler) and kaynak_dil != dil:
                 alt = segment_parcala([(b, e, t) for (b, e, _), t in zip(segler, veri["altyazi"])])
@@ -229,19 +273,18 @@ class Uygulama:
             klasor = self.klasor / "bekleyen" / f"{kid}_{ad}"
             klasor.mkdir(parents=True, exist_ok=True)
             ass = klasor / "yazi.ass"
-            site = "twitch.tv" if is_.kanal.platform == "twitch" else "kick.com"
-            ass_yaz(ass, is_.sure, veri.get("baslik", ""), f"🎥 {site}/{is_.kanal.ad}", h.get("imza", ""), alt, chat_pop)
+            ass_yaz(ass, is_.sure, veri.get("baslik", ""), f"🎥 {is_.kanal.kredi}", h.get("imza", ""), alt, chat_pop)
             mp4 = klasor / f"{kid}_{ad}.mp4"
             await asyncio.to_thread(dikey_video, is_.kaynak, is_.ofset, is_.sure, mp4, ass, zoom)
             ass.unlink(missing_ok=True)
-            metin = paylasim_metni(veri, is_.kanal.ad, is_.kanal.platform, dil)
+            metin = paylasim_metni(veri, is_.kanal, dil)
             (klasor / "aciklama.txt").write_text(metin, encoding="utf-8")
             (klasor / "bilgi.json").write_text(json.dumps({
                 "kanal": is_.kanal.anahtar, "hesap": ad, "dil": dil, "puan": veri.get("puan"),
                 "chat_kat": round(is_.spike.kat, 1), "kelimeler": is_.spike.kelimeler,
                 "transkript": [t for _, _, t in segler]}, ensure_ascii=False, indent=1), encoding="utf-8")
             self.sayac["klip"] += 1
-            ust = f"[{ad}] 🔥 {is_.kanal.ad} — chat normalin {is_.spike.kat:.1f} katı · viral puanı {veri.get('puan', '?')}/10\n\n"
+            ust = f"[{ad}] 🔥 {is_.kanal.gorunen} ({is_.kanal.platform}) — chat normalin {is_.spike.kat:.1f} katı · viral puanı {veri.get('puan', '?')}/10\n\n"
             try:
                 await self.bot.video_gonder(mp4, ust + metin, f"{kid}_{ad}")
             except Exception as e:  # noqa: BLE001

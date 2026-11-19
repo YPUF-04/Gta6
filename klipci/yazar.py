@@ -106,8 +106,7 @@ class Yazar:
         }
 
 
-def paylasim_metni(veri: dict, yayinci: str, platform: str, dil: str) -> str:
+def paylasim_metni(veri: dict, kanal, dil: str) -> str:
     kredi = {"tr": "🎥 Yayıncı", "en": "🎥 Streamer"}.get(dil, "🎥")
-    site = "twitch.tv" if platform == "twitch" else "kick.com"
     tags = " ".join(t if t.startswith("#") else "#" + t for t in veri.get("hashtagler", []))
-    return f"{veri.get('aciklama', '')}\n\n{kredi}: {yayinci} ({site}/{yayinci})\n\n{tags}".strip()
+    return f"{veri.get('aciklama', '')}\n\n{kredi}: {kanal.gorunen} ({kanal.kredi})\n\n{tags}".strip()

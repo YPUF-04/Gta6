@@ -19,33 +19,38 @@ anthropic_api_key: ""
 claude_model: "claude-opus-5-5"
 
 # ---------- HANGİ YAYINLAR İZLENSİN ----------
+# Program Twitch, Kick ve YouTube'da şu an GTA 6 oynayan yayınları KENDİSİ bulur.
+# İsim yazmana gerek yok. Anahtarlar isteğe bağlı (anahtarsız da çalışır).
+otomatik_bul:
+  acik: true
+  twitch: true
+  kick: true
+  youtube: true
+  oyun_adi: "Grand Theft Auto VI"
+  youtube_arama: "GTA 6"
+  en_az_izleyici: 300       # bundan az izleyicisi olan yayınlara bakma (chat'i az olur)
+  dil: ""                   # "en", "tr" ... boş = hepsi
+  # İsteğe bağlı resmi anahtarlar (daha sağlam). Boş bırakabilirsin.
+  twitch_client_id: ""      # https://dev.twitch.tv/console
+  twitch_client_secret: ""
+  kick_client_id: ""        # https://kick.com/settings/developer
+  kick_client_secret: ""
+
 kanallar:
-  # Elle eklediğin yayıncılar. Bunlar açıldığı an izlenmeye başlar.
+  # Kesin izlenmesini istediğin yayıncılar (isteğe bağlı). Açıldıkları an listeye girerler.
   twitch:
     - kaicenat
     - xqc
-    - summit1g
   kick:
     - adinross
-
-  # Twitch'te şu an "Grand Theft Auto VI" yayını yapan en büyük kanalları otomatik bul.
-  # https://dev.twitch.tv/console -> "Register Your Application" -> Client ID + Secret al.
-  # (Category: "Other", OAuth Redirect: http://localhost)  Boş bırakırsan sadece yukarıdaki liste.
-  twitch_otomatik_kesif:
-    acik: true
-    client_id: ""
-    client_secret: ""
-    oyun_adi: "Grand Theft Auto VI"
-    dil: ""                 # "en", "tr" ... boş = hepsi
-    en_az_izleyici: 2000
+  youtube: []               # örn: ["@IShowSpeed"]
 
   # Kara liste — bunları asla klipleme
   yasakli: []
 
 # Aynı anda kaç yayın izlensin. Hepsi paralel izlenir, hangisinde chat patlarsa ondan klip çıkar.
-# Her yayın ~2.5 Mbps internet yer:  8 yayın ≈ 20 Mbps,  15 yayın ≈ 40 Mbps.
-# İnternetin hızlıysa artır (hızını speedtest.net'ten öğren, çıkan sayının yarısını 2.5'e böl).
-ayni_anda_en_fazla_kanal: 8
+# Her yayın ~2.5-5 Mbps internet ve biraz RAM yer. 1000 Mbps'te 25 ile başla, bilgisayar rahatsa artır.
+ayni_anda_en_fazla_kanal: 25
 
 # Aynı anda kaç klip kurgulansın (2 yeter; güçlü bilgisayar = 3-4)
 ayni_anda_kurgu: 2
