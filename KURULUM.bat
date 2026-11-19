@@ -33,14 +33,15 @@ echo [1/4] Python tamam (%PY%).
 
 REM ---- FFmpeg (proje klasorune indirilir) ----
 if exist "ffmpeg\bin\ffmpeg.exe" goto ffmpeg_tamam
-echo [2/4] FFmpeg indiriliyor (~100 MB)...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ProgressPreference='SilentlyContinue';" ^
-  "Invoke-WebRequest 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile ffmpeg.zip;" ^
-  "Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp -Force;" ^
-  "$d = Get-ChildItem ffmpeg_tmp | Select-Object -First 1;" ^
-  "Move-Item $d.FullName ffmpeg;" ^
-  "Remove-Item ffmpeg.zip; Remove-Item ffmpeg_tmp -Recurse -Force"
+echo [2/4] FFmpeg indiriliyor (~100 MB) - asagida ilerleme cubugu gorunur...
+curl.exe -L --progress-bar --retry 3 -o ffmpeg.zip https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+echo [2/4] FFmpeg aciliyor...
+if exist ffmpeg_tmp rmdir /s /q ffmpeg_tmp
+mkdir ffmpeg_tmp
+tar -xf ffmpeg.zip -C ffmpeg_tmp
+powershell -NoProfile -Command "$d = Get-ChildItem ffmpeg_tmp | Select-Object -First 1; Move-Item $d.FullName ffmpeg"
+del ffmpeg.zip >nul 2>nul
+rmdir /s /q ffmpeg_tmp >nul 2>nul
 if exist "ffmpeg\bin\ffmpeg.exe" goto ffmpeg_tamam
 echo FFmpeg indirilemedi! Internetini kontrol et ve tekrar dene.
 pause
@@ -69,7 +70,7 @@ if errorlevel 1 (
   exit /b 1
 )
 echo [3/4] Altyazi paketi yukleniyor (buyuk, biraz surer)...
-".venv\Scripts\python.exe" -m pip install -r requirements-altyazi.txt -q
+".venv\Scripts\python.exe" -m pip install -r requirements-altyazi.txt --progress-bar on
 if errorlevel 1 (
   echo.
   echo UYARI: Altyazi paketi kurulamadi. Program ALTYAZISIZ calisacak.
