@@ -85,3 +85,13 @@ def test_paylasim_hatirlatma(tmp_path, monkeypatch):
     ok = asyncio.run(u._paylasim_hatirlat("TR", {"hid": k.name, "saat": "14:37"}))
     assert ok and giden[0][0] == "video" and "pd:" in giden[0][2][0][0]["callback_data"]
     assert "<code>Kai &lt;3 #gta6</code>" in giden[1][1] and "YouTube" in giden[1][1]
+
+
+def test_sinir(tmp_path, monkeypatch):
+    u = _app(tmp_path, monkeypatch)
+    run = lambda m: asyncio.run(u._komut(m))
+    assert u._sinir() == 8
+    assert "30" in run("/sinir 30") and u._sinir() == 30
+    assert "1 ile 100" in run("/sinir 500")
+    assert "Sayı" in run("/sinir çok")
+    assert "30" in run("/sinir")

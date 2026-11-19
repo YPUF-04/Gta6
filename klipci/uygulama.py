@@ -180,10 +180,21 @@ class Uygulama:
         sonuc = await asyncio.gather(*(asyncio.to_thread(kesif.youtube_kanal_canli, h) for h in hs))
         return [k for k in sonuc if k]
 
+    def _sinir(self) -> int:
+        """Aynı anda kaç yayın izlensin: Telegram'dan /sinir ile ayarlanan, yoksa config.yaml."""
+        return int(self._durum_oku().get("sinir") or self.cfg.get("ayni_anda_en_fazla_kanal", 8))
+
     async def yonetici(self) -> None:
-        en_fazla = int(self.cfg.get("ayni_anda_en_fazla_kanal", 8))
         while True:
+            en_fazla = self._sinir()
             try:
+                # sınır düşürüldüyse fazlaları bırak (önce otomatik bulunanlar)
+                fazla = len(self.izleyiciler) - en_fazla
+                if fazla > 0:
+                    sirali = sorted(self.izleyiciler.items(), key=lambda x: not x[1].oto)
+                    for anahtar, _ in sirali[:fazla]:
+                        await self._birak(anahtar)
+                        self._kapali.pop(anahtar, None)
                 # ölenleri temizle / yeniden başlat
                 for anahtar, iz in list(self.izleyiciler.items()):
                     if not iz.kayit.calisiyor_mu():
@@ -481,6 +492,7 @@ class Uygulama:
         "/yayinlar — şu an açık GTA 6 yayınları, dokunarak seç ⭐ / ⛔\n"
         "/platform — Twitch / Kick / YouTube aç-kapat, otomatik bulma aç-kapat\n"
         "/istatistik — neyi sevdiğini ne kadar öğrendim\n"
+        "/sinir 25 — aynı anda kaç yayın izlensin\n"
         "/plan — bugünün paylaşım saatleri\n"
         "/stok — hesaplarda kaç video hazır\n"
         "/isim @hesapadin — videonun altındaki isim\n"
@@ -500,7 +512,7 @@ class Uygulama:
                 satir.append(f"• {iz.kanal.gorunen} ({iz.kanal.platform})" + (" 🤖" if iz.oto else " ⭐"))
             kanal = "\n".join(satir) or "— (şu an açık yayın yok)"
             return (f"{'⏸ DURAKLATILDI' if self.duraklat else '▶ Çalışıyor'}\n"
-                    f"İzlenen yayınlar ({len(self.izleyiciler)}):\n{kanal}\n"
+                    f"İzlenen yayınlar ({len(self.izleyiciler)}/{self._sinir()}, /sinir ile değiştir):\n{kanal}\n"
                     f"⭐ = senin eklediğin, 🤖 = otomatik bulunan\n\nBu oturumda: {self.sayac['klip']} klip, "
                     f"{self.sayac['onay']} onay. Kuyrukta: {self.kuyruk.qsize()}\n"
                     f"Altyazı: {self.yaziya.durum if self.yaziya else 'kapalı'}")
@@ -510,6 +522,22 @@ class Uygulama:
         if komut == "/platform":
             await self.bot.butonlu(*self._platform_menusu())
             return ""
+        if komut in ("/sinir", "/sınır"):
+            if not arg.strip():
+                return (f"Şu an aynı anda en fazla {self._sinir()} yayın izleniyor "
+                        f"({len(self.izleyiciler)} tanesi açık).\nDeğiştirmek için: /sinir 25")
+            try:
+                n = int(arg.strip())
+            except ValueError:
+                return "Sayı yaz: /sinir 25"
+            if not 1 <= n <= 100:
+                return "1 ile 100 arası bir sayı yaz."
+            d = self._durum_oku()
+            d["sinir"] = n
+            self._durum_yaz(d)
+            self._uyandir.set()
+            not_ = "\n(40'ın üstü güçlü bilgisayar ister; kasarsa düşür.)" if n > 40 else ""
+            return f"✅ Artık aynı anda en fazla {n} yayın izlenecek.{not_}"
         if komut == "/plan":
             return self._plan_metni()
         if komut == "/stok":
@@ -736,8 +764,8 @@ class Uygulama:
         durum = ("🔴 şu an yayında, hemen izlemeye başlıyorum" if canli
                  else "⚫ şu an yayında değil, açtığı an izlemeye başlayacağım" if canli is False
                  else "kanal bilgisine ulaşılamadı, yine de listeye ekledim")
-        dolu = len(self.izleyiciler) >= int(self.cfg.get("ayni_anda_en_fazla_kanal", 8))
-        ek = "\n⚠️ İzleme sınırı dolu; yer açılınca girer (ayni_anda_en_fazla_kanal'ı artırabilirsin)." if dolu and canli else ""
+        dolu = len(self.izleyiciler) >= self._sinir()
+        ek = "\n⚠️ İzleme sınırı dolu; yer açılınca girer (/sinir ile artırabilirsin)." if dolu and canli else ""
         return f"✅ {ad} ({platform}) eklendi — {durum}.{ek}"
 
     # ---------- günlük paylaşım planı ----------

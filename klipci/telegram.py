@@ -69,7 +69,7 @@ class Bot:
         """Telegram'da / yazınca çıkan komut listesi."""
         komutlar = [("durum", "Neler izleniyor, kaç klip çıktı"), ("yayinlar", "Şu an açık GTA 6 yayınları — dokun, seç"),
                     ("platform", "Twitch / Kick / YouTube aç-kapat"), ("istatistik", "Neyi sevdiğimi öğrendin?"),
-                    ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
+                    ("sinir", "Aynı anda kaç yayın izlensin: /sinir 25"), ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
                     ("isim", "Videonun altındaki kullanıcı adı: /isim @hesap"),
                     ("hesap", "TR / EN hesaplarını aç-kapat"),
                     ("ekle", "Yayıncı ekle: /ekle kick adinross"),
