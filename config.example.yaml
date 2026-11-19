@@ -42,8 +42,13 @@ kanallar:
   # Kara liste — bunları asla klipleme
   yasakli: []
 
-# Aynı anda kaç yayın izlensin (her biri ~3 Mbps internet ve biraz CPU yer)
-ayni_anda_en_fazla_kanal: 4
+# Aynı anda kaç yayın izlensin. Hepsi paralel izlenir, hangisinde chat patlarsa ondan klip çıkar.
+# Her yayın ~2.5 Mbps internet yer:  8 yayın ≈ 20 Mbps,  15 yayın ≈ 40 Mbps.
+# İnternetin hızlıysa artır (hızını speedtest.net'ten öğren, çıkan sayının yarısını 2.5'e böl).
+ayni_anda_en_fazla_kanal: 8
+
+# Aynı anda kaç klip kurgulansın (2 yeter; güçlü bilgisayar = 3-4)
+ayni_anda_kurgu: 2
 
 # ---------- KLİP ALGILAMA ----------
 algilama:
@@ -57,7 +62,7 @@ klip:
   once_sn: 22               # patlamadan kaç saniye önce başlasın (chat geç tepki verir)
   sonra_sn: 12              # patlamadan sonra kaç saniye devam etsin
   tampon_sn: 240            # bilgisayarda her yayının son kaç saniyesi tutulsun
-  kalite: "720p60,720p,best"
+  kalite: "720p,720p60,best"   # 30fps 720p: daha az internet, kalite aynı
   zoom: 1.3                 # oyun görüntüsünü ortadan ne kadar yakınlaştır (1.0 = hiç)
 
 # ---------- CHAT EKRANDA ----------

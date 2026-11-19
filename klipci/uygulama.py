@@ -86,7 +86,7 @@ class Uygulama:
 
     async def yonetici(self) -> None:
         yasak = {y.lower() for y in ((self.cfg.get("kanallar") or {}).get("yasakli") or [])}
-        en_fazla = int(self.cfg.get("ayni_anda_en_fazla_kanal", 4))
+        en_fazla = int(self.cfg.get("ayni_anda_en_fazla_kanal", 8))
         while True:
             try:
                 # ölenleri temizle / yeniden başlat
@@ -133,7 +133,7 @@ class Uygulama:
                 self._kapali[k.anahtar] = time.time()
                 return
         kayit = Kaydedici(k.url, self.klasor / "_tampon" / k.anahtar.replace(":", "_"),
-                          kl.get("kalite", "720p60,720p,best"), int(kl.get("tampon_sn", 240)))
+                          kl.get("kalite", "720p,720p60,best"), int(kl.get("tampon_sn", 240)))
         kayit.baslat()
         iz = Izleyici(k, kayit, det, oto=oto)
 
@@ -285,8 +285,9 @@ class Uygulama:
         if not self.bot.token:
             raise SystemExit("config.yaml içinde telegram.bot_token boş! README'deki adımlara bak.")
         (self.klasor / "_is").mkdir(parents=True, exist_ok=True)
-        gorevler = [asyncio.create_task(self.bot.dinle()), asyncio.create_task(self.yonetici()),
-                    asyncio.create_task(self.isci())]
+        n_isci = max(1, int(self.cfg.get("ayni_anda_kurgu", 2)))
+        gorevler = [asyncio.create_task(self.bot.dinle()), asyncio.create_task(self.yonetici())]
+        gorevler += [asyncio.create_task(self.isci()) for _ in range(n_isci)]
         try:
             await self.bot.mesaj("▶ GTA 6 Klipçi açıldı. Yayınlar aranıyor... (/durum)")
         except Exception as e:  # noqa: BLE001

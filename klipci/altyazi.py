@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,8 +31,13 @@ class Yaziya:
     def __init__(self, model: str = "small", cihaz: str = "auto"):
         self.model_adi, self.cihaz = model, cihaz
         self._model = None
+        self._kilit = threading.Lock()   # birden çok kurgu işçisi aynı modeli paylaşır
 
     def _yukle(self):
+        with self._kilit:
+            return self._yukle_kilitli()
+
+    def _yukle_kilitli(self):
         if self._model is None:
             from faster_whisper import WhisperModel
             cihaz = self.cihaz
