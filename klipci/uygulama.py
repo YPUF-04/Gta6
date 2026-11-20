@@ -24,7 +24,7 @@ from .kayit import _PENCERESIZ, PARCA_SN, Kaydedici, arac
 from . import plan as planmod
 from . import meme, puan, yuz
 from .oyun import OYUN, ayarla as oyun_ayarla
-from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, video_saglam_mi
+from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, tweet_video, video_saglam_mi
 from .spike import Spike, SpikeDetector
 from .telegram import Bot
 from .yazar import Yazar, paylasim_metni, platform_metinleri, trend_arastir
@@ -66,6 +66,7 @@ class Uygulama:
         self.bot = Bot(tg.get("bot_token", ""), tg.get("chat_id") or durum.get("chat_id", ""), self._chat_id_kaydet)
         self.bot.on_onay, self.bot.on_sil, self.bot.on_komut = self._onay, self._sil, self._komut
         self.bot.on_buton = self._buton
+        self.bot.on_foto = self._profil_kaydet
         self.yazar = Yazar(cfg.get("anthropic_api_key", ""), cfg.get("claude_model", "claude-opus-5-5"))
         a = cfg.get("altyazi") or {}
         self.yaziya = Yaziya(a.get("whisper_model", "small"), a.get("cihaz", "auto")) if a.get("acik", True) else None
@@ -160,6 +161,19 @@ class Uygulama:
             return uyan
         en = [h for h in hesaplar if h["dil"] == "en"]
         return en or hesaplar[:1]
+
+    VARSAYILAN_UST = {"tr": "{oyun}'NIN EN İYİ ANLARI", "en": "{oyun} MOMENTS YOU NEED TO SEE"}
+
+    def _sayfa(self, h: dict) -> dict:
+        """Tweet tarzı üst kısım: sayfa adı, @kullanıcı, büyük başlık, profil fotoğrafı (Telegram'dan ayarlanır)."""
+        d = self._durum_oku().get("sayfa") or {}
+        ad = (d.get("ad") or {}).get(h["ad"]) or (d.get("ad") or {}).get("*") or \
+            (h.get("imza") or "").lstrip("@") or f"{OYUN.kisa} Klipleri"
+        ust = (d.get("ust") or {}).get(h["ad"]) or (d.get("ust") or {}).get("*") or \
+            self.VARSAYILAN_UST.get(h["dil"], self.VARSAYILAN_UST["en"]).format(oyun=OYUN.kisa.upper())
+        profil = self.klasor / "profil.jpg"
+        return {"ad": ad, "kullanici": h.get("imza") or "", "ust": ust, "tik": bool(d.get("tik", False)),
+                "profil": profil.exists(), "profil_yol": profil if profil.exists() else None}
 
     def _durum_yaz(self, d: dict) -> None:
         self.durum_yolu.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -469,8 +483,7 @@ class Uygulama:
                 alt = kelime_parcala(cozum.kelimeler)
             else:
                 alt = segment_parcala([(b, e, t) for (b, e, _), t in zip(segler, veri.get("altyazi", []))])
-            if dil == "tr":
-                alt = [(b, e, tr_buyuk(t)) for b, e, t in alt]
+            # altyazı doğal yazımıyla kalır ("Oh my god"), büyük harfe çevrilmez
 
             # 2) puan (senin beğenilerine göre ayarlanır)
             oz = puan.ozellik_cikar(is_.spike.kat, is_.chat, is_.sure, ses, analiz.aksiyon,
@@ -483,13 +496,22 @@ class Uygulama:
             klasor = self.klasor / hedef_kok / hid
             klasor.mkdir(parents=True, exist_ok=True)
             ass = klasor / "yazi.ass"
-            ass_yaz(ass, is_.sure, veri.get("baslik", ""), f"🎥 {is_.kanal.kredi}", h.get("imza", ""), alt,
-                    chat_pop, "yuz" if facecam else "tek")
+            an = is_.an if self.cfg.get("yakinlasma", True) else None
+            # yüz varsa: üstte yüz, altta oyun. Yoksa: tweet tarzı (ayardan "tek" de seçilebilir)
+            duzen = "yuz" if facecam else str(self.cfg.get("yuzsuz_duzen", "tweet"))
             mp4 = klasor / f"{hid}.mp4"
             try:
-                await asyncio.to_thread(dikey_video, is_.kaynak, is_.ofset, is_.sure, mp4, ass, zoom, facecam,
-                                        is_.an if self.cfg.get("yakinlasma", True) else None,
-                                        bool(self.cfg.get("ilerleme_cubugu", False)))
+                if duzen == "tweet":
+                    sayfa = self._sayfa(h)
+                    ass_yaz(ass, is_.sure, veri.get("baslik", ""), f"🎥 {is_.kanal.kredi}", h.get("imza", ""), alt,
+                            [], "tweet", sayfa)
+                    await asyncio.to_thread(tweet_video, is_.kaynak, is_.ofset, is_.sure, mp4, ass,
+                                            sayfa.get("profil_yol"), an)
+                else:
+                    ass_yaz(ass, is_.sure, veri.get("baslik", ""), f"🎥 {is_.kanal.kredi}", h.get("imza", ""), alt,
+                            chat_pop, duzen)
+                    await asyncio.to_thread(dikey_video, is_.kaynak, is_.ofset, is_.sure, mp4, ass, zoom, facecam,
+                                            an, bool(self.cfg.get("ilerleme_cubugu", False)))
             finally:
                 ass.unlink(missing_ok=True)
             if not await asyncio.to_thread(video_saglam_mi, mp4):
@@ -593,6 +615,8 @@ class Uygulama:
         "/sinir 25 — aynı anda kaç yayın izlensin\n"
         "/meme — şimdi meme videosu yap (her gün 10:00'da kendisi de yapar)\n"
         "/gunluk 10 — her hesap için günde kaç paylaşım\n"
+        "/ad, /ustyazi — tweet tarzı videoların üstündeki sayfa adı ve başlık\n"
+        "📷 Profil fotoğrafı: bota fotoğraf at, açıklamasına /profil yaz\n"
         "/plan — bugünün paylaşım saatleri\n"
         "/stok — hesaplarda kaç video hazır\n"
         "/isim @hesapadin — videonun altındaki isim\n"
@@ -638,6 +662,24 @@ class Uygulama:
             self._uyandir.set()
             not_ = "\n(40'ın üstü güçlü bilgisayar ister; kasarsa düşür.)" if n > 40 else ""
             return f"✅ Artık aynı anda en fazla {n} yayın izlenecek.{not_}"
+        if komut in ("/ad", "/ustyazi", "/üstyazı", "/ustyazı"):
+            parca = arg.split(maxsplit=1)
+            if not parca:
+                return ("Tweet tarzı videoların üst kısmı:\n/ad GTA 6 Anları — sayfa adı\n"
+                        "/ustyazi GÜNÜMÜ GÜZELLEŞTİREN KLİPLER — büyük başlık\n"
+                        "(sadece bir hesap için: /ustyazi en GTA 6 CLIPS THAT MADE MY DAY)\n"
+                        "Profil fotoğrafı: bota fotoğraf at, açıklamasına /profil yaz.")
+            hedef, metin = "*", arg.strip()
+            if len(parca) == 2 and parca[0].upper() in {h["ad"] for h in self._hesaplar(hepsi=True)}:
+                hedef, metin = parca[0].upper(), parca[1].strip()
+            d = self._durum_oku()
+            alan = "ad" if komut == "/ad" else "ust"
+            sozluk = d.setdefault("sayfa", {}).setdefault(alan, {})
+            if hedef == "*":
+                sozluk.clear()
+            sozluk[hedef] = metin
+            self._durum_yaz(d)
+            return f"✅ {'Sayfa adı' if alan == 'ad' else 'Üst başlık'}: “{metin}”" + ("" if hedef == "*" else f" ({hedef})")
         if komut == "/gunluk":
             if not arg.strip().isdigit():
                 return (f"Şu an her hesap için günde {self._gunluk()} paylaşım planlanıyor "
@@ -749,6 +791,13 @@ class Uygulama:
             self._uyandir.set()
             return "▶ Devam ediyor, yayınlar aranıyor..."
         return self.YARDIM
+
+    async def _profil_kaydet(self, veri: bytes) -> str:
+        """Telegram'dan gelen fotoğrafı tweet tarzı videoların profil resmi yap."""
+        hedef = self.klasor / "profil.jpg"
+        hedef.parent.mkdir(parents=True, exist_ok=True)
+        hedef.write_bytes(veri)
+        return "✅ Profil fotoğrafı kaydedildi. Tweet tarzı videolarda yuvarlak olarak görünecek."
 
     # ---------- butonlu menüler ----------
     def _platform_menusu(self) -> tuple[str, list]:

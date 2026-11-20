@@ -156,3 +156,16 @@ def test_dil_filtresi(tmp_path, monkeypatch):
         return bulunan
     u._tara = tara
     assert sorted(k.ad for k, _ in asyncio.run(u._adaylar_oto(20))) == ["abc", "tepki", "xqc"]
+
+
+def test_sayfa_ayarlari(tmp_path, monkeypatch):
+    u = _app(tmp_path, monkeypatch)
+    run = lambda m: asyncio.run(u._komut(m))
+    h = u._hesaplar()[0]
+    assert u._sayfa(h)["ust"] == "GTA 6'NIN EN İYİ ANLARI" and not u._sayfa(h)["profil"]
+    assert "Sayfa adı" in run("/ad GTA 6 Anları")
+    assert "Üst başlık" in run("/ustyazi en GTA 6 CLIPS THAT MADE MY DAY")
+    tr, en = u._hesaplar()
+    assert u._sayfa(tr)["ad"] == "GTA 6 Anları" and u._sayfa(en)["ust"] == "GTA 6 CLIPS THAT MADE MY DAY"
+    assert "kaydedildi" in asyncio.run(u._profil_kaydet(b"\xff\xd8jpeg"))
+    assert u._sayfa(tr)["profil"]

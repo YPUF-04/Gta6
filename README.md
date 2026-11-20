@@ -69,6 +69,14 @@ Sen sadece ✅ ya da 🗑 basarsın, beğendiğini paylaşırsın.
 | `/cikar`, `/yasakla`, `/yasak_kaldir`, `/liste` | Listeyi yönetir |
 | `/duraklat` / `/devam` | Kliplemeyi durdurur / başlatır |
 
+## Video tarzları
+
+- **Yüzü bulunan yayıncı:** üstte yayıncının kamerası, altta oyun; konuşma ortadaki çizgide kelime kelime, söylenen kelime mor kutuda (TikTok klip tarzı).
+- **Yüzü olmayan / küçük yayıncı:** tweet tarzı — beyaz zemin, üstte senin sayfanın profili (fotoğraf, ad, @kullanıcı adı) ve büyük başlık, ortada kare oyun videosu.
+  - Sayfa adı: `/ad GTA 6 Anları`
+  - Büyük başlık: `/ustyazi GÜNÜMÜ GÜZELLEŞTİREN KLİPLER` (sadece İngilizce hesap: `/ustyazi en ...`)
+  - Profil fotoğrafı: bota fotoğraf at, açıklamasına `/profil` yaz.
+
 ## Günlük akış
 
 1. Klip gelir: üstte yayıncının yüzü, altta oyun, chat mesajları, altyazı, puan (⭐ 7.8/10) ve neden o puanı aldığı.

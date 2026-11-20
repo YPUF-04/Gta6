@@ -122,25 +122,29 @@ def tr_buyuk(s: str) -> str:
 
 
 def kelime_parcala(kelimeler: list[Kelime], en_cok_kelime: int = 3, en_uzun_sn: float = 1.4):
-    """Kelimeleri viral klip tarzı 2-3 kelimelik hızlı altyazılara böl."""
+    """Kelimeleri viral klip tarzı 2-3 kelimelik hızlı altyazılara böl.
+
+    Dönüş: (başlangıç, bitiş, metin, [(kelime_bas, kelime_bit, kelime), ...]) — kelime kelime vurgu için."""
     out, grup = [], []
+
+    def ekle(g):
+        out.append([g[0].bas, g[-1].bit, " ".join(x.metin for x in g), [(x.bas, x.bit, x.metin) for x in g]])
+
     for k in kelimeler:
         if not k.metin:
             continue
         if grup and (len(grup) >= en_cok_kelime or k.bit - grup[0].bas > en_uzun_sn
                      or k.bas - grup[-1].bit > 0.6):
-            out.append((grup[0].bas, grup[-1].bit, " ".join(g.metin for g in grup)))
+            ekle(grup)
             grup = []
         grup.append(k)
     if grup:
-        out.append((grup[0].bas, grup[-1].bit, " ".join(g.metin for g in grup)))
+        ekle(grup)
     # boşlukları kapat ki altyazı titremesin
-    duz = []
-    for i, (b, e, t) in enumerate(out):
-        if i + 1 < len(out) and out[i + 1][0] - e < 0.3:
-            e = out[i + 1][0]
-        duz.append((b, e, t))
-    return duz
+    for i in range(len(out) - 1):
+        if out[i + 1][0] - out[i][1] < 0.3:
+            out[i][1] = out[i + 1][0]
+    return [tuple(x) for x in out]
 
 
 def segment_parcala(segler: list[tuple[float, float, str]], en_cok_kelime: int = 3):

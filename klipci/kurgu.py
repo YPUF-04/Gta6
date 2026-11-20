@@ -48,57 +48,117 @@ def _zaman(t: float) -> str:
     return f"{int(h)}:{int(m):02d}:{s:05.2f}"
 
 
-# Ekran düzenleri. "yuz": üstte yayıncının kamerası, altta oyun. "tek": ortada oyun, arkası bulanık.
+# Ekran düzenleri:
+#  "yuz"  : üstte yayıncının kamerası, altta oyun; konuşma tam ortadaki çizgide kelime kelime (TikTok klip tarzı)
+#  "tek"  : ortada oyun, arkası bulanık
+#  "tweet": beyaz zemin, üstte tweet gibi sayfa profili + büyük harfli başlık, ortada kare oyun videosu
 DUZEN = {
-    "yuz": {"kam_h": 760, "baslik": (540, 760), "chat_y": 800, "alt_mv": 300, "kredi_mv": 150, "imza_mv": 100},
-    "tek": {"kam_h": 0, "baslik": (540, 300), "chat_y": 600, "alt_mv": 470, "kredi_mv": 230, "imza_mv": 170},
+    "yuz": {"kam_h": 680, "alt_pos": (540, 680), "chat_y": 1180, "kredi_mv": 70, "imza_mv": 30},
+    "tek": {"kam_h": 0, "baslik": (540, 300), "alt_pos": (540, 1400), "chat_y": 600, "kredi_mv": 230, "imza_mv": 170},
+    "tweet": {"video_y": 400, "video_h": 1080, "alt_pos": (540, 1390), "baslik": (540, 560)},
 }
+MOR = "&H00E43F7B&"   # söylenen kelimenin arkasındaki mor kutu (BGR)
+
+
+def _altyazi_olaylari(altyazilar, sure: float, x: int, y: int, katman: int = 3) -> list[str]:
+    """Kelime zamanı varsa: o an söylenen kelime mor kutulu (CapCut tarzı). Yoksa düz 2-3 kelime."""
+    out = []
+    for parca in altyazilar:
+        bas, bit, metin = parca[0], parca[1], parca[2]
+        kelimeler = parca[3] if len(parca) > 3 else None
+        if bit <= 0 or bas >= sure or not metin.strip():
+            continue
+        konum = f"{{\\pos({x},{y})}}"
+        if not kelimeler:
+            out.append(f"Dialogue: {katman},{_zaman(bas)},{_zaman(bit)},Alt,,0,0,0,,{konum}{_ass_metin(metin)}")
+            continue
+        for i, (kb, _ke, _k) in enumerate(kelimeler):
+            b = bas if i == 0 else kb
+            e = kelimeler[i + 1][0] if i + 1 < len(kelimeler) else bit
+            if e <= b:
+                continue
+            yazi = " ".join(
+                (f"{{\\3c{MOR}\\bord14\\shad0}}{_ass_metin(w)}{{\\r}}" if j == i else _ass_metin(w))
+                for j, (_a, _b, w) in enumerate(kelimeler))
+            out.append(f"Dialogue: {katman},{_zaman(b)},{_zaman(e)},Alt,,0,0,0,,{konum}{yazi}")
+    return out
 
 
 def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
-            altyazilar: list[tuple[float, float, str]],
-            chat: list[tuple[float, float, int, str, str]] | None = None, duzen: str = "tek") -> None:
+            altyazilar: list[tuple],
+            chat: list[tuple[float, float, int, str, str]] | None = None, duzen: str = "tek",
+            sayfa: dict | None = None) -> None:
+    """sayfa (tweet düzeni için): {"ad": "GTA 6 Anları", "kullanici": "@hesap", "ust": "BAŞLIK", "tik": False}"""
     d = DUZEN.get(duzen, DUZEN["tek"])
-    # her videoda biraz farklı görünüm: hepsi aynı şablondan çıkmış gibi durmasın
     import random
-    rnd = random.Random(yol.parent.name)
-    alt_font = rnd.choice(["Arial Black", "Impact", "Arial Black"])
-    alt_renk = rnd.choice(["&H00FFFFFF", "&H00FFFFFF", "&H0000E5FF"])   # beyaz (çoğu) / sarı
-    baslik_boy = rnd.choice([54, 58, 62])
+    rnd = random.Random(yol.parent.name)   # her videoda biraz farklı: hepsi aynı şablondan çıkmış gibi durmasın
+    alt_font = rnd.choice(["Arial Black", "Arial", "Impact"]) if duzen != "yuz" else rnd.choice(["Arial", "Arial Black"])
+    alt_boy = {"yuz": 70, "tek": 74, "tweet": 60}[duzen] + rnd.choice([-4, 0, 4])
+    stiller = [
+        # Altyazı: beyaz kalın + siyah kenar (söylenen kelime mor kutuda)
+        f"Style: Alt,{alt_font},{alt_boy},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,5,40,40,0,1",
+        f"Style: Baslik,Arial,{rnd.choice([54, 58, 62])},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,5,60,60,0,1",
+        "Style: Chat,Arial,38,&H00FFFFFF,&H00FFFFFF,&H50000000,&H50000000,-1,0,0,0,100,100,0,0,3,10,0,7,0,0,0,1",
+        f"Style: Kredi,Arial,36,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,{d.get('kredi_mv', 60)},1",
+        f"Style: Imza,Arial,32,&H80FFFFFF,&H80FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,40,40,{d.get('imza_mv', 30)},1",
+        # tweet düzeni
+        "Style: TAd,Arial,46,&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1",
+        "Style: TKul,Arial,40,&H00727272,&H00727272,&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1",
+        "Style: TUst,Arial Black,38,&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,1,0,1,0,0,5,30,30,0,1",
+        "Style: TYorum,Arial,62,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,2,5,60,60,0,1",
+        "Style: TKredi,Arial,32,&H00727272,&H00727272,&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,1,0,0,5,30,30,0,1",
+        "Style: TTik,Arial,40,&H00F09B1D,&H00F09B1D,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1",
+        "Style: TAvatar,Arial,240,&H00B07A2E,&H00B07A2E,&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1",
+        "Style: THarf,Arial,58,&H00FFFFFF,&H00FFFFFF,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1",
+    ]
     satirlar = [
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {W}", f"PlayResY: {H}",
-        "WrapStyle: 0", "ScaledBorderAndShadow: yes", "",
-        "[V4+ Styles]",
+        "WrapStyle: 0", "ScaledBorderAndShadow: yes", "", "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
         "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        # Başlık: telefonla yazılmış gibi sade beyaz kalın yazı + siyah kenar (kutu yok)
-        f"Style: Baslik,Arial,{baslik_boy},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,5,60,60,0,1",
-        # Altyazı: beyaz, konuşulan kelime sarı; kalın siyah kenar
-        f"Style: Alt,{alt_font},76,{alt_renk},&H0000E5FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,{d['alt_mv']},1",
-        f"Style: Kredi,Arial,40,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,{d['kredi_mv']},1",
-        # Chat baloncukları: yarı saydam koyu kutu, beyaz yazı
-        "Style: Chat,Arial,38,&H00FFFFFF,&H00FFFFFF,&H50000000,&H50000000,-1,0,0,0,100,100,0,0,3,10,0,7,0,0,0,1",
-        f"Style: Imza,Arial,34,&H80FFFFFF,&H80FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,40,40,{d['imza_mv']},1",
-        "",
-        "[Events]",
+        *stiller, "", "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
     son = _zaman(sure + 1)
-    if baslik:
+    ax, ay = d["alt_pos"]
+
+    if duzen == "tweet":
+        sp = sayfa or {}
+        ad = sp.get("ad") or (imza.lstrip("@") if imza else "GTA 6 Clips")
+        kul = sp.get("kullanici") or imza or ""
+        if not sp.get("profil"):   # profil fotoğrafı yoksa: renkli daire + baş harf
+            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},TAvatar,,0,0,0,,{{\\pos(120,212)}}●")
+            satirlar.append(f"Dialogue: 2,0:00:00.00,{son},THarf,,0,0,0,,{{\\pos(120,214)}}{_ass_metin(ad[:1].upper())}")
+        satirlar.append(f"Dialogue: 1,0:00:00.00,{son},TAd,,0,0,0,,{{\\pos(200,170)}}{_ass_metin(ad)}"
+                        + (" {\\rTTik}✔" if sp.get("tik") else ""))
+        if kul:
+            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},TKul,,0,0,0,,{{\\pos(200,224)}}{_ass_metin(kul)}")
+        if sp.get("ust"):
+            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},TUst,,0,0,0,,{{\\pos(540,340)}}{_ass_metin(sp['ust'].upper())}")
+        if baslik:   # videonun üstünde ince beyaz yorum ("suspect is driving" gibi), ilk saniyeler
+            bx, by = d["baslik"]
+            satirlar.append(f"Dialogue: 5,0:00:00.20,0:00:03.80,TYorum,,0,0,0,,{{\\pos({bx},{by})\\fad(150,250)}}"
+                            f"{_ass_metin(baslik)}")
+        if kredi:
+            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},TKredi,,0,0,0,,{{\\pos(540,1530)}}{_ass_metin(kredi)}")
+        satirlar += _altyazi_olaylari(altyazilar, sure, ax, ay)
+        yol.write_text("\n".join(satirlar) + "\n", encoding="utf-8")
+        return
+
+    if baslik and duzen == "tek":
         bx, by = d["baslik"]
-        # açılışta hafif büyüyerek gelir
         efekt = f"{{\\pos({bx},{by})\\fscx80\\fscy80\\t(0,180,\\fscx100\\fscy100)\\fad(120,0)}}"
         satirlar.append(f"Dialogue: 5,0:00:00.00,{son},Baslik,,0,0,0,,{efekt}{_ass_metin(baslik)}")
+    elif baslik and duzen == "yuz" and not altyazilar:
+        # konuşma yoksa başlık ilk 3 sn ortadaki çizgide görünsün
+        satirlar.append(f"Dialogue: 5,0:00:00.00,0:00:03.00,Baslik,,0,0,0,,{{\\pos({ax},{ay})\\fad(120,200)}}"
+                        f"{_ass_metin(baslik)}")
     if kredi:
         satirlar.append(f"Dialogue: 1,0:00:00.00,{son},Kredi,,0,0,0,,{_ass_metin(kredi)}")
     if imza:
         satirlar.append(f"Dialogue: 1,0:00:00.00,{son},Imza,,0,0,0,,{_ass_metin(imza)}")
-    for bas, bit, metin in altyazilar:
-        if bit <= 0 or bas >= sure:
-            continue
-        efekt = "{\\fscx85\\fscy85\\t(0,90,\\fscx100\\fscy100)}"
-        satirlar.append(f"Dialogue: 3,{_zaman(bas)},{_zaman(bit)},Alt,,0,0,0,,{efekt}{_ass_metin(metin.upper())}")
+    satirlar += _altyazi_olaylari(altyazilar, sure, ax, ay)
     renkler = ["&H00FF9A4B", "&H004BD6FF", "&H0098FF6B", "&H00D37BFF", "&H006B6BFF", "&H00FFE14B"]
     for bas, bit, satir, kim, msg in chat or []:
         y = d["chat_y"] + satir * CHAT_ARALIK
@@ -165,6 +225,34 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
            "-af", "asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11", "-t", f"{sure:.2f}",
            "-movflags", "+faststart", str(Path(cikti).resolve())]
     subprocess.run(cmd, check=True, cwd=str(ass.parent) if ass else None, creationflags=_PENCERESIZ)
+    return cikti
+
+
+def tweet_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: Path,
+                profil: Path | None = None, an: float | None = None) -> Path:
+    """Beyaz zemin + tweet tarzı üst kısım + ortada kare oyun videosu."""
+    vy, vh = DUZEN["tweet"]["video_y"], DUZEN["tweet"]["video_h"]
+    girdiler = ["-ss", f"{baslangic:.2f}", "-t", f"{sure:.2f}", "-i", str(Path(kaynak).resolve())]
+    filtre = (f"color=c=white:s={W}x{H}:r=30:d={sure:.2f}[zemin];"
+              f"[0:v]setpts=PTS-STARTPTS,crop=min(iw\\,ih):min(iw\\,ih),scale={W}:{vh},setsar=1,fps=30"
+              f"{_yakinlas(W, vh, an)}[oyun];"
+              f"[zemin][oyun]overlay=0:{vy}:shortest=1[z1]")
+    if profil and Path(profil).exists():
+        girdiler += ["-loop", "1", "-i", str(Path(profil).resolve())]
+        filtre += (";[1:v]scale=124:124:force_original_aspect_ratio=increase,crop=124:124,format=rgba,"
+                   "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(hypot(X-62,Y-62),62),255,0)'[av];"
+                   "[z1][av]overlay=58:150:shortest=1[z2]")
+        son = "[z2]"
+    else:
+        son = "[z1]"
+    filtre += f";{son}format=yuv420p,ass={ass.name}[v]"
+    cmd = [arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", *girdiler,
+           "-filter_complex", filtre, "-map", "[v]", "-map", "0:a:0?",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-maxrate", "10M", "-bufsize", "20M",
+           "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
+           "-af", "asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11", "-t", f"{sure:.2f}",
+           "-movflags", "+faststart", str(Path(cikti).resolve())]
+    subprocess.run(cmd, check=True, cwd=str(ass.parent), creationflags=_PENCERESIZ)
     return cikti
 
 

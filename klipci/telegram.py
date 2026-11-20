@@ -28,6 +28,7 @@ class Bot:
         self.on_komut: Callable[[str], Awaitable[str]] | None = None
         # buton: data -> (kısa cevap, yeni mesaj metni | None, yeni butonlar | None)
         self.on_buton: Callable[[str], Awaitable[tuple]] | None = None
+        self.on_foto: Callable[[bytes], Awaitable[str]] | None = None
 
     async def _api(self, metod: str, **kw) -> dict:
         r = await self.http.post(API.format(token=self.token, metod=metod), **kw)
@@ -69,7 +70,8 @@ class Bot:
         """Telegram'da / yazınca çıkan komut listesi."""
         komutlar = [("durum", "Neler izleniyor, kaç klip çıktı"), ("yayinlar", "Şu an açık yayınlar — dokun, seç"),
                     ("platform", "Twitch / Kick / YouTube aç-kapat"), ("istatistik", "Neyi sevdiğimi öğrendin?"),
-                    ("sinir", "Aynı anda kaç yayın izlensin: /sinir 25"), ("meme", "Şimdi meme videosu yap"), ("gunluk", "Günde kaç paylaşım: /gunluk 10"), ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
+                    ("sinir", "Aynı anda kaç yayın izlensin: /sinir 25"), ("meme", "Şimdi meme videosu yap"), ("gunluk", "Günde kaç paylaşım: /gunluk 10"),
+                    ("ad", "Tweet tarzı: sayfa adı"), ("ustyazi", "Tweet tarzı: büyük başlık"), ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
                     ("isim", "Videonun altındaki kullanıcı adı: /isim @hesap"),
                     ("hesap", "TR / EN hesaplarını aç-kapat"),
                     ("twitch", "Twitch yayıncısı ekle: /twitch kaicenat"), ("kick", "Kick yayıncısı ekle: /kick adinross"),
@@ -99,7 +101,19 @@ class Bot:
         if "message" in u:
             m = u["message"]
             cid = str(m["chat"]["id"])
-            metin = (m.get("text") or "").strip()
+            metin = (m.get("text") or m.get("caption") or "").strip()
+            if m.get("photo") and str(m["chat"]["id"]) == self.chat_id and self.on_foto:
+                if metin.lower().startswith("/profil"):
+                    try:
+                        dosya = await self._api("getFile", data={"file_id": m["photo"][-1]["file_id"]})
+                        r = await self.http.get(f"https://api.telegram.org/file/bot{self.token}/{dosya['file_path']}")
+                        r.raise_for_status()
+                        await self.mesaj(await self.on_foto(r.content))
+                    except Exception as e:  # noqa: BLE001
+                        await self.mesaj(f"Fotoğraf kaydedilemedi: {e}")
+                else:
+                    await self.mesaj("Profil fotoğrafı yapmak için fotoğrafın açıklamasına /profil yaz.")
+                return
             if metin.startswith("/start"):
                 if not self.chat_id:
                     self.chat_id = cid

@@ -33,5 +33,7 @@ def test_chat_sec_link_ve_uzun_atlanir():
 
 def test_altyazi():
     k = [Kelime(0, .3, "bu"), Kelime(.3, .6, "ne"), Kelime(.6, .9, "lan"), Kelime(.9, 1.2, "abi")]
-    assert [t for *_, t in kelime_parcala(k)] == ["bu ne lan", "abi"]
+    parca = kelime_parcala(k)
+    assert [x[2] for x in parca] == ["bu ne lan", "abi"]
+    assert parca[0][3][1] == (.3, .6, "ne")
     assert tr_buyuk("şaka mı bu iyi") == "ŞAKA MI BU İYİ"
