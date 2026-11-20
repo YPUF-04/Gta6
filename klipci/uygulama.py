@@ -124,7 +124,8 @@ class Uygulama:
         self.isler: dict[str, dict] = {}   # hazırlanan klipler: /sira
         self.dinamik_kat = float((cfg.get("algilama") or {}).get("kat", 3.0))
         self._spike_gecmisi: list[float] = []
-        self._kabul_gecmisi: list[float] = []
+        self._kabul_gecmisi: list[float] = []   # tüm kontrolleri geçip video olan klipler (saatlik kota)
+        self._kesim_gecmisi: list[float] = []   # kesilen (incelemeye giren) klipler
         self._yabanci: set[str] = set()   # chat'ine göre başka dilde olduğu anlaşılan yayınlar (bu oturum)
         self._kapali: dict[str, float] = {}   # yakın zamanda kapalı bulunan kanallar
 
@@ -466,7 +467,10 @@ class Uygulama:
                     self._spike_gecmisi.append(time.time())
                     butce = self._saatlik_butce()
                     son_saat = [t for t in self._kabul_gecmisi if t > time.time() - 3600]
-                    if len(son_saat) >= butce and s.kat < self.dinamik_kat * 1.8:
+                    # kota sadece gerçekten video olan (tüm kontrolleri geçen) kliplerden düşer; ayrıca bilgisayar
+                    # boğulmasın diye saatte en fazla butce*5 kesim denenir
+                    kesim = [t for t in self._kesim_gecmisi if t > time.time() - 3600]
+                    if (len(son_saat) >= butce or len(kesim) >= butce * 5) and s.kat < self.dinamik_kat * 1.8:
                         self.sayac["kotada"] += 1
                         log.info("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
                                  butce, iz.kanal.anahtar)
@@ -504,7 +508,7 @@ class Uygulama:
 
     def _saatlik_butce(self) -> int:
         # yayınlar günde ~12 saat yoğun: günlük hedefi saatlere böl
-        return max(3, round(int(self.cfg.get("hedef_gunluk_klip", 60)) / 12))
+        return max(5, round(int(self.cfg.get("hedef_gunluk_klip", 60)) / 12))
 
     async def hiz_ayari(self) -> None:
         """Her 20 dk: çok klip çıkıyorsa eşiği yükselt, hiç çıkmıyorsa düşür (günde ~hedef kadar klip)."""
@@ -517,6 +521,7 @@ class Uygulama:
             simdi = time.time()
             self._spike_gecmisi = [t for t in self._spike_gecmisi if t > simdi - 3600]
             self._kabul_gecmisi = [t for t in self._kabul_gecmisi if t > simdi - 6 * 3600]
+            self._kesim_gecmisi = [t for t in self._kesim_gecmisi if t > simdi - 3600]
             n, butce = len(self._spike_gecmisi), self._saatlik_butce()
             eski = self.dinamik_kat
             if n > butce * 3:
@@ -712,7 +717,7 @@ class Uygulama:
             self.son_sorun = f"{iz.kanal.gorunen}: {neden}"[:300]
             return
         bas, bit = sonuc[2], sonuc[3]   # kayıtta boşluk varsa klip kısaltılmış olabilir
-        self._kabul_gecmisi.append(time.time())   # kota sadece gerçekten kesilen klipten düşer
+        self._kesim_gecmisi.append(time.time())
         if self.cfg.get("hazirlaniyor_bildirimi", True):
             try:
                 await self.bot.mesaj(f"🎬 Klip hazırlanıyor: {iz.kanal.gorunen} ({iz.kanal.platform}) — "
@@ -821,6 +826,7 @@ class Uygulama:
         en_dusuk = float(self.cfg.get("en_dusuk_puan", 0))
 
         kareler = await asyncio.to_thread(self._kareler, is_) if self.yazar.client else []
+        uretildi = False
         for h in self._hedef_hesaplar(kaynak_dil or is_.kanal.dil):
             dil, ad = h.get("dil", "tr"), h.get("ad", "TR")
             hid = f"{kid}_{ad}"
@@ -942,6 +948,9 @@ class Uygulama:
                 log.info("düşük puan (%.1f < %.1f), Telegram'a yollanmadı: %s", skor, en_dusuk, hid)
                 continue
             log.info("✅ klip hazır: %s (puan %.1f)", mp4, skor)
+            if not uretildi:
+                uretildi = True
+                self._kabul_gecmisi.append(time.time())
             self._asama(is_.takip, "📤 Telegram'a gönderiliyor")
             await self._gonder(klasor)
 
