@@ -11,26 +11,32 @@ W, H = 1080, 1920
 CHAT_Y, CHAT_ARALIK = 600, 52   # chat: oyun görüntüsünün sol alt köşesinde, küçük ve sade
 
 
-def chat_sec(mesajlar: list[tuple[float, str, str]], sure: float, satir: int = 2,
-             gorunme_sn: float = 2.0, en_sik_sn: float = 0.9) -> list[tuple[float, float, int, str, str]]:
-    """Klip boyunca ekrana düşecek chat mesajlarını seç.
+def chat_sec(mesajlar: list[tuple[float, str, str]], sure: float, satir: int = 1,
+             gorunme_sn: float = 1.8, en_sik_sn: float = 2.5, en_fazla: int = 5,
+             an: float | None = None) -> list[tuple[float, float, int, str, str]]:
+    """Ekrana düşecek chat mesajlarını seç — az ve öz.
 
-    mesajlar: (klibe göre saniye, kullanıcı, mesaj). Kısa ve tepki içeren mesajlar öncelikli,
-    aynı anda en fazla `satir` mesaj görünür; yenisi gelince en eskisinin yerine geçer."""
+    Sadece tepki mesajları (LMAO, NO WAY, 💀...), sadece chat'in patladığı anın çevresinde (an-3 .. an+12 sn),
+    klip başına en fazla `en_fazla` tane, aynı anda tek satır."""
     from .spike import mesaj_puani
-    satir = max(1, min(int(satir), 2))   # en fazla 2 satır: ekranı kaplamasın
-    secilen, son_t, sira = [], -99.0, 0
+    satir = max(1, min(int(satir), 2))
+    adaylar = []
     for t, kim, msg in sorted(mesajlar):
         msg = " ".join(msg.split())
-        if not (0 <= t < sure - 0.5) or not msg or "http" in msg or len(msg) > 28:
+        if not (0 <= t < sure - 0.5) or not msg or "http" in msg or len(msg) > 24:
             continue
-        puan, _ = mesaj_puani(msg)
-        if t - son_t < (en_sik_sn if puan > 1 else en_sik_sn * 3):
+        if an is not None and not (an - 3 <= t <= an + 12):
+            continue
+        if mesaj_puani(msg)[0] <= 1:   # sadece gülme/şok/klip tepkileri
+            continue
+        adaylar.append((t, kim, msg))
+    secilen, son_t, sira = [], -99.0, 0
+    for t, kim, msg in adaylar:
+        if t - son_t < en_sik_sn or len(secilen) >= en_fazla:
             continue
         son_t = t
-        secilen.append((t, min(t + gorunme_sn, sure), sira % satir, kim[:12], msg[:24]))
+        secilen.append((t, min(t + gorunme_sn, sure), sira % satir, kim[:12], msg[:22]))
         sira += 1
-    # aynı satıra yeni mesaj gelince eskisi o an kaybolsun (üst üste binmesin)
     for i, (b, e, sl, k, m) in enumerate(secilen):
         sonraki = next((x[0] for x in secilen[i + 1:] if x[2] == sl), None)
         if sonraki is not None and sonraki < e:

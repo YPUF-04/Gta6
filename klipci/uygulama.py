@@ -503,7 +503,8 @@ class Uygulama:
         kaynak_dil = cozum.dil if cozum else ""
         zoom = float((self.cfg.get("klip") or {}).get("zoom", 1.3))
         ce = self.cfg.get("chat_ekrani") or {}
-        chat_pop = (chat_sec(is_.chat, is_.sure, int(ce.get("en_fazla_satir", 3)), float(ce.get("sure_sn", 2.2)))
+        chat_pop = (chat_sec(is_.chat, is_.sure, 1, float(ce.get("sure_sn", 1.8)),
+                             en_fazla=int(ce.get("en_fazla_mesaj", 5)), an=is_.an)
                     if ce.get("acik", True) else [])
         en_dusuk = float(self.cfg.get("en_dusuk_puan", 0))
 

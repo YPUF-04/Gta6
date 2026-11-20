@@ -45,3 +45,11 @@ def test_kick_emote_temizle():
     raw = json.dumps({"event": "App\\Events\\ChatMessageEvent",
                       "data": json.dumps({"content": "[emote:5747991:collectiblespeepo]", "sender": {"username": "z"}})})
     assert parse_kick_event(raw) == ("z", "💀")
+
+
+def test_chat_az_ve_patlama_aninda():
+    msgs = [(i * 0.2, f"u{i}", "LMAO" if i % 2 else "hello there") for i in range(250)]
+    sec = chat_sec(msgs, 50, an=20)
+    assert 1 <= len(sec) <= 5
+    assert all(17 <= b <= 32 for b, *_ in sec)
+    assert all(m == "LMAO" for *_, m in sec)

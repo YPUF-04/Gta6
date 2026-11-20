@@ -97,8 +97,8 @@ klip:
 # Chat'te yazılanlar (LMAO, NO WAY, CLIP THAT...) kısa süreliğine videonun üstüne düşer
 chat_ekrani:
   acik: true
-  en_fazla_satir: 3         # aynı anda ekranda kaç mesaj
-  sure_sn: 2.2              # her mesaj kaç saniye görünsün
+  en_fazla_mesaj: 5         # bir klipte en fazla kaç chat mesajı görünsün (sadece patlama anında)
+  sure_sn: 1.8              # her mesaj kaç saniye görünsün
 
 # ---------- ALTYAZI ----------
 altyazi:
