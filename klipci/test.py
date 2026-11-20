@@ -112,6 +112,10 @@ async def platform_dene(ad: str, kesifci, bot: Bot, klasor: Path) -> None:
 
 async def ana() -> None:
     cfg = yaml.safe_load((KOK / "config.yaml").read_text(encoding="utf-8")) or {}
+    from . import SURUM
+    print(f"Sürüm: {SURUM}   Klasör: {KOK}", flush=True)
+    if not str(KOK).isascii() or "onedrive" in str(KOK).lower():
+        print("⚠️  Klasör OneDrive içinde ya da yolunda Türkçe harf var. C:\\GTA6-Klipci'ye taşıman önerilir.", flush=True)
     print("=== TEMEL ===", flush=True)
     try:
         yaz("FFmpeg", bool(arac("ffmpeg")))

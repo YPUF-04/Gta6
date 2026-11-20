@@ -90,3 +90,13 @@ def test_kick_kategori():
                   {"is_live": True, "viewer_count": 17930, "language": "English", "channel": {"slug": "xqc"}}]}
     out = kick_kategori_ayikla(j)
     assert [(k.ad, k.isim, k.dil, v) for k, v in out] == [("tepki", "Tepki", "tr", 6511), ("xqc", "xqc", "en", 17930)]
+
+
+def test_youtube_yedek_ayikla():
+    from klipci.kesif import youtube_yedek_ayikla
+    data = {"x": [{"lockupViewModel": {"contentId": "abcdefghijk", "metadata": {
+        "title": {"content": "GTA 6 LIVE first day"},
+        "rows": [{"text": {"content": "SomeStreamer"}, "commandRuns": [{"onTap": {"browseEndpoint": {
+            "canonicalBaseUrl": "/@SomeStreamer"}}}]}, {"text": {"content": "12K watching"}}]}}}]}
+    out = youtube_yedek_ayikla(data)
+    assert [(k.ad, k.isim, v) for k, v in out] == [("abcdefghijk", "SomeStreamer", 12000)]

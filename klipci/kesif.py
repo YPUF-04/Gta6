@@ -374,6 +374,33 @@ def youtube_arama_ayikla(data: dict) -> list[tuple[Kanal, int]]:
     return out
 
 
+def youtube_yedek_ayikla(data: dict) -> list[tuple[Kanal, int]]:
+    """Kart biçimi ne olursa olsun: içinde video kimliği + 'watching' + oyun adı geçen her kartı al."""
+    out, gorulen = [], set()
+
+    def gez(o):
+        if isinstance(o, dict):
+            vid = o.get("videoId") or o.get("contentId")
+            if isinstance(vid, str) and len(vid) == 11 and vid not in gorulen:
+                ham = json.dumps(o, ensure_ascii=False)
+                m = re.search(r"([\d.,]+\s*[KkMm]?)\s*(?:watching|izleyici|izliyor)", ham)
+                if m and OYUN.regex.search(ham) and len(ham) < 60000:
+                    gorulen.add(vid)
+                    h = re.search(r'"canonicalBaseUrl":\s*"/(@[^"]+)"', ham)
+                    isim = h.group(1).lstrip("@") if h else ""
+                    out.append((Kanal("youtube", vid, isim, h.group(1) if h else "", izleyici=_sayi(m.group(1))),
+                                _sayi(m.group(1))))
+                    return
+            for x in o.values():
+                gez(x)
+        elif isinstance(o, list):
+            for x in o:
+                gez(x)
+
+    gez(data)
+    return out
+
+
 class YoutubeKesif:
     def __init__(self, arama: str = ""):
         self.arama = arama or OYUN.arama
@@ -382,7 +409,13 @@ class YoutubeKesif:
         r = await c.get("https://www.youtube.com/results", headers=YT_HDR, params={
             "search_query": self.arama, "sp": "EgJAAQ==", "hl": "en", "gl": "US"})
         r.raise_for_status()
-        out = youtube_arama_ayikla(_yt_initial(r.text))
+        veri = _yt_initial(r.text)
+        out = youtube_arama_ayikla(veri)
+        if not out:   # YouTube sayfa yapısını değiştirdiyse (yeni "lockup" kartları) yedek okuma
+            out = youtube_yedek_ayikla(veri)
+        if not out:
+            log.info("YouTube araması sonuç vermedi (sayfa %d KB, veri %s)", len(r.text) // 1024,
+                     "var" if veri else "yok — çerez/onay sayfası olabilir")
         out.sort(key=lambda x: -x[1])
         return out[:adet]
 

@@ -57,6 +57,8 @@ def main() -> None:
         raise SystemExit("config.yaml yok. Önce KURULUM.bat'ı çalıştır.")
     cfg = yaml.safe_load(cfg_yol.read_text(encoding="utf-8")) or {}
 
+    from . import SURUM
+    logging.getLogger("klipci").info("GTA 6 Klipçi sürüm %s — klasör: %s", SURUM, KOK)
     (KOK / "klipci.pid").write_text(str(os.getpid()))
     uyumayi_engelle()
     from .uygulama import Uygulama

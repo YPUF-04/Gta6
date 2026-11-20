@@ -23,6 +23,7 @@ from .chat import kick_chat, twitch_chat, youtube_chat
 from .kayit import _PENCERESIZ, PARCA_SN, Kaydedici, arac
 from . import plan as planmod
 from . import meme, puan, yuz
+from . import SURUM
 from .oyun import OYUN, ayarla as oyun_ayarla
 from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, tweet_video, video_saglam_mi
 from .spike import Spike, SpikeDetector
@@ -1094,7 +1095,7 @@ class Uygulama:
         except Exception:  # noqa: BLE001
             pass
         try:
-            await self.bot.mesaj(f"▶ {OYUN.kisa} Klipçi açıldı. Yayınlar aranıyor... (/durum)")
+            await self.bot.mesaj(f"▶ {OYUN.kisa} Klipçi açıldı (sürüm {SURUM}). Yayınlar aranıyor... (/durum)")
         except Exception as e:  # noqa: BLE001
             log.warning("Telegram'a ulaşılamadı: %s", e)
         try:
