@@ -32,7 +32,7 @@ from .ceviri import cevir as ceviri_yap
 from .yazar import pov_yazisi
 from .oyunsesi import hareketsiz_oran, oyun_altyazi_anlari, oyun_konusmasi_mi, yuz_tepkisi
 from .telegram import Bot
-from .yazar import Yazar, paylasim_metni, platform_metinleri, tepki_yazisi, trend_arastir
+from .yazar import Yazar, paylasim_metni, platform_metinleri, trend_arastir
 
 log = logging.getLogger("klipci")
 # TEST'te üç platformda da çalışan kalite. 1080p60'ta Kick/YouTube kayıtları bozuluyor ve 25 yayında
@@ -957,9 +957,7 @@ class Uygulama:
             # yüz varsa: varsayılan "pip" (oyun tam ekran, kamera sol üstte kutu); "yuz" = üstte kamera altta oyun
             duzen = (str(self.cfg.get("yuzlu_duzen", "pip")) if facecam
                      else str(self.cfg.get("yuzsuz_duzen", "tweet")))
-            tepki = None
-            if self.cfg.get("tepki_yazisi", True):
-                tepki = (is_.an, tepki_yazisi(is_.spike.kelimeler, is_.spike.ornek_mesajlar, dil, hid))
+            tepki = None   # "chat koptu" gibi ekrana yazı ASLA basılmaz (kullanıcı istemedi)
             if oyun_ani and self.cfg.get("pov_duzeni", True):
                 # karakter anı: GTA 6 yazısı, ortada oyun, pembe POV yazısı; altyazı oyunun kendi altyazısı
                 duzen = "pov"
