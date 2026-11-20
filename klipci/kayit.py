@@ -42,8 +42,16 @@ class Kaydedici:
 
     def baslat(self) -> None:
         self.klasor.mkdir(parents=True, exist_ok=True)
+        kilitli = False
         for eski in self.klasor.glob("*.ts"):
-            eski.unlink(missing_ok=True)
+            try:
+                eski.unlink(missing_ok=True)
+            except OSError:   # başka bir (artık kalmış) işlem kullanıyor
+                kilitli = True
+        if kilitli:   # o klasörü bırak, temiz bir klasörde başla
+            self.klasor = self.klasor.with_name(f"{self.klasor.name}_{int(time.time())}")
+            self.klasor.mkdir(parents=True, exist_ok=True)
+            log.info("eski kayıt dosyaları kilitli, yeni klasör kullanılıyor")
         sl_cmd = [sys.executable, "-m", "streamlink", "--stdout", "--loglevel", "error",
                   "--twitch-disable-ads", "--hls-live-edge", "2", "--stream-segment-threads", "2",
                   self.url, self.kalite]
@@ -73,6 +81,8 @@ class Kaydedici:
         shutil.rmtree(self.klasor, ignore_errors=True)
 
     def temizle(self) -> None:
+        if not self.klasor.exists():
+            return
         sinir = time.time() - self.tampon
         for p in self.klasor.glob("*.ts"):
             try:
@@ -102,7 +112,7 @@ class Kaydedici:
         araliklar = sorted(b[1] - a[1] for a, b in zip(tum, tum[1:]) if b[1] > a[1])
         tipik = araliklar[len(araliklar) // 2] if araliklar else PARCA_SN
         # Kick'te parçalar düzensiz (4-8 sn); gerçek kopma (uyku, internet) 20 sn'den uzun olur
-        azami = max(PARCA_SN * 3, tipik * 2.5)
+        azami = max(20.0, tipik * 3)
         secilen = []
         for i, (p, t) in enumerate(bitmis):
             bitis = min(tum[i + 1][1], t + azami)
@@ -126,3 +136,23 @@ class Kaydedici:
                        check=True, creationflags=_PENCERESIZ)
         liste.unlink(missing_ok=True)
         return hedef, max(0.0, bas - secilen[0][1])
+
+
+def yetim_kayitlari_kapat(tampon_kok: Path) -> int:
+    """Önceki çalışmadan kalmış (program kapanınca ölmemiş) ffmpeg kayıtlarını kapat, tamponu temizle."""
+    kapatilan = 0
+    if os.name == "nt":
+        try:
+            komut = ("Get-CimInstance Win32_Process -Filter \"Name='ffmpeg.exe'\" | "
+                     "Where-Object { $_.CommandLine -like '*klipci_tampon*' } | "
+                     "ForEach-Object { Stop-Process -Id $_.ProcessId -Force; $_.ProcessId }")
+            out = subprocess.run(["powershell", "-NoProfile", "-Command", komut], capture_output=True,
+                                 text=True, timeout=30, creationflags=_PENCERESIZ).stdout
+            kapatilan = len([x for x in out.split() if x.strip().isdigit()])
+        except Exception as e:  # noqa: BLE001
+            log.debug("yetim kayıt kontrolü olmadı: %r", e)
+    if kapatilan:
+        log.info("önceki çalışmadan kalan %d kayıt işlemi kapatıldı", kapatilan)
+        time.sleep(1)
+    shutil.rmtree(tampon_kok, ignore_errors=True)
+    return kapatilan

@@ -20,7 +20,7 @@ import httpx
 from . import kesif
 from .altyazi import Yaziya, kelime_parcala, segment_parcala, tr_buyuk
 from .chat import kick_chat, twitch_chat, youtube_chat
-from .kayit import _PENCERESIZ, PARCA_SN, Kaydedici, arac
+from .kayit import _PENCERESIZ, PARCA_SN, Kaydedici, arac, yetim_kayitlari_kapat
 from . import plan as planmod
 from . import meme, puan, yuz
 from . import SURUM
@@ -297,7 +297,11 @@ class Uygulama:
                             log.info("yer açılıyor: %s çıkarıldı, %s giriyor", oto_iz[-1], k.anahtar)
                             await self._birak(oto_iz[-1])
                             self._kapali.pop(oto_iz[-1], None)
-                        await self._baslat(k, oto)
+                        try:   # bir yayında sorun çıkarsa diğerleri yine başlasın
+                            await self._baslat(k, oto)
+                        except Exception as e:  # noqa: BLE001
+                            log.warning("%s izlenemedi (%r), 5 dk sonra tekrar denenecek", k.anahtar, e)
+                            self._kapali[k.anahtar] = time.time()
             except Exception:  # noqa: BLE001
                 log.exception("yönetici hatası")
             self._uyandir.clear()
@@ -1169,6 +1173,7 @@ class Uygulama:
         if not self.bot.token:
             raise SystemExit("config.yaml içinde telegram.bot_token boş! README'deki adımlara bak.")
         (self.klasor / "_is").mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(yetim_kayitlari_kapat, self._tampon_kok())
         n_isci = max(1, int(self.cfg.get("ayni_anda_kurgu", 2)))
         gorevler = [asyncio.create_task(self.bot.dinle()), asyncio.create_task(self.yonetici())]
         gorevler += [asyncio.create_task(self.isci()) for _ in range(n_isci)]

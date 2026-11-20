@@ -108,3 +108,24 @@ def test_kes_duzensiz_kick_parcalari(tmp_path):
         (tmp_path / (datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S") + ".ts")).write_bytes(kaynak.read_bytes())
     kaynak.unlink()
     assert k.kes(simdi - 38, simdi - 10, tmp_path / "out" / "o.ts") is not None
+
+
+def test_kilitli_tampon_yeni_klasor(tmp_path, monkeypatch):
+    import pathlib
+    from klipci import kayit
+    k = kayit.Kaydedici("x", tmp_path / "twitch_zarbex", "best", 9999)
+    (tmp_path / "twitch_zarbex").mkdir()
+    (tmp_path / "twitch_zarbex" / "20261120_114325.ts").write_bytes(b"x")
+
+    def kilitli(self, missing_ok=False):
+        raise PermissionError("WinError 32")
+    monkeypatch.setattr(pathlib.Path, "unlink", kilitli)
+
+    class Sahte:
+        stdout = type("S", (), {"close": lambda self: None})()
+
+        def poll(self):
+            return None
+    monkeypatch.setattr(kayit.subprocess, "Popen", lambda *a, **kw: Sahte())
+    k.baslat()   # hata vermemeli
+    assert k.klasor.name.startswith("twitch_zarbex_") and k.klasor.exists()
