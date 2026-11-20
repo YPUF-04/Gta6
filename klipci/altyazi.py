@@ -82,7 +82,7 @@ class Yaziya:
         log.info("altyazı modeli yükleniyor (%s, %s) — ilk sefer ~500 MB indirir", self.model_adi, cihaz)
         if cihaz == "cuda":
             # ekran kartı varsa daha iyi model: Türkçeyi çok daha doğru yazar, yine de hızlı
-            if self.model_adi in ("auto", "small", "base", "tiny"):
+            if self.model_adi == "auto":
                 eski, self.model_adi = self.model_adi, "large-v3-turbo"
                 try:
                     self._model = self._dene("cuda")
@@ -105,6 +105,10 @@ class Yaziya:
         self.durum = "hazır (işlemci)"
         log.info("altyazı modeli hazır (işlemci ile)")
         return self._model
+
+    @property
+    def hazir(self) -> bool:
+        return self._model is not None
 
     def onyukle(self, deneme: int = 0) -> bool:
         """Program açılınca arka planda modeli hazırla (ilk klip beklemesin). İnternet yoksa sonra tekrar."""

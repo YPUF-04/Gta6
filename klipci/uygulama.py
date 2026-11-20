@@ -461,6 +461,13 @@ class Uygulama:
                         log.info("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
                                  butce, iz.kanal.anahtar)
                         continue
+                    if iz.oto:
+                        yd = yazi_dili([m for _, _, m in list(iz.chat_log)[-200:]])
+                        if yd and yd not in self._izinli_diller():
+                            log.info("%s chat'i %s, bırakılıyor", iz.kanal.anahtar, yd)
+                            self._yabanci.add(iz.kanal.anahtar)
+                            asyncio.create_task(self._birak(iz.kanal.anahtar))
+                            return
                     son = [m for t, _, m in list(iz.chat_log) if t >= time.time() - 12]
                     tepki_o = sum(1 for m in son if mesaj_puani(m)[0] > 1
                                   and mesaj_puani(m)[1] not in ("w", "gg", "?", "??", "???")) / max(1, len(son))
@@ -729,11 +736,14 @@ class Uygulama:
             if not self.yaziya:
                 alt_not.append("altyazı ayardan kapalı")
                 return None
+            if not self.yaziya.hazir:
+                # model hazır değilse BEKLEME: klip altyazısız çıksın, sıra tıkanmasın
+                alt_not.append(f"altyazı aracı hazır değil ({self.yaziya.durum})")
+                return None
             wav = is_.kaynak.with_suffix(".wav")
             try:
                 await asyncio.to_thread(ses_cikar, is_.kaynak, is_.ofset, is_.sure, wav)
-                # model daha iniyorsa bekle (altyazısız klip çıkmasın), en fazla 15 dk
-                return await asyncio.wait_for(asyncio.to_thread(self.yaziya.coz, wav, is_.kanal.dil), 900)
+                return await asyncio.wait_for(asyncio.to_thread(self.yaziya.coz, wav, is_.kanal.dil), 240)
             except asyncio.TimeoutError:
                 alt_not.append(f"altyazı aracı yetişmedi ({self.yaziya.durum})")
                 return None
@@ -1543,17 +1553,35 @@ class Uygulama:
     async def _hazirlik(self) -> None:
         """Arka planda: yüz modeli + altyazı modeli hazırla (ilk klip beklemesin). İnternet yoksa tekrar dener."""
         await asyncio.to_thread(yuz.model_indir)
+        if not self.yaziya:
+            return
+
+        async def gec_kaldi_mi():
+            await asyncio.sleep(600)
+            if not self.yaziya.hazir:
+                try:
+                    await self.bot.mesaj("⏳ Altyazı aracı 10 dakikadır hazırlanıyor (model iniyor olabilir). "
+                                         "Bu sırada klipler altyazısız gelir.\nDurum: " + self.yaziya.durum)
+                except Exception:  # noqa: BLE001
+                    pass
+        bekci = asyncio.create_task(gec_kaldi_mi())
         uyardi = False
-        while self.yaziya and not await asyncio.to_thread(self.yaziya.onyukle):
+        while not await asyncio.to_thread(self.yaziya.onyukle):
             if not uyardi:
                 uyardi = True
                 ek = ("\nAltyazı paketi kurulu değil: programı kapatıp GUNCELLE.bat'a çift tıkla."
                       if "faster_whisper" in self.yaziya.durum else "")
                 try:
-                    await self.bot.mesaj("⚠️ Konuşma altyazısı şu an hazır değil, videolar altyazısız çıkabilir." + ek)
+                    await self.bot.mesaj("⚠️ Konuşma altyazısı hazırlanamadı, videolar altyazısız gelecek.\n"
+                                         f"Neden: {self.yaziya.durum}" + ek)
                 except Exception:  # noqa: BLE001
                     pass
             await asyncio.sleep(300)
+        bekci.cancel()
+        try:
+            await self.bot.mesaj(f"✅ Altyazı aracı hazır ({self.yaziya.durum}). Klipler artık altyazılı gelecek.")
+        except Exception:  # noqa: BLE001
+            pass
 
     # ---------- çalıştır ----------
     async def calistir(self) -> None:

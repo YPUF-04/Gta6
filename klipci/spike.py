@@ -94,7 +94,7 @@ def yazi_dili(mesajlar: list[str], oran: float = 0.35) -> str:
         return ""
     dil = max(puan, key=puan.get)
     rakip = max([v for d, v in puan.items() if d != dil] or [0])
-    return dil if dil not in ("en", "tr") and puan[dil] >= 12 and puan[dil] >= 1.5 * rakip else ""
+    return dil if dil not in ("en", "tr") and puan[dil] >= 8 and puan[dil] >= 1.5 * rakip else ""
 
 
 @dataclass
