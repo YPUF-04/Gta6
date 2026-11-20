@@ -16,6 +16,8 @@ KOK = Path(__file__).resolve().parent.parent
 DEPO = "YPUF-04/Gta6"
 ZIP_URL = f"https://github.com/{DEPO}/archive/HEAD.zip"
 SURUM_URL = f"https://raw.githubusercontent.com/{DEPO}/HEAD/klipci/__init__.py"
+# GitHub'ın API'si önbellek tutmaz (raw adresi ~5 dk eski kalabiliyor)
+API_URL = f"https://api.github.com/repos/{DEPO}/contents/klipci/__init__.py"
 # bunlara asla dokunulmaz
 KORUNAN_KLASOR = {".venv", "klipler", "ffmpeg", "logs", "modeller", ".git"}
 KORUNAN_DOSYA = {"config.yaml", "durum.json", "klipci.pid"}
@@ -31,14 +33,24 @@ def yerel_surum() -> str:
 
 
 def uzak_surum(timeout: float = 15) -> str | None:
+    """GitHub'daki en yeni sürüm numarası. Önce API (anlık), olmazsa raw adres (önbelleği aşmak için ?t=)."""
+    import time
+
     import httpx
-    try:
-        r = httpx.get(SURUM_URL, timeout=timeout, follow_redirects=True)
-        r.raise_for_status()
-        m = re.search(r'SURUM\s*=\s*"([^"]+)"', r.text)
-        return m.group(1) if m else None
-    except Exception:  # noqa: BLE001
-        return None
+    denemeler = [
+        (API_URL, {"Accept": "application/vnd.github.raw+json", "Cache-Control": "no-cache"}),
+        (f"{SURUM_URL}?t={int(time.time())}", {"Cache-Control": "no-cache"}),
+    ]
+    for url, basliklar in denemeler:
+        try:
+            r = httpx.get(url, timeout=timeout, follow_redirects=True, headers=basliklar)
+            r.raise_for_status()
+            m = re.search(r'SURUM\s*=\s*"([^"]+)"', r.text)
+            if m:
+                return m.group(1)
+        except Exception:  # noqa: BLE001
+            continue
+    return None
 
 
 def yeni_var_mi() -> tuple[bool, str, str | None]:
@@ -65,7 +77,8 @@ def _indir(url: str) -> bytes:
 def guncelle(atla: set[str] | None = None) -> int:
     """Dosyaları yeniler. Dönüş: yazılan dosya sayısı."""
     atla = {a.lower() for a in (atla or set())}
-    veri = _indir(ZIP_URL)
+    import time
+    veri = _indir(f"{ZIP_URL}?t={int(time.time())}")
     yazilan = 0
     with zipfile.ZipFile(io.BytesIO(veri)) as z:
         for ad in z.namelist():
