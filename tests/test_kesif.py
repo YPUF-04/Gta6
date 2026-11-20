@@ -77,3 +77,16 @@ def test_sablon_yapay_degil():
     m = paylasim_metni(v, Kanal("twitch", "kaicenat", "KaiCenat"), "tr")
     assert "#kaicenat #gta6" in m and "twitch.tv/kaicenat" in m
     assert "sonuna kadar" not in m.lower()
+
+
+def test_kick_kategori():
+    import json
+    from klipci.kesif import kick_kategori_ayikla, kick_kategori_slug, dil_kodu
+    assert kick_kategori_slug("Grand Theft Auto VI") == "grand-theft-auto-vi"
+    assert kick_kategori_slug("Grand Theft Auto VI (GTA)") == "grand-theft-auto-vi"
+    assert dil_kodu("Turkish") == "tr" and dil_kodu("English") == "en" and dil_kodu("en") == "en"
+    j = {"data": [{"is_live": True, "viewer_count": 6511, "language": "Turkish",
+                   "channel": {"slug": "tepki", "user": {"username": "Tepki"}}},
+                  {"is_live": True, "viewer_count": 17930, "language": "English", "channel": {"slug": "xqc"}}]}
+    out = kick_kategori_ayikla(j)
+    assert [(k.ad, k.isim, k.dil, v) for k, v in out] == [("tepki", "Tepki", "tr", 6511), ("xqc", "xqc", "en", 17930)]

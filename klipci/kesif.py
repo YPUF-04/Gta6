@@ -232,7 +232,7 @@ class KickKesif:
                 if slug:
                     izl = int(s.get("viewer_count") or 0)
                     out.append((Kanal("kick", slug, (s.get("broadcaster_user") or {}).get("username", ""),
-                                      dil=str(s.get("language_code") or s.get("language") or "").lower()[:2],
+                                      dil=dil_kodu(s.get("language_code") or s.get("language")),
                                       izleyici=izl), izl))
             cursor = (j.get("pagination") or {}).get("next_cursor")
             if not cursor:
@@ -241,6 +241,30 @@ class KickKesif:
         return out[:adet]
 
     async def _site(self, c, adet):
+        try:
+            out = await self._kategori_sayfasi(c, adet)
+            if out:
+                return out
+        except Exception as e:  # noqa: BLE001
+            log.info("Kick kategori listesi okunamadı (%r), yedek yöntem deneniyor", e)
+        return await self._ozel_liste(c, adet)
+
+    async def _kategori_sayfasi(self, c, adet):
+        """kick.com'un kendi kategori sayfasının kullandığı liste (izleyiciye göre sıralı, dil bilgisiyle)."""
+        slug = kick_kategori_slug(self.oyun_adi)
+        out: list[tuple[Kanal, int]] = []
+        for sayfa in range(1, min(6, adet // 24 + 2) + 1):
+            r = await c.get(f"https://kick.com/stream/livestreams/{'tr' if self.dil == 'tr' else 'en'}",
+                            params={"page": sayfa, "limit": 24, "subcategory": slug, "sort": "desc"},
+                            headers=KICK_UA)
+            r.raise_for_status()
+            j = r.json()
+            out += kick_kategori_ayikla(j)
+            if not j.get("next_page_url") or len(out) >= adet:
+                break
+        return out[:adet]
+
+    async def _ozel_liste(self, c, adet):
         out, cursor = [], None
         for _ in range(10):   # 20'şerli sayfalar, izleyiciye göre sıralı
             p = {"limit": 20}
@@ -257,6 +281,34 @@ class KickKesif:
         return out[:adet]
 
 
+DIL_KODU = {"turkish": "tr", "english": "en", "spanish": "es", "portuguese": "pt", "arabic": "ar", "german": "de",
+            "french": "fr", "russian": "ru", "italian": "it", "thai": "th", "polish": "pl", "japanese": "ja",
+            "korean": "ko", "dutch": "nl", "indonesian": "id", "vietnamese": "vi", "hindi": "hi", "chinese": "zh"}
+
+
+def dil_kodu(d: str) -> str:
+    d = str(d or "").strip().lower()
+    return DIL_KODU.get(d, d[:2] if len(d) <= 3 else "")
+
+
+def kick_kategori_slug(oyun_adi: str) -> str:
+    """'Grand Theft Auto VI' -> 'grand-theft-auto-vi' (Kick'in kategori adresi)."""
+    return re.sub(r"[^a-z0-9]+", "-", re.sub(r"\(.*?\)", "", oyun_adi.lower())).strip("-")
+
+
+def kick_kategori_ayikla(j: dict) -> list[tuple[Kanal, int]]:
+    out = []
+    for x in (j or {}).get("data") or []:
+        ch = x.get("channel") or {}
+        slug = ch.get("slug")
+        if not slug or x.get("is_live") is False:
+            continue
+        izl = int(x.get("viewer_count") or x.get("viewers") or 0)
+        isim = (ch.get("user") or {}).get("username") or slug
+        out.append((Kanal("kick", slug, isim, dil=dil_kodu(x.get("language")), izleyici=izl), izl))
+    return out
+
+
 def kick_site_ayikla(j) -> list[tuple[Kanal, int]]:
     """Belgelenmemiş Kick listesinden GTA 6 yayınlarını çıkar (biçim değişebilir; esnek okur)."""
     out: list[tuple[Kanal, int]] = []
@@ -268,7 +320,7 @@ def kick_site_ayikla(j) -> list[tuple[Kanal, int]]:
             slug = slug or o.get("slug") or o.get("channel_slug")
             izl = o.get("viewer_count", o.get("viewers"))
             if slug and izl is not None and OYUN.regex.search(metin):
-                dil = str(o.get("language_code") or o.get("language") or "").lower()[:2]
+                dil = dil_kodu(o.get("language_code") or o.get("language"))
                 out.append((Kanal("kick", str(slug), dil=dil, izleyici=_sayi(izl)), _sayi(izl)))
                 return
             for v in o.values():

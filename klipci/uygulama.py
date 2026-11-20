@@ -194,6 +194,9 @@ class Uygulama:
         bulunan = await self._tara(adet)
         if not self._oto_acik_mi():
             return []
+        # sadece hesap açtığın dillerdeki yayınlar (dili bilinmeyenler de alınır)
+        diller = {str(d).lower() for d in (self.cfg.get("izin_verilen_diller") or [h["dil"] for h in self._hesaplar()])}
+        bulunan = [x for x in bulunan if not x[0].dil or x[0].dil in diller]
         uygun = [x for x in bulunan if x[1] >= self.en_az_izleyici]
         # dil kotası: ör. {tr: 8} -> en az 8 Türkçe yayın listenin başına (Türkçe hesap için malzeme)
         kota = {str(k).lower(): int(v) for k, v in (self.cfg.get("dil_kotasi") or {"tr": 8}).items()}

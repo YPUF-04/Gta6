@@ -63,6 +63,10 @@ ayni_anda_en_fazla_kanal: 25    # Telegram'dan /sinir 30 ile de değişir
 dil_kotasi:
   tr: 8
 
+# Sadece bu dillerdeki yayınlar alınır (boş bırakırsan açık hesapların dilleri: tr, en)
+# İspanyolca/Arapça vb. de istersen: izin_verilen_diller: [tr, en, es, ar]  (çeviri için Claude anahtarı lazım)
+izin_verilen_diller: []
+
 # Türkçe yayın -> Türkçe hesap, İngilizce yayın -> İngilizce hesap (diğer diller -> İngilizce)
 dil_yonlendirme: true
 

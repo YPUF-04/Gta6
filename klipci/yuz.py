@@ -44,6 +44,27 @@ def model_indir() -> bool:
         return False
 
 
+def _ascii_yol(kaynak: Path) -> str:
+    """OpenCV, Windows'ta 'Masaüstü' gibi Türkçe karakterli yolları açamıyor: dosyayı düz bir yere kopyala."""
+    yol = str(kaynak)
+    if yol.isascii():
+        return yol
+    import os
+    import shutil
+    import tempfile
+    for kok in (tempfile.gettempdir(), os.environ.get("PUBLIC", ""), os.environ.get("ProgramData", ""), "C:\\"):
+        if kok and kok.isascii():
+            try:
+                hedef = Path(kok) / "klipci_modeller" / kaynak.name
+                hedef.parent.mkdir(parents=True, exist_ok=True)
+                if not hedef.exists() or hedef.stat().st_size != kaynak.stat().st_size:
+                    shutil.copyfile(kaynak, hedef)
+                return str(hedef)
+            except OSError:
+                continue
+    return yol
+
+
 class _Bulucu:
     def __init__(self):
         import cv2
@@ -52,13 +73,28 @@ class _Bulucu:
         self.haar = None
         if MODEL_YOLU.exists() and hasattr(cv2, "FaceDetectorYN"):
             try:
-                self.yunet = cv2.FaceDetectorYN.create(str(MODEL_YOLU), "", (320, 320), 0.75, 0.3, 50)
+                self.yunet = cv2.FaceDetectorYN.create(_ascii_yol(MODEL_YOLU), "", (320, 320), 0.75, 0.3, 50)
             except Exception as e:  # noqa: BLE001
                 log.info("YuNet açılamadı: %s", e)
         if self.yunet is None and hasattr(cv2, "CascadeClassifier"):
-            self.haar = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+            try:
+                xml = _ascii_yol(Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml")
+                self.haar = cv2.CascadeClassifier(xml)
+                if self.haar.empty():
+                    log.warning("yüz bulma modeli açılamadı (%s) — klipler yüzsüz düzende yapılacak", xml)
+                    self.haar = None
+            except Exception as e:  # noqa: BLE001
+                log.warning("yüz bulma kullanılamıyor: %r", e)
+                self.haar = None
 
     def bul(self, kare) -> list[tuple[int, int, int, int]]:
+        try:
+            return self._bul(kare)
+        except Exception as e:  # noqa: BLE001  — yüz bulunamazsa video yine yapılır
+            log.debug("yüz bulma hatası: %r", e)
+            return []
+
+    def _bul(self, kare) -> list[tuple[int, int, int, int]]:
         h, w = kare.shape[:2]
         if self.yunet is not None:
             self.yunet.setInputSize((w, h))
@@ -122,7 +158,15 @@ def facecam_sec(kutular: list[list[tuple[int, int, int, int]]], w: int, h: int,
 
 
 def analiz_et(video: Path, baslangic: float, sure: float, kare_sayisi: int = 14) -> Analiz:
-    """Klip boyunca eşit aralıklı kareleri inceler."""
+    """Klip boyunca eşit aralıklı kareleri inceler. Hata olursa yüzsüz düzene düşer, asla patlamaz."""
+    try:
+        return _analiz_et(video, baslangic, sure, kare_sayisi)
+    except Exception as e:  # noqa: BLE001
+        log.warning("görüntü analizi olmadı (%r) — yüzsüz düzen kullanılacak", e)
+        return Analiz(None, 0.0)
+
+
+def _analiz_et(video: Path, baslangic: float, sure: float, kare_sayisi: int = 14) -> Analiz:
     try:
         import cv2
         import numpy as np

@@ -144,3 +144,15 @@ def test_meme_uret(tmp_path, monkeypatch):
     assert "#gta6 #meme" in (gonderilen[0] / "aciklama.json").read_text()
     shutil.rmtree(u.klasor / "ham")
     assert asyncio.run(u.meme_uret(1)) == 0
+
+
+def test_dil_filtresi(tmp_path, monkeypatch):
+    from klipci.kesif import Kanal
+    u = _app(tmp_path, monkeypatch)
+    bulunan = [(Kanal("kick", "coringa", dil="pt"), 40000), (Kanal("kick", "xqc", dil="en"), 17000),
+               (Kanal("kick", "tepki", dil="tr"), 6500), (Kanal("youtube", "abc", dil=""), 9000)]
+
+    async def tara(adet):
+        return bulunan
+    u._tara = tara
+    assert sorted(k.ad for k, _ in asyncio.run(u._adaylar_oto(20))) == ["abc", "tepki", "xqc"]
