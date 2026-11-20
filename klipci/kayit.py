@@ -244,12 +244,34 @@ class Kaydedici:
                        check=True, creationflags=_PENCERESIZ, timeout=600)
         liste.unlink(missing_ok=True)
         sure = sure_olc(hedef)
-        if sure < (bit - bas) * 0.6:
-            self.son_neden = f"birleşen kayıt çok kısa ({sure:.0f} sn / beklenen {bit - bas:.0f})"
+        if sure >= (bit - bas) * 0.85:
+            return hedef, max(0.0, bas - secilen[0][1]), bas, bit
+        # Parçaların içi adlarındaki süreden kısa (bilgisayar/internet yavaşken kare kaybı): her parçanın gerçek
+        # süresini ölç, zamanı ona göre eşle. Patlama anı klipte doğru yerde kalsın, klip atılmasın.
+        eslem, top = [], 0.0
+        for i, (pp, t, _) in enumerate(secilen):
+            sonraki = secilen[i + 1][1] if i + 1 < len(secilen) else t + tipik
+            d = sure_olc(pp) or 0.0
+            eslem.append((t, max(0.1, sonraki - t), top, d))
+            top += d
+
+        def m(z: float) -> float:   # kayıt saati -> birleşik videodaki saniye
+            for t, aralik, kum, d in eslem:
+                if z < t + aralik:
+                    return kum + max(0.0, min(d, (z - t) * d / aralik))
+            return top
+        mb, mbit = m(bas), m(bit)
+        icerik = min(sure, mbit) - mb
+        if icerik < en_az_sn:
+            self.son_neden = (f"kayıtta çok kare kaybı var ({sure:.0f} sn görüntü / {bit - bas:.0f} sn zaman) — "
+                              f"bilgisayar ya da internet yetişmiyor, /sinir ile yayın sayısını azalt")
             log.warning("klip atlandı: %s", self.son_neden)
             hedef.unlink(missing_ok=True)
             return None
-        return hedef, max(0.0, bas - secilen[0][1]), bas, bit
+        o = odak if odak is not None and bas <= odak <= bit else (bas + bit) / 2
+        yeni_bas = o - (m(o) - mb)          # çağıran: an = odak - bas, süre = bit - bas → videodaki gerçek yerler
+        log.info("kayıtta kare kaybı: %.0f sn zaman → %.0f sn görüntü, klip buna göre ayarlandı", bit - bas, icerik)
+        return hedef, mb, yeni_bas, yeni_bas + icerik
 
 
 def yetim_kayitlari_kapat(tampon_kok: Path) -> int:

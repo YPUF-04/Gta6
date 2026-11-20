@@ -228,3 +228,24 @@ def test_turkce_gulme():
         assert mesaj_puani(m)[0] > 1, m
     for m in ("merhaba", "tamamdır", "kanka napıyon", "geliyorum"):
         assert mesaj_puani(m)[0] == 1.0, m
+
+
+def test_kare_kaybinda_klip_atilmaz(tmp_path):
+    """Parça adları 4 sn arayla ama içleri 2 sn (kare kaybı): klip yine çıkmalı, patlama anı doğru yerde."""
+    import subprocess
+    import time
+    from datetime import datetime
+    from klipci.kayit import Kaydedici
+    k = Kaydedici("x", tmp_path, "best", 9999)
+    simdi = int(time.time())
+    kaynak = tmp_path / "k.ts"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30", "-f", "lavfi",
+                    "-i", "sine", "-t", "2", "-c:v", "libx264", "-c:a", "aac", "-f", "mpegts", str(kaynak)], check=True)
+    for t in range(simdi - 80, simdi + 1, 4):
+        (tmp_path / (datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S") + ".ts")).write_bytes(kaynak.read_bytes())
+    kaynak.unlink()
+    sonuc = k.kes(simdi - 70, simdi - 10, tmp_path / "out" / "o.ts", odak=simdi - 30)
+    assert sonuc is not None
+    _, ofset, bas, bit = sonuc
+    assert 25 <= bit - bas <= 35          # 60 sn zaman → ~30 sn görüntü
+    assert abs((simdi - 30 - bas) - 20) < 3   # patlama: 40. sn'nin yarısı ≈ 20. sn
