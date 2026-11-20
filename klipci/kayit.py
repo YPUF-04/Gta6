@@ -55,14 +55,22 @@ class Kaydedici:
                 self.klasor = self.klasor.with_name(f"{self.klasor.name}_{int(time.time())}")
                 self.klasor.mkdir(parents=True, exist_ok=True)
                 log.info("eski kayıt dosyaları kilitli, yeni klasör kullanılıyor")
-        sl_cmd = [sys.executable, "-m", "streamlink", "--stdout", "--loglevel", "error",
+        kalite = self.kalite
+        if "youtube.com" in self.url:   # YouTube 1080p'de görüntü/sesi ayrı veriyor; 720p60 tek parça ve sağlam
+            kalite = "720p60,720p,best"
+        sl_cmd = [sys.executable, "-m", "streamlink", "--stdout", "--loglevel", "info",
+                  "--ffmpeg-ffmpeg", arac("ffmpeg"),
                   "--twitch-disable-ads", "--hls-live-edge", "3", "--stream-segment-threads", "2",
                   "--stream-segment-attempts", "5", "--stream-timeout", "90", "--hls-playlist-reload-attempts", "6",
-                  self.url, self.kalite]
-        ff_cmd = [arac("ffmpeg"), "-hide_banner", "-loglevel", "error", "-i", "pipe:0",
+                  self.url, kalite]
+        # Parçalara bölme BİLGİSAYAR SAATİNE göre: Twitch reklamı atlanınca videonun kendi zaman damgaları
+        # geriye sıçrıyor ve ffmpeg hiç yeni parça açmıyordu (her şey tek dosyaya yazılıyordu).
+        ff_cmd = [arac("ffmpeg"), "-hide_banner", "-loglevel", "error",
+                  "-use_wallclock_as_timestamps", "1", "-fflags", "+genpts+discardcorrupt", "-i", "pipe:0",
                   "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
-                  "-f", "segment", "-segment_time", str(PARCA_SN), "-reset_timestamps", "1",
-                  "-strftime", "1", str(self.klasor / f"{_FMT}.ts")]
+                  "-f", "segment", "-segment_time", str(PARCA_SN), "-segment_atclocktime", "1",
+                  "-reset_timestamps", "1", "-strftime", "1", str(self.klasor / f"{_FMT}.ts")]
+        self._baslama = time.time()
         # streamlink'in hata mesajı dosyaya: kayıt neden koptu görülebilsin
         self._hata_yolu = self.klasor.with_name(self.klasor.name + "_hata.txt")
         hata = open(self._hata_yolu, "ab")
@@ -74,11 +82,38 @@ class Kaydedici:
         log.info("kayıt %s: %s", "başladı" if ilk else "devam ediyor", gorunen[:90])
 
     def son_hata(self) -> str:
+        """Video indiricinin son önemli mesajı (hata ya da Twitch reklamı)."""
         try:
             satirlar = self._hata_yolu.read_text(encoding="utf-8", errors="ignore").strip().splitlines()
-            return satirlar[-1][:200] if satirlar else ""
         except (OSError, AttributeError):
             return ""
+        onemli = [x for x in satirlar if any(k in x.lower() for k in ("error", "advertisement", "pre-roll", "ads",
+                                                                         "failed", "unable", "invalid"))]
+        if not onemli:
+            return ""
+        son = onemli[-1]
+        if "advertisement" in son.lower() or "pre-roll" in son.lower() or "ads" in son.lower():
+            return "Twitch reklamı: " + son.split("]")[-1].strip()[:150]
+        return son[:200]
+
+    def reklam_sayisi(self) -> int:
+        try:
+            metin = self._hata_yolu.read_text(encoding="utf-8", errors="ignore").lower()
+            return metin.count("advertisement") + metin.count("pre-roll")
+        except (OSError, AttributeError):
+            return 0
+
+    def takildi_mi(self, sn: float = 200.0) -> bool:
+        """İşlem açık ama yeni parça üretmiyor mu? (son bitmiş parça `sn` saniyeden eski)"""
+        if not self.calisiyor_mu() or time.time() - getattr(self, "_baslama", time.time()) < 75:
+            return False
+        try:
+            zamanlar = sorted((p.stat().st_mtime for p in self.klasor.glob("*.ts")), reverse=True)
+        except OSError:
+            return False
+        if len(zamanlar) < 2:
+            return True   # 75 sn'de 2 parça bile yok
+        return time.time() - zamanlar[1] > sn
 
     def calisiyor_mu(self) -> bool:
         return bool(self._sl and self._ff and self._sl.poll() is None and self._ff.poll() is None)

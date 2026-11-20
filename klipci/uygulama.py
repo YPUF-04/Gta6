@@ -380,7 +380,10 @@ class Uygulama:
                 if self.duraklat:
                     continue
                 # kayıt koptuysa hemen (en fazla dakikada bir) yeniden başlat: boşluk kısa kalsın, klip kesilebilsin
-                if int(time.time()) % 5 == 0 and not iz.kayit.calisiyor_mu() and time.time() - iz.son_yenileme > 60:
+                if int(time.time()) % 5 == 0 and time.time() - iz.son_yenileme > 60 and (
+                        not iz.kayit.calisiyor_mu() or iz.kayit.takildi_mi()):
+                    if iz.kayit.calisiyor_mu():
+                        log.info("%s kaydı takıldı (yeni parça gelmiyor), yeniden başlatılıyor", iz.kanal.anahtar)
                     iz.son_yenileme = time.time()
                     try:
                         await self._kayit_yenile(iz)
@@ -797,6 +800,9 @@ class Uygulama:
                 ek = f"son parça {d['son_parca_sn']} sn önce" if d["son_parca_sn"] is not None else "parça yok"
                 if d["ad_saat_farki"] is not None and abs(d["ad_saat_farki"] - (d["son_parca_sn"] or 0)) > 60:
                     ek += f" ⚠️ dosya saati {d['ad_saat_farki']} sn farklı"
+                rk = iz.kayit.reklam_sayisi()
+                if rk:
+                    ek += f", 📺 {rk} reklam"
                 satir.append(f"{ikon} {iz.kanal.gorunen} ({iz.kanal.platform}): {d['parca']} parça, {ek}"
                              + (f" — hata: {d['hata'][:80]}" if d["hata"] else ""))
             satir.append("\n🟢 kayıt var · 🟡 çalışıyor ama parça yok · 🔴 kayıt durmuş")
