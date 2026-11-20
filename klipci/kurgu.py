@@ -100,6 +100,7 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
         f"Style: Baslik,Arial,{rnd.choice([54, 58, 62])},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,5,60,60,0,1",
         "Style: Chat,Arial,38,&H00FFFFFF,&H00FFFFFF,&H50000000,&H50000000,-1,0,0,0,100,100,0,0,3,10,0,7,0,0,0,1",
         f"Style: Kredi,Arial,36,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,{d.get('kredi_mv', 60)},1",
+        "Style: ImzaYuz,Arial,34,&H30FFFFFF,&H30FFFFFF,&H90000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,40,40,0,1",
         f"Style: Imza,Arial,32,&H80FFFFFF,&H80FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,40,40,{d.get('imza_mv', 30)},1",
         # tweet düzeni
         "Style: TAd,Arial,46,&H00141414,&H00141414,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1",
@@ -156,7 +157,11 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
                         f"{_ass_metin(baslik)}")
     if kredi:
         satirlar.append(f"Dialogue: 1,0:00:00.00,{son},Kredi,,0,0,0,,{_ass_metin(kredi)}")
-    if imza:
+    if imza and duzen == "yuz":
+        # kullanıcı adın: üstteki küçük (yüz) ekranın alt ortasında, altyazının hemen üstünde
+        satirlar.append(f"Dialogue: 1,0:00:00.00,{son},ImzaYuz,,0,0,0,,{{\\pos({W // 2},{d['kam_h'] - 78})}}"
+                        f"{_ass_metin(imza)}")
+    elif imza:
         satirlar.append(f"Dialogue: 1,0:00:00.00,{son},Imza,,0,0,0,,{_ass_metin(imza)}")
     satirlar += _altyazi_olaylari(altyazilar, sure, ax, ay)
     renkler = ["&H00FF9A4B", "&H004BD6FF", "&H0098FF6B", "&H00D37BFF", "&H006B6BFF", "&H00FFE14B"]
