@@ -527,9 +527,10 @@ class Uygulama:
             self.son_sorun = f"kesme başarısız: {e}"[:150]
             return
         if not sonuc:
-            log.warning("kesilecek görüntü yok (kayıt yeni başlamış olabilir)")
+            neden = iz.kayit.son_neden or "bilinmiyor"
+            log.warning("klip kesilemedi (%s): %s", iz.kanal.anahtar, neden)
             self.sayac["kesilemedi"] += 1
-            self.son_sorun = f"{iz.kanal.gorunen}: kayıtta o an eksik"
+            self.son_sorun = f"{iz.kanal.gorunen}: {neden}"[:300]
             return
         self._kabul_gecmisi.append(time.time())   # kota sadece gerçekten kesilen klipten düşer
         chat = [(t - bas, k, m) for t, k, m in list(iz.chat_log) if bas <= t <= bit]

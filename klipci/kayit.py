@@ -39,6 +39,7 @@ class Kaydedici:
         self.url, self.klasor, self.kalite, self.tampon = url, Path(klasor), kalite, tampon_sn
         self._sl: subprocess.Popen | None = None
         self._ff: subprocess.Popen | None = None
+        self.son_neden = ""
 
     def baslat(self, ilk: bool = True) -> None:
         """ilk=True: temiz başla. ilk=False (yeniden başlatma): eldeki kaydı SİLME, devam et."""
@@ -128,8 +129,11 @@ class Kaydedici:
         """[bas, bit] aralığını kapsayan bitmiş parçaları birleştir.
 
         Dönüş: (birleşik dosya, dosyanın içinde bas'ın denk geldiği saniye)."""
+        self.son_neden = ""
         tum = self.parcalar()
         if len(tum) < 2:
+            self.son_neden = (f"kayıt dosyası yok ({len(tum)} parça) — kayıt çalışmıyor olabilir. "
+                              f"Son hata: {self.son_hata() or '-'}")
             return None
         bitmis = tum[:-1]  # sonuncusu hâlâ yazılıyor
         # bir parça en fazla ne kadar sürer? Yayına göre değişir (Twitch ~4 sn, Kick 6-10 sn): kayıttan ölç
@@ -143,14 +147,17 @@ class Kaydedici:
             if bitis > bas and t < bit:
                 secilen.append((p, t, bitis))
         if not secilen:
+            self.son_neden = (f"o ana ait parça yok (kayıt {tum[0][1] - bas:+.0f} sn, son parça {tum[-1][1] - bit:+.0f} sn "
+                              f"fark, {len(tum)} parça)")
             return None
         # kayıt bu aralığı kesintisiz kapsıyor mu? (bilgisayar uyuduysa / yayın koptuysa eksik olur)
         kesintisiz = all(b[1] - a[1] <= azami for a, b in zip(secilen, secilen[1:]))
         if not kesintisiz or secilen[0][1] > bas + 2 or secilen[-1][2] < bit - 2:
             bosluk = max((b[1] - a[1] for a, b in zip(secilen, secilen[1:])), default=0)
-            log.warning("kayıt bu anı tam kapsamıyor, klip atlandı (kayıt %.0f sn sonra başlıyor, "
-                        "en büyük boşluk %.0f sn, parça ~%.0f sn) — internet/disk yavaşsa olur",
-                        max(0.0, secilen[0][1] - bas), bosluk, tipik)
+            self.son_neden = (f"kayıtta boşluk: kayıt {max(0.0, secilen[0][1] - bas):.0f} sn geç başlıyor, "
+                              f"en büyük boşluk {bosluk:.0f} sn, son parça {secilen[-1][2] - bit:+.0f} sn, "
+                              f"parça ~{tipik:.0f} sn")
+            log.warning("kayıt bu anı tam kapsamıyor, klip atlandı: %s", self.son_neden)
             return None
         hedef.parent.mkdir(parents=True, exist_ok=True)
         liste = hedef.with_suffix(".txt")
@@ -168,7 +175,8 @@ class Kaydedici:
         liste.unlink(missing_ok=True)
         sure = sure_olc(hedef)
         if sure < (bit - bas) * 0.6:
-            log.warning("birleşen kayıt çok kısa (%.0f sn / beklenen %.0f), klip atlandı", sure, bit - bas)
+            self.son_neden = f"birleşen kayıt çok kısa ({sure:.0f} sn / beklenen {bit - bas:.0f})"
+            log.warning("klip atlandı: %s", self.son_neden)
             hedef.unlink(missing_ok=True)
             return None
         return hedef, max(0.0, bas - secilen[0][1])
