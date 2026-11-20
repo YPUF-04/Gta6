@@ -976,12 +976,12 @@ class Uygulama:
                 cevap = await self._komut(f"/yasakla {ad}")
             elif ad in self._liste(platform):
                 cevap = await self._komut(f"/cikar {platform} {ad}")
-            else:
-                cevap = await self._ekle(f"{platform} {ad}")
+            else:   # listedeki yayın zaten açık: tekrar kontrol etmeye gerek yok (hızlı)
+                cevap = await self._ekle(f"{platform} {ad}", canli_biliniyor=True)
             return (cevap.split("\n")[0][:190], *self._yayin_menusu())
         return ("", None, None)
 
-    async def _ekle(self, metin: str) -> str:
+    async def _ekle(self, metin: str, canli_biliniyor: bool = False) -> str:
         kc = kesif.kanal_coz(metin)
         if not kc:
             return "Anlayamadım. Örnek: /ekle kick adinross  ya da linki at: https://twitch.tv/kaicenat"
@@ -999,7 +999,9 @@ class Uygulama:
         self._durum_yaz(d)
         self._kapali.pop(f"{platform}:{ad.lower()}", None)
         canli = None
-        if platform == "kick":
+        if canli_biliniyor:
+            canli = True
+        elif platform == "kick":
             b = await asyncio.to_thread(kesif.kick_bilgi, ad)
             canli = bool(b and b.get("canli")) if b else None
         elif platform == "twitch":

@@ -29,6 +29,7 @@ class Bot:
         # buton: data -> (kısa cevap, yeni mesaj metni | None, yeni butonlar | None)
         self.on_buton: Callable[[str], Awaitable[tuple]] | None = None
         self.on_foto: Callable[[bytes], Awaitable[str]] | None = None
+        self._arka_gorevler: set = set()
 
     async def _api(self, metod: str, **kw) -> dict:
         r = await self.http.post(API.format(token=self.token, metod=metod), **kw)
@@ -135,33 +136,51 @@ class Bot:
             q = u["callback_query"]
             if str(q["message"]["chat"]["id"]) != self.chat_id:
                 return
-            islem, _, klip_id = q.get("data", "").partition(":")
-            cevap = ""
+            # butona dokununca HEMEN cevap ver (yoksa Telegram'da hiçbir şey olmuyormuş gibi görünür),
+            # asıl işi arka planda yap: bot bu sırada başka mesajları da işleyebilsin
             try:
-                if islem == "ok" and self.on_onay:
-                    metin = await self.on_onay(klip_id)
-                    cevap = "Stoğa eklendi ✅ (beğendiğini öğrendim)"
-                    await self._api("editMessageReplyMarkup", data={
-                        "chat_id": self.chat_id, "message_id": q["message"]["message_id"],
-                        "reply_markup": json.dumps({"inline_keyboard": [[{"text": "✅ Stokta", "callback_data": "x:"}]]})})
-                    if metin:
-                        await self.mesaj(metin)
-                elif islem == "sil" and self.on_sil:
-                    await self.on_sil(klip_id)
-                    cevap = "Silindi 🗑 (bunu da öğrendim)"
-                    await self._api("deleteMessage", data={
-                        "chat_id": self.chat_id, "message_id": q["message"]["message_id"]})
-                elif islem not in ("x", "") and self.on_buton:
-                    cevap, yeni_metin, yeni_klavye = await self.on_buton(q.get("data", ""))
-                    mid = q["message"]["message_id"]
-                    if yeni_metin is not None:
-                        await self._api("editMessageText", data={
-                            "chat_id": self.chat_id, "message_id": mid, "text": yeni_metin[:4000],
-                            "reply_markup": json.dumps({"inline_keyboard": yeni_klavye or []}, ensure_ascii=False)})
-                    elif yeni_klavye is not None:
-                        await self._api("editMessageReplyMarkup", data={
-                            "chat_id": self.chat_id, "message_id": mid,
-                            "reply_markup": json.dumps({"inline_keyboard": yeni_klavye}, ensure_ascii=False)})
-            except Exception as e:  # noqa: BLE001
-                cevap = f"Hata: {e}"[:190]
-            await self._api("answerCallbackQuery", data={"callback_query_id": q["id"], "text": cevap})
+                await self._api("answerCallbackQuery", data={"callback_query_id": q["id"], "text": "⏳"})
+            except Exception:  # noqa: BLE001
+                pass
+            gorev = asyncio.create_task(self._buton_isle(q))
+            self._arka_gorevler.add(gorev)
+            gorev.add_done_callback(self._arka_gorevler.discard)
+
+    async def _duzenle(self, mid: int, metin: str | None, klavye: list | None) -> None:
+        try:
+            if metin is not None:
+                await self._api("editMessageText", data={
+                    "chat_id": self.chat_id, "message_id": mid, "text": metin[:4000],
+                    "reply_markup": json.dumps({"inline_keyboard": klavye or []}, ensure_ascii=False)})
+            elif klavye is not None:
+                await self._api("editMessageReplyMarkup", data={
+                    "chat_id": self.chat_id, "message_id": mid,
+                    "reply_markup": json.dumps({"inline_keyboard": klavye}, ensure_ascii=False)})
+        except RuntimeError as e:
+            if "not modified" not in str(e):   # aynı içerik: sorun değil
+                raise
+
+    async def _buton_isle(self, q: dict) -> None:
+        veri = q.get("data", "")
+        islem, _, klip_id = veri.partition(":")
+        mid = q["message"]["message_id"]
+        try:
+            if islem == "ok" and self.on_onay:
+                metin = await self.on_onay(klip_id)
+                await self._duzenle(mid, None, [[{"text": "✅ Stokta", "callback_data": "x:"}]])
+                if metin:
+                    await self.mesaj(metin)
+            elif islem == "sil" and self.on_sil:
+                await self.on_sil(klip_id)
+                await self._api("deleteMessage", data={"chat_id": self.chat_id, "message_id": mid})
+            elif islem not in ("x", "") and self.on_buton:
+                cevap, yeni_metin, yeni_klavye = await self.on_buton(veri)
+                await self._duzenle(mid, yeni_metin, yeni_klavye)
+                if cevap and islem in ("ek", "ya"):
+                    await self.mesaj(cevap)
+        except Exception as e:  # noqa: BLE001
+            log.warning("buton işlenemedi (%s): %r", veri, e)
+            try:
+                await self.mesaj(f"⚠️ Olmadı: {e}"[:300])
+            except Exception:  # noqa: BLE001
+                pass
