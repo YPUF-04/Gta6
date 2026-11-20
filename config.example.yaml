@@ -145,5 +145,9 @@ hedef_stok: 20              # her hesapta hazır bekleyen video hedefi
 gunluk_meme: 2              # her hesap için günde kaç meme videosu (her gün 10:00'da hazırlanır)
 stok_rapor_saati: "21:30"   # her akşam bu saatte yarının stok durumu gelir
 
+# Telegram'a kendiliğinden bilgi mesajı (açıldı, klip hazırlanıyor, stok raporu) gelsin mi?
+# false = sadece videolar + senin komutlarının cevapları. Telegram: /bildirim ac
+bildirimler: false
+
 # Klipler buraya kaydedilir
 klasor: "klipler"

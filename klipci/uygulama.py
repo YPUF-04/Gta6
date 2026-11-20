@@ -235,6 +235,18 @@ class Uygulama:
         self.son_bulunan, self.son_tarama = out, time.time()
         return out
 
+    def _bildirim_acik(self) -> bool:
+        d = self._durum_oku()
+        return bool(d.get("bildirim", self.cfg.get("bildirimler", False)))
+
+    async def _bildir(self, metin: str) -> None:
+        """Kendiliğinden giden bilgi mesajları (açıldı, klip hazırlanıyor, stok raporu...).
+        Varsayılan KAPALI: Telegram'a sadece videolar ve senin komutlarının cevapları gelir. /bildirim ac ile açılır."""
+        if self._bildirim_acik():
+            await self.bot.mesaj(metin)
+        else:
+            log.info("(Telegram'a yollanmadı, bildirimler kapalı) %s", metin.splitlines()[0][:120])
+
     def _yabanci_cevir(self) -> bool:
         """Başka dilde konuşan yayıncılar: altyazıyı İngilizceye çevirip kullan (True) ya da hiç alma (False)."""
         return bool(self.cfg.get("yabanci_dil_cevir", True))
@@ -315,7 +327,7 @@ class Uygulama:
                              eski, self._sinir())
                     if self._sinir() < eski:
                         try:
-                            await self.bot.mesaj(f"⚙️ Bilgisayar {eski} yayını aynı anda kaldıramıyor (kayıtların "
+                            await self._bildir(f"⚙️ Bilgisayar {eski} yayını aynı anda kaldıramıyor (kayıtların "
                                                  f"%{int(oran * 100)}'i akıyor). İzlenen yayın {self._sinir()}'e "
                                                  f"düşürüldü; düzelince kendisi artırır.")
                         except Exception:  # noqa: BLE001
@@ -749,7 +761,7 @@ class Uygulama:
         self._kesim_gecmisi.append(time.time())
         if self.cfg.get("hazirlaniyor_bildirimi", True):
             try:
-                await self.bot.mesaj(f"🎬 Klip hazırlanıyor: {iz.kanal.gorunen} ({iz.kanal.platform}) — "
+                await self._bildir(f"🎬 Klip hazırlanıyor: {iz.kanal.gorunen} ({iz.kanal.platform}) — "
                                      f"chat normalin {s.kat:.1f} katı. 2-3 dk içinde gelir (/sira)")
             except Exception:  # noqa: BLE001
                 pass
@@ -1092,7 +1104,8 @@ class Uygulama:
         "/liste — eklediklerin ve yasaklılar\n"
         "/platform — Twitch / Kick / YouTube aç-kapat\n"
         "/sinir 25 — aynı anda kaç yayın izlensin\n"
-        "/kalite 50 — chat patlamalarının en iyi yüzde kaçı video olsun (100 = hepsi)\n\n"
+        "/kalite 50 — chat patlamalarının en iyi yüzde kaçı video olsun (100 = hepsi)\n"
+        "/bildirim — bilgi mesajları (varsayılan kapalı: sadece videolar gelir) · /bildirim ac\n\n"
         "🎬 VİDEOLAR\n"
         "/gunluk 10 — her hesap için günde kaç paylaşım\n"
         "/meme — şimdi meme videosu yap (her gün 10:00'da kendisi de yapar)\n"
@@ -1167,6 +1180,20 @@ class Uygulama:
         if komut == "/platform":
             await self.bot.butonlu(*self._platform_menusu())
             return ""
+        if komut in ("/bildirim", "/bildirimler"):
+            a = arg.strip().lower()
+            if a in ("ac", "aç", "on", "acik", "açık"):
+                d = self._durum_oku()
+                d["bildirim"] = True
+                self._durum_yaz(d)
+                return "🔔 Bilgi mesajları açıldı (açıldı, klip hazırlanıyor, stok raporu, altyazı durumu...)."
+            if a in ("kapat", "kapa", "off", "kapali", "kapalı"):
+                d = self._durum_oku()
+                d["bildirim"] = False
+                self._durum_yaz(d)
+                return "🔕 Bilgi mesajları kapandı. Sadece videolar ve komutlarının cevapları gelecek."
+            return (f"Bilgi mesajları şu an {'AÇIK 🔔' if self._bildirim_acik() else 'KAPALI 🔕'}.\n"
+                    "/bildirim ac — aç · /bildirim kapat — kapat")
         if komut == "/kalite":
             if not arg.strip():
                 return (f"Şu an chat patlamalarının en iyi %{self._secicilik()} kadarı video oluyor.\n"
@@ -1543,11 +1570,11 @@ class Uygulama:
                         d = self._durum_oku()
                         d["bildirilen_surum"] = uzak
                         self._durum_yaz(d)
-                        await self.bot.mesaj(f"🆕 Yeni sürüm var ({yerel} → {uzak}). Kurmak için /guncelle yaz.")
+                        await self._bildir(f"🆕 Yeni sürüm var ({yerel} → {uzak}). Kurmak için /guncelle yaz.")
                 rapor_saat = str(self.cfg.get("stok_rapor_saati", "21:30"))
                 if simdi.strftime("%H:%M") >= rapor_saat and son_rapor != simdi.date().isoformat():
                     son_rapor = simdi.date().isoformat()
-                    await self.bot.mesaj(self._stok_metni(yarin=True))
+                    await self._bildir(self._stok_metni(yarin=True))
                 if self.yazar.client and time.time() - son_trend > 24 * 3600:
                     son_trend = time.time()
                     try:
@@ -1661,7 +1688,7 @@ class Uygulama:
             await asyncio.sleep(600)
             if not self.yaziya.hazir:
                 try:
-                    await self.bot.mesaj("⏳ Altyazı aracı 10 dakikadır hazırlanıyor (model iniyor olabilir). "
+                    await self._bildir("⏳ Altyazı aracı 10 dakikadır hazırlanıyor (model iniyor olabilir). "
                                          "Bu sırada klipler altyazısız gelir.\nDurum: " + self.yaziya.durum)
                 except Exception:  # noqa: BLE001
                     pass
@@ -1673,14 +1700,14 @@ class Uygulama:
                 ek = ("\nAltyazı paketi kurulu değil: programı kapatıp GUNCELLE.bat'a çift tıkla."
                       if "faster_whisper" in self.yaziya.durum else "")
                 try:
-                    await self.bot.mesaj("⚠️ Konuşma altyazısı hazırlanamadı, videolar altyazısız gelecek.\n"
+                    await self._bildir("⚠️ Konuşma altyazısı hazırlanamadı, videolar altyazısız gelecek.\n"
                                          f"Neden: {self.yaziya.durum}" + ek)
                 except Exception:  # noqa: BLE001
                     pass
             await asyncio.sleep(300)
         bekci.cancel()
         try:
-            await self.bot.mesaj(f"✅ Altyazı aracı hazır ({self.yaziya.durum}). Klipler artık altyazılı gelecek.")
+            await self._bildir(f"✅ Altyazı aracı hazır ({self.yaziya.durum}). Klipler artık altyazılı gelecek.")
         except Exception:  # noqa: BLE001
             pass
 
@@ -1703,7 +1730,7 @@ class Uygulama:
         except Exception:  # noqa: BLE001
             pass
         try:
-            await self.bot.mesaj(f"▶ {OYUN.kisa} Klipçi açıldı (sürüm {SURUM}). Yayınlar aranıyor... (/durum)")
+            await self._bildir(f"▶ {OYUN.kisa} Klipçi açıldı (sürüm {SURUM}). Yayınlar aranıyor... (/durum)")
         except Exception as e:  # noqa: BLE001
             log.warning("Telegram'a ulaşılamadı: %s", e)
         try:

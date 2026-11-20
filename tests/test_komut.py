@@ -260,3 +260,18 @@ def test_gecikme_klibi_kaydirir(tmp_path, monkeypatch):
     assert u._gecikme(kesif.Kanal("kick", "x")) == 10
     bas, bit = u._klip_araligi(s, 10)
     assert bas == 1000 - 18 + 10 and bit == 1010 + 8 + 10
+
+
+def test_bildirimler_varsayilan_kapali(tmp_path, monkeypatch):
+    u = _app(tmp_path, monkeypatch)
+    giden = []
+
+    async def yakala(m, **k):
+        giden.append(m)
+    u.bot.mesaj = yakala
+    asyncio.run(u._bildir("▶ açıldı"))
+    assert giden == []
+    assert "açıldı" in asyncio.run(u._komut("/bildirim ac"))
+    asyncio.run(u._bildir("▶ açıldı"))
+    assert giden == ["▶ açıldı"]
+    assert "kapandı" in asyncio.run(u._komut("/bildirim kapat"))
