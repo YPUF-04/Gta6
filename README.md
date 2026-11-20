@@ -86,6 +86,14 @@ Sen sadece ✅ ya da 🗑 basarsın, beğendiğini paylaşırsın.
    Paylaşınca **✅ Paylaştım**.
 5. Her akşam 21:30'da yarın için stok durumu gelir (hedef: hesap başına 15 video).
 
+## Güncelleme
+
+Program kendini günceller, ZIP indirmene gerek yok:
+- **BASLAT.bat** her açılışta yeni sürüm var mı bakar, varsa kurar.
+- Program açıkken Telegram'a "🆕 Yeni sürüm var" gelir: **/guncelle** yazınca indirir, kurar, kendini yeniden başlatır.
+- Elle istersen: **GUNCELLE.bat**.
+`config.yaml`, Telegram bağlantın, klipler ve kurulu paketler korunur.
+
 ## Ayarlar (`config.yaml`)
 
 - `otomatik_bul`: hangi platformlarda otomatik arasın, en az kaç izleyicili yayınlara baksın.

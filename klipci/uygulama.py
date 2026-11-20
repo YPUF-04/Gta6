@@ -618,6 +618,7 @@ class Uygulama:
         "/gunluk 10 — her hesap için günde kaç paylaşım\n"
         "/ad, /ustyazi — tweet tarzı videoların üstündeki sayfa adı ve başlık\n"
         "📷 Profil fotoğrafı: bota fotoğraf at, açıklamasına /profil yaz\n"
+        "/guncelle — programın yeni sürümü varsa indirip kur (uzaktan)\n"
         "/plan — bugünün paylaşım saatleri\n"
         "/stok — hesaplarda kaç video hazır\n"
         "/isim @hesapadin — videonun altındaki isim\n"
@@ -681,6 +682,22 @@ class Uygulama:
             sozluk[hedef] = metin
             self._durum_yaz(d)
             return f"✅ {'Sayfa adı' if alan == 'ad' else 'Üst başlık'}: “{metin}”" + ("" if hedef == "*" else f" ({hedef})")
+        if komut in ("/guncelle", "/güncelle"):
+            from . import guncelle as g
+            var, yerel, uzak = await asyncio.to_thread(g.yeni_var_mi)
+            if uzak is None:
+                return "GitHub'a ulaşılamadı, sonra tekrar dene."
+            if not var and arg.strip() != "zorla":
+                return f"✅ En güncel sürüm kurulu ({yerel})."
+            await self.bot.mesaj(f"⬇️ Yeni sürüm indiriliyor: {yerel} → {uzak} ...")
+            try:
+                n = await asyncio.to_thread(g.guncelle, {"baslat.bat"})
+                await asyncio.to_thread(g.paketleri_kur)
+            except Exception as e:  # noqa: BLE001
+                return f"Güncelleme olmadı: {e!r}"
+            await self.bot.mesaj(f"✅ Güncellendi ({n} dosya). Program yeniden başlıyor, 1 dk içinde geri gelir.")
+            asyncio.get_running_loop().call_later(2, self._yeniden_baslat)
+            return ""
         if komut == "/gunluk":
             if not arg.strip().isdigit():
                 return (f"Şu an her hesap için günde {self._gunluk()} paylaşım planlanıyor "
@@ -793,6 +810,20 @@ class Uygulama:
             return "▶ Devam ediyor, yayınlar aranıyor..."
         return self.YARDIM
 
+    def _yeniden_baslat(self) -> None:
+        """Kayıtları kapat, 3 koduyla çık: BASLAT.bat bunu görünce programı yeniden açar."""
+        import os
+        for iz in list(self.izleyiciler.values()):
+            try:
+                iz.kayit.durdur()
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            (self.kok / "klipci.pid").unlink(missing_ok=True)
+        except OSError:
+            pass
+        os._exit(3)
+
     async def _profil_kaydet(self, veri: bytes) -> str:
         """Telegram'dan gelen fotoğrafı tweet tarzı videoların profil resmi yap."""
         hedef = self.klasor / "profil.jpg"
@@ -819,7 +850,7 @@ class Uygulama:
         izlenen = set(self.izleyiciler)
         yasak = self._yasaklar()
         klavye = []
-        for k, izl in self.son_bulunan[:20]:
+        for k, izl in self.son_bulunan[:30]:
             ekli = (k.tutamac or k.ad) in self._liste(k.platform)
             yasakli = k.ad.lower() in yasak or k.gorunen.lower() in yasak
             ikon = "⛔" if yasakli else "⭐" if ekli else "👁" if k.anahtar in izlenen else "➕"
@@ -945,6 +976,7 @@ class Uygulama:
     async def planci(self) -> None:
         """Her dakika: bugünün planı var mı, saati gelen paylaşım var mı, akşam stok raporu, günlük trend."""
         son_rapor, son_trend, son_meme = "", 0.0, self._durum_oku().get("son_meme", "")
+        son_surum_kontrol = 0.0
         while True:
             try:
                 simdi = zaman.now()
@@ -965,6 +997,15 @@ class Uygulama:
                     for eski in (self.klasor / "ham").glob("*.mp4"):
                         if eski.stat().st_mtime < time.time() - 3 * 86400:
                             eski.unlink(missing_ok=True)
+                if time.time() - son_surum_kontrol > 6 * 3600:
+                    son_surum_kontrol = time.time()
+                    from . import guncelle as g
+                    var, yerel, uzak = await asyncio.to_thread(g.yeni_var_mi)
+                    if var and self._durum_oku().get("bildirilen_surum") != uzak:
+                        d = self._durum_oku()
+                        d["bildirilen_surum"] = uzak
+                        self._durum_yaz(d)
+                        await self.bot.mesaj(f"🆕 Yeni sürüm var ({yerel} → {uzak}). Kurmak için /guncelle yaz.")
                 rapor_saat = str(self.cfg.get("stok_rapor_saati", "21:30"))
                 if simdi.strftime("%H:%M") >= rapor_saat and son_rapor != simdi.date().isoformat():
                     son_rapor = simdi.date().isoformat()

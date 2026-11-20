@@ -34,7 +34,7 @@ async def platform_dene(ad: str, kesifci, bot: Bot, klasor: Path) -> None:
     print(f"\n=== {ad.upper()} ===", flush=True)
     try:
         async with httpx.AsyncClient(timeout=25, follow_redirects=True) as c:
-            bulunan = await kesifci.bul(c, 10)
+            bulunan = await kesifci.bul(c, 50)
     except Exception as e:  # noqa: BLE001
         yaz(f"{ad}: yayın bulma", False, str(e)[:200])
         return
@@ -45,6 +45,11 @@ async def platform_dene(ad: str, kesifci, bot: Bot, klasor: Path) -> None:
         return
 
     # en büyük birkaç yayından ilk çalışanı dene
+    diller: dict[str, int] = {}
+    for k, _ in bulunan:
+        diller[k.dil or "?"] = diller.get(k.dil or "?", 0) + 1
+    print("  ℹ️ dillere göre: " + ", ".join(f"{d}: {n}" for d, n in sorted(diller.items(), key=lambda x: -x[1])),
+          flush=True)
     for k, _ in bulunan[:3]:
         url, room = k.url, None
         if k.platform == "kick":

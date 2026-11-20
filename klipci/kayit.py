@@ -97,7 +97,10 @@ class Kaydedici:
         if len(tum) < 2:
             return None
         bitmis = tum[:-1]  # sonuncusu hâlâ yazılıyor
-        azami = PARCA_SN + 2   # bir parça en fazla bu kadar sürer (arada boşluk varsa yanlış uzamasın)
+        # bir parça en fazla ne kadar sürer? Yayına göre değişir (Twitch ~4 sn, Kick 6-10 sn): kayıttan ölç
+        araliklar = sorted(b[1] - a[1] for a, b in zip(tum, tum[1:]) if b[1] > a[1])
+        tipik = araliklar[len(araliklar) // 2] if araliklar else PARCA_SN
+        azami = max(PARCA_SN + 2, tipik * 1.8)
         secilen = []
         for i, (p, t) in enumerate(bitmis):
             bitis = min(tum[i + 1][1], t + azami)

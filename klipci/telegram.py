@@ -71,7 +71,7 @@ class Bot:
         komutlar = [("durum", "Neler izleniyor, kaç klip çıktı"), ("yayinlar", "Şu an açık yayınlar — dokun, seç"),
                     ("platform", "Twitch / Kick / YouTube aç-kapat"), ("istatistik", "Neyi sevdiğimi öğrendin?"),
                     ("sinir", "Aynı anda kaç yayın izlensin: /sinir 25"), ("meme", "Şimdi meme videosu yap"), ("gunluk", "Günde kaç paylaşım: /gunluk 10"),
-                    ("ad", "Tweet tarzı: sayfa adı"), ("ustyazi", "Tweet tarzı: büyük başlık"), ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
+                    ("ad", "Tweet tarzı: sayfa adı"), ("ustyazi", "Tweet tarzı: büyük başlık"), ("guncelle", "Programı güncelle (uzaktan)"), ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
                     ("isim", "Videonun altındaki kullanıcı adı: /isim @hesap"),
                     ("hesap", "TR / EN hesaplarını aç-kapat"),
                     ("twitch", "Twitch yayıncısı ekle: /twitch kaicenat"), ("kick", "Kick yayıncısı ekle: /kick adinross"),

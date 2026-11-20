@@ -17,18 +17,7 @@ if not exist "%~dp0klipci\__main__.py" (
   exit /b 1
 )
 echo "%~dp0" | find /i "OneDrive" >nul
-if not errorlevel 1 (
-  echo.
-  echo ##########################################################
-  echo  UYARI: Bu klasor OneDrive icinde!
-  echo  OneDrive her dosyayi buluta yuklemeye calisir, bu yuzden
-  echo  kurulum ve program COK yavaslar, internetin dolar.
-  echo  Cozum: Clip klasorunu C:\ surucusune tasi, ornek: C:\Clip
-  echo  sonra oradan tekrar calistir.
-  echo ##########################################################
-  echo.
-  pause
-)
+if not errorlevel 1 echo (Not: klasor OneDrive icinde, program biraz yavas olabilir.)
 title GTA 6 Klipci - CALISIYOR (kapatmak icin bu pencereyi kapat veya DURDUR.bat)
 if not exist ".venv\Scripts\python.exe" (
   echo Once KURULUM.bat'i calistir!
@@ -37,13 +26,20 @@ if not exist ".venv\Scripts\python.exe" (
 )
 set PATH=%~dp0ffmpeg\bin;%PATH%
 set PYTHONUTF8=1
-echo Gerekli paketler kontrol ediliyor (guncelleme varsa yukler, yuzde gorunur)...
-".venv\Scripts\python.exe" -m pip install -r requirements.txt --progress-bar on --disable-pip-version-check
+:basla
+echo Guncelleme kontrol ediliyor...
+".venv\Scripts\python.exe" -m klipci.guncelle --atla=BASLAT.bat
+".venv\Scripts\python.exe" -m pip install -r requirements.txt -q --disable-pip-version-check
 echo.
 echo GTA 6 Klipci basliyor... Klipler Telegram'a gelecek.
 echo Bu pencere acik kaldigi surece calisir.
 echo.
 ".venv\Scripts\python.exe" -m klipci
+if errorlevel 3 if not errorlevel 4 (
+  echo.
+  echo Guncelleme icin yeniden baslatiliyor...
+  goto basla
+)
 echo.
 echo Program durdu.
 pause

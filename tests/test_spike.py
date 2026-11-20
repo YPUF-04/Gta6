@@ -68,3 +68,20 @@ def test_kes_eksik_kayit(tmp_path):
     for t in (simdi - 400, simdi - 396, simdi - 8, simdi - 4, simdi):   # arada büyük boşluk
         (tmp_path / (datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S") + ".ts")).write_bytes(b"x")
     assert k.kes(simdi - 200, simdi - 170, tmp_path / "o.ts") is None
+
+
+def test_kes_uzun_parcali_yayin(tmp_path):
+    """Kick gibi 8 sn'lik parçalarda kesinti sanılmamalı."""
+    import subprocess
+    import time
+    from datetime import datetime
+    from klipci.kayit import Kaydedici
+    k = Kaydedici("x", tmp_path, "best", 9999)
+    simdi = int(time.time())
+    kaynak = tmp_path / "k.ts"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30", "-t", "8",
+                    "-c:v", "libx264", "-f", "mpegts", str(kaynak)], check=True)
+    for t in range(simdi - 64, simdi + 1, 8):
+        (tmp_path / (datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S") + ".ts")).write_bytes(kaynak.read_bytes())
+    kaynak.unlink()
+    assert k.kes(simdi - 50, simdi - 20, tmp_path / "out" / "o.ts") is not None
