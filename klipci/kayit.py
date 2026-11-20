@@ -106,15 +106,28 @@ class Kaydedici:
             pass
 
     def temizle(self) -> None:
+        """Tampondan eski parçaları sil. Hem dosya adındaki saate hem dosyanın diskteki yaşına bakılır:
+        ikisi de eskiyse silinir (saat dilimi/okuma hatası yüzünden yeni kayıt silinmesin)."""
         if not self.klasor.exists():
             return
-        sinir = time.time() - self.tampon
+        simdi = time.time()
+        sinir = simdi - self.tampon
         for p in self.klasor.glob("*.ts"):
             try:
-                if parca_zamani(p) < sinir:
+                if p.stat().st_mtime < sinir:
                     p.unlink(missing_ok=True)
-            except (ValueError, PermissionError):
+            except (ValueError, OSError):
                 pass
+
+    def durum(self) -> dict:
+        """/kayit için: kayıt çalışıyor mu, kaç parça var, en yeni parça kaç sn önce."""
+        parca = self.parcalar() if self.klasor.exists() else []
+        yeni = max((p.stat().st_mtime for p, _ in parca), default=0)
+        ad_saat = parca[-1][1] if parca else 0
+        return {"calisiyor": self.calisiyor_mu(), "parca": len(parca),
+                "son_parca_sn": int(time.time() - yeni) if yeni else None,
+                "ad_saat_farki": int(time.time() - ad_saat) if ad_saat else None,
+                "klasor": str(self.klasor), "hata": self.son_hata()}
 
     def parcalar(self) -> list[tuple[Path, float]]:
         out = []
@@ -123,7 +136,19 @@ class Kaydedici:
                 out.append((p, parca_zamani(p)))
             except ValueError:
                 pass
-        return sorted(out, key=lambda x: x[1])
+        out.sort(key=lambda x: x[1])
+        # Dosya adındaki saat ile gerçek saat arasında sabit bir fark varsa (ör. ffmpeg UTC yazıyorsa,
+        # Türkiye'de 3 saat), en yeni parçanın diskteki zamanına bakarak farkı bul ve düzelt
+        if out:
+            try:
+                son_yazma = out[-1][0].stat().st_mtime
+                fark = son_yazma - out[-1][1]
+                if abs(fark) > 600:
+                    duzelt = round(fark / 900) * 900   # saat dilimleri 15 dk'nın katı
+                    out = [(p, t + duzelt) for p, t in out]
+            except OSError:
+                pass
+        return out
 
     def kes(self, bas: float, bit: float, hedef: Path, odak: float | None = None,
             en_az_sn: float = 20.0) -> tuple[Path, float, float, float] | None:

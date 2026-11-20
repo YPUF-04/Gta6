@@ -170,3 +170,20 @@ def test_reklam_boslugunda_klip_kisalir(tmp_path):
     # patlama tam reklamın ortasındaysa: klip yok, nedeni yazılı
     assert k.kes(simdi - 130, simdi - 70, tmp_path / "out" / "p.ts", odak=simdi - 100) is None
     assert "reklam" in k.son_neden
+
+
+def test_dosya_saati_utc_ise_duzeltilir(tmp_path):
+    import os
+    import time
+    from datetime import datetime
+    from klipci.kayit import Kaydedici
+    k = Kaydedici("x", tmp_path, "best", 240)
+    simdi = int(time.time())
+    for t in range(simdi - 40, simdi + 1, 4):
+        f = tmp_path / (datetime.fromtimestamp(t - 3 * 3600).strftime("%Y%m%d_%H%M%S") + ".ts")   # 3 saat geri
+        f.write_bytes(b"x")
+        os.utime(f, (t + 4, t + 4))
+    k.temizle()
+    p = k.parcalar()
+    assert len(p) == 11
+    assert abs(p[-1][1] - simdi) < 10

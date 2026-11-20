@@ -69,7 +69,7 @@ class Bot:
 
     async def komut_menusu(self) -> None:
         """Telegram'da / yazınca çıkan komut listesi."""
-        komutlar = [("info", "📋 Tüm komutların listesi"), ("durum", "Neler izleniyor, kaç klip çıktı"), ("sira", "Hazırlanan klipler, hangi aşamada"), ("yayinlar", "Şu an açık yayınlar — dokun, seç"),
+        komutlar = [("info", "📋 Tüm komutların listesi"), ("durum", "Neler izleniyor, kaç klip çıktı"), ("sira", "Hazırlanan klipler, hangi aşamada"), ("kayit", "Her yayının kayıt durumu"), ("yayinlar", "Şu an açık yayınlar — dokun, seç"),
                     ("platform", "Twitch / Kick / YouTube aç-kapat"), ("istatistik", "Neyi sevdiğimi öğrendin?"),
                     ("sinir", "Aynı anda kaç yayın izlensin: /sinir 25"), ("meme", "Şimdi meme videosu yap"), ("gunluk", "Günde kaç paylaşım: /gunluk 10"),
                     ("ad", "Tweet tarzı: sayfa adı"), ("ustyazi", "Tweet tarzı: büyük başlık"), ("guncelle", "Programı güncelle (uzaktan)"), ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),

@@ -749,6 +749,7 @@ class Uygulama:
         "📊 DURUM\n"
         "/durum — neler izleniyor, kaç klip çıktı\n"
         "/sira — şu an hazırlanan klipler ve hangi aşamada oldukları\n"
+        "/kayit — her yayının kaydı çalışıyor mu (sorun ararken)\n"
         "/plan — bugünün paylaşım saatleri\n"
         "/stok — hesaplarda kaç video hazır\n"
         "/istatistik — neyi sevdiğini ne kadar öğrendim\n\n"
@@ -786,6 +787,22 @@ class Uygulama:
             return await self._ekle(metin) if kesif.kanal_coz(metin) and "." in metin else ""
         if komut in ("/info", "/komutlar", "/yardim", "/yardım", "/help"):
             return self.YARDIM
+        if komut in ("/kayit", "/kayıt"):
+            if not self.izleyiciler:
+                return "Şu an izlenen yayın yok."
+            satir = ["📼 Kayıt durumu (her yayın)\n"]
+            for iz in list(self.izleyiciler.values())[:30]:
+                d = iz.kayit.durum()
+                ikon = "🟢" if d["calisiyor"] and d["parca"] >= 2 else "🟡" if d["calisiyor"] else "🔴"
+                ek = f"son parça {d['son_parca_sn']} sn önce" if d["son_parca_sn"] is not None else "parça yok"
+                if d["ad_saat_farki"] is not None and abs(d["ad_saat_farki"] - (d["son_parca_sn"] or 0)) > 60:
+                    ek += f" ⚠️ dosya saati {d['ad_saat_farki']} sn farklı"
+                satir.append(f"{ikon} {iz.kanal.gorunen} ({iz.kanal.platform}): {d['parca']} parça, {ek}"
+                             + (f" — hata: {d['hata'][:80]}" if d["hata"] else ""))
+            satir.append("\n🟢 kayıt var · 🟡 çalışıyor ama parça yok · 🔴 kayıt durmuş")
+            if self.izleyiciler:
+                satir.append(f"Klasör: {next(iter(self.izleyiciler.values())).kayit.klasor.parent}")
+            return "\n".join(satir)
         if komut in ("/sira", "/sıra", "/kuyruk"):
             return self._sira_metni()
         if komut == "/durum":
