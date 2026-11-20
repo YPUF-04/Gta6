@@ -180,13 +180,15 @@ class Uygulama:
     def _sayfa(self, h: dict) -> dict:
         """Tweet tarzı üst kısım: sayfa adı, @kullanıcı, büyük başlık, profil fotoğrafı (Telegram'dan ayarlanır)."""
         d = self._durum_oku().get("sayfa") or {}
+        # /ad ya da /isim girilmediyse ekranda isim YOK (uydurma bir sayfa adı yazılmaz)
         ad = (d.get("ad") or {}).get(h["ad"]) or (d.get("ad") or {}).get("*") or \
-            (h.get("imza") or "").lstrip("@") or f"{OYUN.kisa} Klipleri"
+            (h.get("imza") or "").lstrip("@")
         ust = (d.get("ust") or {}).get(h["ad"]) or (d.get("ust") or {}).get("*") or \
             self.VARSAYILAN_UST.get(h["dil"], self.VARSAYILAN_UST["en"]).format(oyun=OYUN.kisa.upper())
         profil = self.klasor / "profil.jpg"
         return {"ad": ad, "kullanici": h.get("imza") or "", "ust": ust, "tik": bool(d.get("tik", False)),
-                "profil": profil.exists(), "profil_yol": profil if profil.exists() else None}
+                "profil": profil.exists() and bool(ad),
+                "profil_yol": profil if (profil.exists() and ad) else None}
 
     def _durum_yaz(self, d: dict) -> None:
         self.durum_yolu.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")

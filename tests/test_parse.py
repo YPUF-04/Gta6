@@ -63,3 +63,12 @@ def test_ass_her_duzen_tepki_ile(tmp_path):
         ass_yaz(tmp_path / duzen / "a.ass", 10, "başlık", "🎥 x", "@y", alt, [], duzen,
                 {"ad": "A", "kullanici": "@y", "ust": "U"}, (3.0, "chat koptu 😭"))
         assert "chat koptu" in (tmp_path / duzen / "a.ass").read_text(encoding="utf-8")
+
+
+def test_isim_yoksa_ekranda_isim_yok(tmp_path):
+    from klipci.kurgu import ass_yaz
+    ass_yaz(tmp_path / "a.ass", 10, "", "🎥 twitch.tv/x", "", [], [], "tweet", {"ad": "", "kullanici": "", "ust": "BAŞLIK"})
+    m = (tmp_path / "a.ass").read_text(encoding="utf-8")
+    assert ",TAd," not in m and ",TAvatar," not in m and ",TKul," not in m and "BAŞLIK" in m
+    ass_yaz(tmp_path / "b.ass", 10, "", "🎥 x", "", [], [], "yuz")
+    assert "ImzaYuz" not in (tmp_path / "b.ass").read_text(encoding="utf-8").split("[Events]")[1]

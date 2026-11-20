@@ -146,13 +146,14 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
 
     if duzen == "tweet":
         sp = sayfa or {}
-        ad = sp.get("ad") or (imza.lstrip("@") if imza else "GTA 6 Clips")
+        ad = sp.get("ad") or (imza.lstrip("@") if imza else "")
         kul = sp.get("kullanici") or imza or ""
-        if not sp.get("profil"):   # profil fotoğrafı yoksa: renkli daire + baş harf
-            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},TAvatar,,0,0,0,,{{\\pos(120,212)}}●")
-            satirlar.append(f"Dialogue: 2,0:00:00.00,{son},THarf,,0,0,0,,{{\\pos(120,214)}}{_ass_metin(ad[:1].upper())}")
-        satirlar.append(f"Dialogue: 1,0:00:00.00,{son},TAd,,0,0,0,,{{\\pos(200,170)}}{_ass_metin(ad)}"
-                        + (" {\\rTTik}✔" if sp.get("tik") else ""))
+        if ad:   # isim girilmediyse profil kısmı hiç çizilmez
+            if not sp.get("profil"):   # profil fotoğrafı yoksa: renkli daire + baş harf
+                satirlar.append(f"Dialogue: 1,0:00:00.00,{son},TAvatar,,0,0,0,,{{\\pos(120,212)}}●")
+                satirlar.append(f"Dialogue: 2,0:00:00.00,{son},THarf,,0,0,0,,{{\\pos(120,214)}}{_ass_metin(ad[:1].upper())}")
+            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},TAd,,0,0,0,,{{\\pos(200,170)}}{_ass_metin(ad)}"
+                            + (" {\\rTTik}✔" if sp.get("tik") else ""))
         if kul:
             satirlar.append(f"Dialogue: 1,0:00:00.00,{son},TKul,,0,0,0,,{{\\pos(200,224)}}{_ass_metin(kul)}")
         if sp.get("ust"):
