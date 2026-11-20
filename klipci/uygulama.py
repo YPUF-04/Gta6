@@ -89,7 +89,9 @@ class Uygulama:
         self.izleyiciler: dict[str, Izleyici] = {}
         self.kuyruk: asyncio.Queue[Is] = asyncio.Queue()
         self.duraklat = False
-        self.sayac = {"klip": 0, "onay": 0}
+        self.sayac = {"klip": 0, "onay": 0, "patlama": 0, "kotada": 0, "kesilemedi": 0, "hata": 0, "isleniyor": 0}
+        self.son_sorun = ""
+        self.basladi = time.time()
         self.son_bulunan: list[tuple[kesif.Kanal, int]] = []
         self.son_tarama = 0.0
         self.ogrenci = puan.Ogrenci(self.klasor / "puan_gecmisi.jsonl")
@@ -372,12 +374,14 @@ class Uygulama:
                 butce = self._saatlik_butce()
                 son_saat = [t for t in self._kabul_gecmisi if t > time.time() - 3600]
                 if len(son_saat) >= butce and s.kat < self.dinamik_kat * 1.8:
+                    self.sayac["kotada"] += 1
                     log.info("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
                              butce, iz.kanal.anahtar)
                     continue
                 self._kabul_gecmisi.append(time.time())
                 log.info("💥 chat patladı: %s (%.0f puan, normalin %.1f katı) %s",
                          iz.kanal.anahtar, s.puan, s.kat, s.kelimeler)
+                self.sayac["patlama"] += 1
                 asyncio.create_task(self._kes(iz, s))
 
     def _saatlik_butce(self) -> int:
@@ -450,9 +454,13 @@ class Uygulama:
             sonuc = await asyncio.to_thread(iz.kayit.kes, bas, bit, hedef)
         except Exception as e:  # noqa: BLE001
             log.warning("kesme başarısız: %s", e)
+            self.sayac["kesilemedi"] += 1
+            self.son_sorun = f"kesme başarısız: {e}"[:150]
             return
         if not sonuc:
             log.warning("kesilecek görüntü yok (kayıt yeni başlamış olabilir)")
+            self.sayac["kesilemedi"] += 1
+            self.son_sorun = f"{iz.kanal.gorunen}: kayıtta o an eksik"
             return
         chat = [(t - bas, k, m) for t, k, m in list(iz.chat_log) if bas <= t <= bit]
         esik = int(self.cfg.get("yuz_icin_en_az_izleyici", 2000))
@@ -463,11 +471,15 @@ class Uygulama:
     async def isci(self) -> None:
         while True:
             is_ = await self.kuyruk.get()
+            self.sayac["isleniyor"] += 1
             try:
                 await self._isle(is_)
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
                 log.exception("klip işlenemedi")
+                self.sayac["hata"] += 1
+                self.son_sorun = f"klip işlenemedi: {e!r}"[:150]
             finally:
+                self.sayac["isleniyor"] -= 1
                 is_.kaynak.unlink(missing_ok=True)
 
     async def _isle(self, is_: Is) -> None:
@@ -686,9 +698,17 @@ class Uygulama:
             kanal = "\n".join(satir) or "— (şu an açık yayın yok)"
             return (f"{'⏸ DURAKLATILDI' if self.duraklat else '▶ Çalışıyor'}\n"
                     f"İzlenen yayınlar ({len(self.izleyiciler)}/{self._sinir()}, /sinir ile değiştir):\n{kanal}\n"
-                    f"⭐ = senin eklediğin, 🤖 = otomatik bulunan\n\nBu oturumda: {self.sayac['klip']} klip, "
-                    f"{self.sayac['onay']} onay. Kuyrukta: {self.kuyruk.qsize()}\n"
-                    f"Altyazı: {self.yaziya.durum if self.yaziya else 'kapalı'}")
+                    f"⭐ = senin eklediğin, 🤖 = otomatik bulunan\n\n"
+                    f"⏱ {int((time.time() - self.basladi) / 60)} dakikadır açık\n"
+                    f"💥 Chat patlaması: {self.sayac['patlama']} (kota dolu diye atlanan: {self.sayac['kotada']})\n"
+                    f"🎬 Yapılan klip: {self.sayac['klip']} · şu an hazırlanan: "
+                    f"{self.sayac['isleniyor'] + self.kuyruk.qsize()}\n"
+                    f"⚠️ Kesilemeyen: {self.sayac['kesilemedi']} · hata: {self.sayac['hata']}\n"
+                    f"✅ Onayladığın: {self.sayac['onay']}\n"
+                    f"Altyazı: {self.yaziya.durum if self.yaziya else 'kapalı'}"
+                    + (f"\nSon sorun: {self.son_sorun}" if self.son_sorun else "")
+                    + ("\n\nℹ️ İlk klip genelde 15-30 dk içinde gelir (chat'in gerçekten patlaması lazım)."
+                       if self.sayac["klip"] == 0 else ""))
         if komut in ("/yayinlar", "/yayınlar", "/sec", "/seç"):
             await self._yayin_menusu_gonder()
             return ""
