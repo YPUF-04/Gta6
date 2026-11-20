@@ -80,3 +80,33 @@ def test_uydurma_altyazi_elenir():
     assert not gercek_konusma_mi(" Thank you for watching!", 0.1, -0.3)
     assert not gercek_konusma_mi("Altyazı M.K.", 0.2, -0.5)
     assert not gercek_konusma_mi("you", 0.9, -1.2)
+
+
+def test_ceviri_parcalari_kelime_zamanli():
+    from klipci.altyazi import segment_parcala
+    out = segment_parcala([(0.0, 3.0, "bu ne biçim uçuş böyle ya")])
+    assert len(out) == 2 and len(out[0]) == 4
+    assert out[0][3][0][0] == 0.0 and abs(out[-1][3][-1][1] - 3.0) < 1e-6
+
+
+def test_ceviri_hata_verirse_none(monkeypatch):
+    from klipci import ceviri
+
+    def patla(*a, **k):
+        raise OSError("internet yok")
+    monkeypatch.setattr(ceviri.httpx, "get", patla)
+    assert ceviri.cevir(["hello"], "tr", "en") is None
+    assert ceviri.cevir([], "tr") == []
+
+
+def test_ceviri_satir_sirasi(monkeypatch):
+    from klipci import ceviri
+
+    class C:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return [[["merhaba\n", "hello\n"], ["dünya", "world"]]]
+    monkeypatch.setattr(ceviri.httpx, "get", lambda *a, **k: C())
+    assert ceviri.cevir(["hello", "world"], "tr", "en") == ["merhaba", "dünya"]

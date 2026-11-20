@@ -47,3 +47,16 @@ def test_hareketsiz_ekran(tmp_path):
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=320x180:d=8", str(hareketli)], check=True)
     assert hareketsiz_oran(durgun, 0, 8) > 0.9
     assert hareketsiz_oran(hareketli, 0, 8) < 0.2
+
+
+def test_oyun_karakteri_ani(tmp_path):
+    from klipci import kesif
+    from klipci.spike import Spike
+    from klipci.uygulama import Is, Uygulama
+    chat = [(20.0, "a", "LMAOOO"), (21.0, "b", "KEKW"), (21.5, "c", "ok")] * 4
+    is_ = Is(kesif.Kanal("kick", "x"), Spike(0, 0, 1, 1), tmp_path / "a.ts", 0, 30, chat, True, 20.0, "x")
+    npc = [(t / 2, 12 <= t / 2 <= 24) for t in range(60)]   # patlama anında oyunda biri konuşuyor
+    assert Uygulama._oyun_ani_mi(is_, 7.0, npc)
+    assert not Uygulama._oyun_ani_mi(is_, 7.0, [(t / 2, False) for t in range(60)])
+    # yayıncı sakin (yüz 1x) ama karakter anı: geçer
+    assert Uygulama._bos_an_mi(is_, 7.0, npc, 1.0, oyun_ani=True) == ""

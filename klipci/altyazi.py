@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 log = logging.getLogger("altyazi")
@@ -22,7 +22,8 @@ class Cozum:
     segmentler: list[tuple[float, float, str]]
     kelimeler: list[Kelime]
     guven: float = 0.0   # dilden ne kadar emin
-    asil_dil: str = ""   # yayıncının gerçekte konuştuğu dil (çevrildiyse farklıdır)
+    asil_dil: str = ""   # yayıncının gerçekte konuştuğu dil
+    en_segler: list = field(default_factory=list)   # yabancı dilse: Whisper'ın İngilizce çevirisi (yedek)
 
     @property
     def metin(self) -> str:
@@ -136,13 +137,6 @@ class Yaziya:
         if dil in ("tr", "en") and getattr(info, "language_probability", 1.0) < 0.6 and info.language != dil:
             segs, info = m.transcribe(str(wav), language=dil, **ayar)
         kaynak = info.language
-        # Türkçe/İngilizce değilse (Arapça, Almanca...): konuşmayı doğrudan İngilizceye ÇEVİR (ücretsiz, Whisper yapar)
-        if cevir and info.language not in ("tr", "en") and getattr(info, "language_probability", 0.0) >= 0.5:
-            log.info("yayıncı %s konuşuyor: altyazı İngilizceye çevriliyor", info.language)
-            segs, info = m.transcribe(str(wav), task="translate", language=kaynak, **ayar)
-            kaynak_cevrildi = True
-        else:
-            kaynak_cevrildi = False
         segler, kelimeler = [], []
         for s in segs:
             if not gercek_konusma_mi(s.text, getattr(s, "no_speech_prob", 0.0), getattr(s, "avg_logprob", 0.0)):
@@ -150,9 +144,17 @@ class Yaziya:
             segler.append((s.start, s.end, s.text.strip()))
             for w in (s.words or []):
                 kelimeler.append(Kelime(w.start, w.end, w.word.strip()))
-        c = Cozum("en" if kaynak_cevrildi else info.language, segler, kelimeler,
-                  float(getattr(info, "language_probability", 0.0)))
+        c = Cozum(kaynak, segler, kelimeler, float(getattr(info, "language_probability", 0.0)))
         c.asil_dil = kaynak
+        # Türkçe/İngilizce değilse: yedek olarak Whisper'ın kendi İngilizce çevirisi (internet çevirisi olmazsa)
+        if cevir and kaynak not in ("tr", "en") and segler:
+            try:
+                tsegs, _ = m.transcribe(str(wav), task="translate", language=kaynak, **ayar)
+                c.en_segler = [(s.start, s.end, s.text.strip()) for s in tsegs
+                               if gercek_konusma_mi(s.text, getattr(s, "no_speech_prob", 0.0),
+                                                    getattr(s, "avg_logprob", 0.0))]
+            except Exception as e:  # noqa: BLE001
+                log.debug("whisper çevirisi olmadı: %r", e)
         return c
 
 
@@ -203,14 +205,20 @@ def kelime_parcala(kelimeler: list[Kelime], en_cok_kelime: int = 3, en_uzun_sn: 
 
 
 def segment_parcala(segler: list[tuple[float, float, str]], en_cok_kelime: int = 3):
-    """Çevrilmiş cümleleri (kelime zamanı yok) süreye orantılı parçalara böl."""
+    """Çevrilmiş cümleleri (kelime zamanı yok) süreye orantılı parçalara böl.
+    Kelime zamanları uzunluğa göre tahmin edilir: söylenen kelime yine mor kutuda ilerler."""
     out = []
     for b, e, t in segler:
         kel = t.split()
         if not kel:
             continue
-        parca = [kel[i:i + en_cok_kelime] for i in range(0, len(kel), en_cok_kelime)]
-        adim = (e - b) / len(parca)
-        for i, p in enumerate(parca):
-            out.append((b + i * adim, b + (i + 1) * adim, " ".join(p)))
+        toplam = sum(len(k) + 2 for k in kel)
+        zamanlar, z = [], b
+        for k in kel:
+            d = (e - b) * (len(k) + 2) / toplam
+            zamanlar.append((z, z + d, k))
+            z += d
+        for i in range(0, len(kel), en_cok_kelime):
+            grup = zamanlar[i:i + en_cok_kelime]
+            out.append((grup[0][0], grup[-1][1], " ".join(x[2] for x in grup), grup))
     return out

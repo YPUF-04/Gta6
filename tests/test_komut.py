@@ -107,7 +107,7 @@ def test_kolay_komutlar_ve_dil_yonlendirme(tmp_path, monkeypatch):
     assert "Örnek" in run("/youtube")
     assert [h["ad"] for h in u._hedef_hesaplar("tr")] == ["TR"]
     assert [h["ad"] for h in u._hedef_hesaplar("en")] == ["EN"]
-    assert [h["ad"] for h in u._hedef_hesaplar("es")] == ["EN"]
+    assert [h["ad"] for h in u._hedef_hesaplar("es")] == ["TR", "EN"]   # yabancı: iki hesaba da, çevrilerek
     asyncio.run(u._buton("hs:EN"))
     assert [h["ad"] for h in u._hedef_hesaplar("en")] == ["TR"]   # tek hesap açıksa her şey ona
 

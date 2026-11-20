@@ -242,6 +242,21 @@ TEPKI_TURLERI = {
 }
 
 
+POV_YAZILARI = {
+    "en": ["POV: you picked the wrong NPC", "GTA 6 NPCs are built different", "this NPC was NOT having it",
+           "nobody warned him about this NPC", "POV: the NPCs finally fought back", "GTA 6 NPCs have zero chill",
+           "Rockstar really cooked with these NPCs", "bro picked a fight with the wrong guy"],
+    "tr": ["POV: yanlış NPC'ye bulaştın", "GTA 6 NPC'leri başka seviye", "bu NPC hiç şaka kaldırmıyor",
+           "kimse bu NPC'ye bulaşmasın", "GTA 6'da NPC'ler artık karşılık veriyor", "Rockstar NPC'lerde coşmuş",
+           "yanlış adama sataştı", "NPC'nin sinirleri bozuldu"],
+}
+
+
+def pov_yazisi(dil: str, tohum: str = "") -> str:
+    """Yüzsüz oyun anı videolarının pembe 'POV' yazısı."""
+    return random.Random(tohum).choice(POV_YAZILARI.get(dil, POV_YAZILARI["en"]))
+
+
 def tepki_yazisi(kelimeler: list[str], ornek_mesajlar: list[str], dil: str, tohum: str = "") -> str:
     """Chat'te en çok hangi tepki var? Ona göre kısa, doğal bir yazı ('chat koptu 😭', 'ne oldu az önce 💀')."""
     from .spike import mesaj_puani
