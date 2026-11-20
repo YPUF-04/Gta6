@@ -99,7 +99,10 @@ class Uygulama:
         self.izleyiciler: dict[str, Izleyici] = {}
         self.kuyruk: asyncio.Queue[Is] = asyncio.Queue()
         self.duraklat = False
-        self.sayac = {"klip": 0, "onay": 0, "patlama": 0, "kotada": 0, "kesilemedi": 0, "hata": 0, "isleniyor": 0}
+        self.sayac = {"klip": 0, "onay": 0, "patlama": 0, "kotada": 0, "kesilemedi": 0, "hata": 0, "isleniyor": 0,
+                      "elenen": 0}
+        self._son_puanlar: deque[float] = deque(maxlen=40)
+        self._son_gecen = time.time()
         self.son_sorun = ""
         self.basladi = time.time()
         self.son_bulunan: list[tuple[kesif.Kanal, int]] = []
@@ -500,6 +503,26 @@ class Uygulama:
         kok = Path(tempfile.gettempdir()) / "klipci_tampon"
         return kok if "onedrive" not in str(kok).lower() else Path("C:/klipci_tampon")
 
+    def _secicilik(self) -> int:
+        """Patlamaların yüzde kaçı video olsun (en iyileri). 100 = hepsi."""
+        d = self._durum_oku()
+        return int(d.get("kalite", self.cfg.get("kalite_yuzde", 50)))
+
+    def _kalite_eler(self, skor: float, yz: int | None) -> str:
+        """Boş string = geçti. Değilse elenme nedeni."""
+        onceki = sorted(self._son_puanlar)
+        self._son_puanlar.append(skor)
+        if yz is not None and yz <= 3:
+            return f"yapay zekâ 'boş an' dedi ({yz}/10)"
+        yuzde = self._secicilik()
+        # 2 saattir hiç klip geçmediyse süzgeci gevşet (stok boş kalmasın)
+        if yuzde < 100 and len(onceki) >= 8 and time.time() - self._son_gecen < 7200:
+            esik = onceki[min(len(onceki) - 1, int(len(onceki) * (100 - yuzde) / 100))]
+            if skor < esik:
+                return f"son kliplerin zayıf kısmında ({skor:.1f} < {esik:.1f})"
+        self._son_gecen = time.time()
+        return ""
+
     def _klip_araligi(self, s: Spike) -> tuple[float, float]:
         """Klibin başı ve sonu: patlamadan önce olayın başlaması + sonrasında tepki. En az hedef_sure_sn."""
         kl = self.cfg.get("klip") or {}
@@ -654,13 +677,21 @@ class Uygulama:
             self._asama(is_.takip, f"✍️ yazılar hazırlanıyor ({ad})")
             veri = await asyncio.to_thread(self.yazar.yaz, dil, is_.kanal.gorunen, is_.kanal.platform, segler,
                                            kaynak_dil, is_.spike.ornek_mesajlar, is_.spike.kelimeler)
+            # sadece YAYINCININ konuşması altyazı olur (oyundaki karakterler, ara sahneler, radyo değil)
+            sec = veri.get("yayinci_konusmasi")
+            secili = ({i for i in sec if isinstance(i, int) and 0 <= i < len(segler)}
+                      if isinstance(sec, list) else set(range(len(segler))))
             if veri.get("altyazi") and len(veri["altyazi"]) == len(segler) and kaynak_dil != dil:
-                alt = segment_parcala([(b, e, t) for (b, e, _), t in zip(segler, veri["altyazi"])])
+                alt = segment_parcala([(b, e, t) for i, ((b, e, _), t) in enumerate(zip(segler, veri["altyazi"]))
+                                       if i in secili])
             elif cozum and (kaynak_dil == dil or not veri.get("altyazi")):
                 # aynı dil ya da çeviri yok: konuşma kendi dilinde, kelime kelime yazılır
-                alt = kelime_parcala(cozum.kelimeler)
+                araliklar = [(segler[i][0] - 0.05, segler[i][1] + 0.05) for i in secili]
+                alt = kelime_parcala([k for k in cozum.kelimeler
+                                      if any(b <= (k.bas + k.bit) / 2 <= e for b, e in araliklar)])
             else:
-                alt = segment_parcala([(b, e, t) for (b, e, _), t in zip(segler, veri.get("altyazi", []))])
+                alt = segment_parcala([(b, e, t) for i, ((b, e, _), t) in
+                                       enumerate(zip(segler, veri.get("altyazi", []))) if i in secili])
             # altyazı doğal yazımıyla kalır ("Oh my god"), büyük harfe çevrilmez
 
             # 2) puan (senin beğenilerine göre ayarlanır)
@@ -669,6 +700,14 @@ class Uygulama:
                                     veri.get("puan") if self.yazar.client else None)
             skor, neden = self.ogrenci.puanla(hid, is_.kanal.gorunen.lower(), oz)
             hedef_kok = "bekleyen" if skor >= en_dusuk else "dusuk_puan"
+            # sadece iyi anlar video olur: yapay zekâ "boş an" dediyse ya da son kliplerin zayıf yarısındaysa atla
+            yz = veri.get("puan") if self.yazar.client else None
+            elendi = self._kalite_eler(skor, yz)
+            if elendi:
+                log.info("klip elendi (%s): %s — puan %.1f", elendi, hid, skor)
+                self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
+                self._asama(is_.takip, None)
+                continue
 
             # 3) video
             klasor = self.klasor / hedef_kok / hid
@@ -811,7 +850,8 @@ class Uygulama:
         "/yasak_kaldir xqc — yasağı kaldır\n"
         "/liste — eklediklerin ve yasaklılar\n"
         "/platform — Twitch / Kick / YouTube aç-kapat\n"
-        "/sinir 25 — aynı anda kaç yayın izlensin\n\n"
+        "/sinir 25 — aynı anda kaç yayın izlensin\n"
+        "/kalite 50 — chat patlamalarının en iyi yüzde kaçı video olsun (100 = hepsi)\n\n"
         "🎬 VİDEOLAR\n"
         "/gunluk 10 — her hesap için günde kaç paylaşım\n"
         "/meme — şimdi meme videosu yap (her gün 10:00'da kendisi de yapar)\n"
@@ -867,7 +907,8 @@ class Uygulama:
                     f"⭐ = senin eklediğin, 🤖 = otomatik bulunan\n\n"
                     f"⏱ {int((time.time() - self.basladi) / 60)} dakikadır açık\n"
                     f"💥 Chat patlaması: {self.sayac['patlama']} (kota dolu diye atlanan: {self.sayac['kotada']})\n"
-                    f"🎬 Yapılan klip: {self.sayac['klip']} · şu an hazırlanan: "
+                    f"🎬 Yapılan klip: {self.sayac['klip']} · zayıf diye elenen: {self.sayac['elenen']} "
+                    f"(en iyi %{self._secicilik()} video oluyor, /kalite) · şu an hazırlanan: "
                     f"{self.sayac['isleniyor'] + self.kuyruk.qsize()}\n"
                     f"⚠️ Kesilemeyen: {self.sayac['kesilemedi']} · hata: {self.sayac['hata']}\n"
                     f"✅ Onayladığın: {self.sayac['onay']}\n"
@@ -881,6 +922,20 @@ class Uygulama:
         if komut == "/platform":
             await self.bot.butonlu(*self._platform_menusu())
             return ""
+        if komut == "/kalite":
+            if not arg.strip():
+                return (f"Şu an chat patlamalarının en iyi %{self._secicilik()} kadarı video oluyor.\n"
+                        f"Daha seçici: /kalite 30 · Daha çok video: /kalite 80 · Hepsi: /kalite 100")
+            try:
+                n = int(arg.strip().lstrip("%"))
+            except ValueError:
+                return "Sayı yaz: /kalite 50"
+            if not 10 <= n <= 100:
+                return "10 ile 100 arası bir sayı yaz."
+            d = self._durum_oku()
+            d["kalite"] = n
+            self._durum_yaz(d)
+            return f"✅ Artık en iyi %{n} video olacak." + (" (hepsi)" if n == 100 else "")
         if komut in ("/sinir", "/sınır"):
             if not arg.strip():
                 return (f"Üst sınır: {self._ust_sinir()} yayın. Şu an {self._sinir()} yayına izin var "

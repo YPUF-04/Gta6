@@ -40,7 +40,14 @@ Rules:
 - Never use: "wait for it", "sonuna kadar izle", "inanılmaz an", "çıldırdı", "epic", "insane", "follow",
   "takip et", "beğenmeyi unutma", "link in bio", em dashes.
 - Write like a native young speaker of the target language would type it on their phone (casual, natural slang).
-- puan: honest 1-10 for how funny/surprising the moment really is for a {oyun} audience.
+- puan: honest 1-10 for how funny/surprising the moment really is for a {oyun} audience. Be strict:
+  most moments are 3-6. Give 7+ only if a stranger scrolling would stop and laugh/gasp.
+  Give 1-3 if nothing really happens on screen or in what the streamer says (just driving/menus/talking
+  to chat), or if chat only exploded because of a sub/gift/donation/raid/giveaway/poll/ad.
+- yayinci_konusmasi = indexes of the transcript segments the STREAMER says into their own mic.
+  Leave out lines from game characters, cutscenes, NPCs, radio, TV, phone calls in the game, and
+  text-to-speech donation messages. In-game dialogue sounds scripted/acted; the streamer reacts,
+  talks to chat, swears, laughs, comments on what happens.
 The examples above are from GTA 6; apply the same style to {oyun}."""
 
 SEMA = {
@@ -53,8 +60,10 @@ SEMA = {
         "altyazi": {"type": "array", "items": {"type": "string"},
                     "description": "translation of each transcript segment, same count and order"},
         "puan": {"type": "integer", "description": "1-10 how funny/surprising this moment really is"},
+        "yayinci_konusmasi": {"type": "array", "items": {"type": "integer"},
+                              "description": "indexes of segments spoken by the streamer (not the game)"},
     },
-    "required": ["baslik", "aciklama", "youtube_baslik", "hashtagler", "altyazi", "puan"],
+    "required": ["baslik", "aciklama", "youtube_baslik", "hashtagler", "altyazi", "puan", "yayinci_konusmasi"],
     "additionalProperties": False,
 }
 
@@ -103,7 +112,8 @@ class Yazar:
             f"Clip transcript (numbered segments):\n{transkript}\n\n"
             f"Live chat exploded right here. Top reactions: {', '.join(kelimeler) or '-'}\n"
             f"Sample chat messages:\n" + "\n".join(chat[-20:]) + "\n\n"
-            f"Following the rules, write baslik, aciklama, 2-3 hashtags, an honest 1-10 puan, and "
+            f"Following the rules, write baslik, aciklama, 2-3 hashtags, an honest strict 1-10 puan, "
+            f"yayinci_konusmasi (which segments are the streamer's own voice, not the game), and "
             f"'altyazi': each transcript segment translated to {hedef} (keep count/order; if already {hedef}, "
             f"copy it cleaned up; keep it short and spoken-style)."
         )

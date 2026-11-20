@@ -18,12 +18,21 @@ HYPE = {
     "ajsdk", "skull", "bruh", "xdd", "lmaooo", "sjsj", "jsjs", "aşdk", "asdasd",
     "gg", "?", "??", "???", "help", "ripbozo", "rip",
 }
+_KUTLAMA = ("gift", "subscri", "resub", "raid", "welcome", "hoş geldin", "hosgeldin", "abone",
+            "bağış", "donat", "hype train", "giveaway", "çekiliş", "cekilis", "happy birthday", "doğum günü")
 _word = re.compile(r"[\w💀😂🤣?]+", re.UNICODE)
 
 
 def mesaj_puani(text: str) -> tuple[float, str | None]:
     """Mesaj başına puan (1 + tepki bonusu) ve bulunan tepki kelimesi."""
     t = text.lower().strip()
+    # komik bir an değil: bot komutları (!giveaway), oylama (1 / 2), abone/bağış/raid tebrikleri
+    if t.startswith("!"):
+        return 0.0, None
+    if t.replace(" ", "").isdigit():
+        return 0.2, None
+    if any(k in t for k in _KUTLAMA):
+        return 0.3, None
     tokens = _word.findall(t)
     for tok in tokens:
         if tok in HYPE or tok.startswith(("lmao", "kekw", "omegalul", "haha", "xdd")):

@@ -133,6 +133,7 @@ yakinlasma: true            # chat'in patladığı an ani yakınlaşma (editörl
 ilerleme_cubugu: false      # altta sarı ilerleme çubuğu
 
 # ---------- PUAN / PAYLAŞIM PLANI ----------
+kalite_yuzde: 50            # chat patlamalarının sadece en iyi %50'si video olur (Telegram: /kalite 30)
 en_dusuk_puan: 0            # bunun altındaki klipler Telegram'a gelmez (0 = hepsi gelir)
 gunluk_paylasim: 10         # her hesap için günde kaç video (2 hesap = 20). Telegram: /gunluk 12
 hedef_stok: 20              # her hesapta hazır bekleyen video hedefi

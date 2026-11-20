@@ -198,3 +198,10 @@ def test_son_hata_uyariyi_reklam_sanmaz(tmp_path):
     assert k.son_hata() == "" and k.reklam_sayisi() == 0
     k._hata_yolu.write_text("[plugins.twitch][info] Detected advertisement break of 30 seconds\\n")
     assert k.son_hata().startswith("Twitch reklamı") and k.reklam_sayisi() == 1
+
+
+def test_bot_komutu_ve_abone_kutlamasi_patlama_sayilmaz():
+    assert mesaj_puani("!giveaway")[0] == 0
+    assert mesaj_puani("1")[0] < 1
+    assert mesaj_puani("welcome raiders")[0] < 1
+    assert mesaj_puani("LMAOOO")[0] > 1

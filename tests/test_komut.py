@@ -232,3 +232,15 @@ def test_sira(tmp_path, monkeypatch):
     assert "yok" in asyncio.run(u._komut("/sira"))
     i = Is(k, None, tmp_path / "x.mp4", 1.0, 50.0, [], True, 22.0, "t9")
     assert i.an == 22.0 and i.takip == "t9"
+
+
+def test_kalite_suzgeci(tmp_path, monkeypatch):
+    u = _app(tmp_path, monkeypatch)
+    run = lambda m: asyncio.run(u._komut(m))
+    assert "yapay zekâ" in u._kalite_eler(9.0, 2)
+    for p in range(1, 11):          # ilk kliplerde süzgeç yok
+        assert u._kalite_eler(float(p), None) == ""
+    assert u._kalite_eler(2.0, None) != ""      # zayıf yarı elenir
+    assert u._kalite_eler(9.5, 8) == ""
+    assert "100" in run("/kalite 100") and u._kalite_eler(1.0, None) == ""
+    assert "%" in run("/kalite")
