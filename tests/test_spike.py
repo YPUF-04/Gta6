@@ -205,3 +205,9 @@ def test_bot_komutu_ve_abone_kutlamasi_patlama_sayilmaz():
     assert mesaj_puani("1")[0] < 1
     assert mesaj_puani("welcome raiders")[0] < 1
     assert mesaj_puani("LMAOOO")[0] > 1
+
+
+def test_chat_alfabesi():
+    from klipci.spike import yazi_dili
+    assert yazi_dili(["هههههه", "والله", "lol", "يا رجل"]) == "ar"
+    assert yazi_dili(["LMAO", "kekw", "abi napıyon", "😂"]) == ""

@@ -27,7 +27,7 @@ from . import meme, puan, yuz
 from . import SURUM
 from .oyun import OYUN, ayarla as oyun_ayarla
 from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, tweet_video, video_saglam_mi
-from .spike import Spike, SpikeDetector
+from .spike import Spike, SpikeDetector, yazi_dili
 from .oyunsesi import oyun_altyazi_anlari, oyun_konusmasi_mi
 from .telegram import Bot
 from .yazar import Yazar, paylasim_metni, platform_metinleri, tepki_yazisi, trend_arastir
@@ -123,6 +123,7 @@ class Uygulama:
         self.dinamik_kat = float((cfg.get("algilama") or {}).get("kat", 3.0))
         self._spike_gecmisi: list[float] = []
         self._kabul_gecmisi: list[float] = []
+        self._yabanci: set[str] = set()   # chat'ine göre başka dilde olduğu anlaşılan yayınlar (bu oturum)
         self._kapali: dict[str, float] = {}   # yakın zamanda kapalı bulunan kanallar
 
     # ---------- durum ----------
@@ -228,13 +229,16 @@ class Uygulama:
         self.son_bulunan, self.son_tarama = out, time.time()
         return out
 
+    def _izinli_diller(self) -> set[str]:
+        return {str(d).lower() for d in (self.cfg.get("izin_verilen_diller") or [h["dil"] for h in self._hesaplar()])}
+
     async def _adaylar_oto(self, adet: int) -> list[tuple[kesif.Kanal, int]]:
         bulunan = await self._tara(adet)
         if not self._oto_acik_mi():
             return []
         # sadece hesap açtığın dillerdeki yayınlar (dili bilinmeyenler de alınır)
-        diller = {str(d).lower() for d in (self.cfg.get("izin_verilen_diller") or [h["dil"] for h in self._hesaplar()])}
-        bulunan = [x for x in bulunan if not x[0].dil or x[0].dil in diller]
+        diller = self._izinli_diller()
+        bulunan = [x for x in bulunan if (not x[0].dil or x[0].dil in diller) and x[0].anahtar not in self._yabanci]
         uygun = [x for x in bulunan if x[1] >= self.en_az_izleyici]
         # dil kotası: ör. {tr: 8} -> en az 8 Türkçe yayın listenin başına (Türkçe hesap için malzeme)
         kota = {str(k).lower(): int(v) for k, v in (self.cfg.get("dil_kotasi") or {"tr": 8}).items()}
@@ -437,6 +441,15 @@ class Uygulama:
                         await self._kayit_yenile(iz)
                     except Exception as e:  # noqa: BLE001
                         log.warning("kayıt yeniden başlatılamadı (%s): %r", iz.kanal.anahtar, e)
+                # yayın gerçekte başka dilde mi? (ör. dilini "İngilizce" seçmiş Arapça yayın) — chat'ten anla
+                if iz.oto and int(time.time()) % 60 == 0 and len(iz.chat_log) >= 40:
+                    yd = yazi_dili([m for _, _, m in list(iz.chat_log)[-150:]])
+                    if yd and yd not in self._izinli_diller():
+                        log.info("%s aslında %s konuşulan bir yayın (chat'e göre), bırakılıyor", iz.kanal.anahtar, yd)
+                        self._yabanci.add(iz.kanal.anahtar)
+                        # ayrı görev: _birak bu döngünün kendi görevini de iptal eder
+                        asyncio.create_task(self._birak(iz.kanal.anahtar))
+                        return
                 iz.algila.kat = self.dinamik_kat
                 s = iz.algila.kontrol(time.time())
                 if s:
@@ -571,13 +584,22 @@ class Uygulama:
         self._son_gecen = time.time()
         return ""
 
-    def _klip_araligi(self, s: Spike) -> tuple[float, float]:
+    def _gecikme(self, k: kesif.Kanal) -> float:
+        """Görüntü bize chat'ten kaç sn geç geliyor? Chat anında gelir, video HLS ile 6-12 sn geride kalır.
+        Bunu hesaba katmazsak klip olay olmadan biter (komik an videonun sonunda kalır)."""
+        g = self.cfg.get("gecikme_sn") or {}
+        varsayilan = {"twitch": 6.0, "kick": 10.0, "youtube": 12.0}
+        if isinstance(g, (int, float)):
+            return float(g)
+        return float(g.get(k.platform, varsayilan.get(k.platform, 8.0)))
+
+    def _klip_araligi(self, s: Spike, gecikme: float = 0.0) -> tuple[float, float]:
         """Klibin başı ve sonu: olayın girişi (chat geç tepki verir) + chat'in ilk tepkisi.
         Sabit bir süre yok: chat coşmaya devam ettikçe _kes_ic klibi uzatır, sakinleşince biter."""
         kl = self.cfg.get("klip") or {}
         once, sonra = float(kl.get("once_sn", 18)), float(kl.get("sonra_sn", 8))
         once = min(once, 18.0)   # eski ayar (22) gereksiz uzun giriş yapıyordu
-        return s.zaman - once, s.tetik + sonra
+        return s.zaman + gecikme - once, s.tetik + gecikme + sonra
 
     @staticmethod
     def _chat_sicak_mi(iz: Izleyici) -> bool:
@@ -617,13 +639,14 @@ class Uygulama:
                 self._asama(tid, None)   # kuyruğa giremediyse listeden çıkar
 
     async def _kes_ic(self, iz: Izleyici, s: Spike, tid: str) -> None:
-        bas, bit = self._klip_araligi(s)
+        g = self._gecikme(iz.kanal)
+        bas, bit = self._klip_araligi(s, g)
         en_uzun = max(90.0, float((self.cfg.get("klip") or {}).get("en_uzun_sn", 90)))
         await asyncio.sleep(max(0.0, bit - time.time()))
         # komiklik sürdükçe (chat hâlâ coşuyor) klip uzar; sakinleşince birkaç saniye tepki payı bırakıp biter
         uzadi = False
         while bit - bas + 3 <= en_uzun and self._chat_sicak_mi(iz):
-            bit += 3
+            bit = max(bit + 3, time.time() + g + 3)   # chat şu an coşuyorsa görüntüde bu an g sn sonra
             uzadi = True
             await asyncio.sleep(max(0.0, bit - time.time()))
         if uzadi:
@@ -634,7 +657,7 @@ class Uygulama:
         kid = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + iz.kanal.ad
         hedef = self.klasor / "_is" / f"{kid}.ts"
         try:
-            sonuc = await asyncio.to_thread(iz.kayit.kes, bas, bit, hedef, s.zaman + 3)
+            sonuc = await asyncio.to_thread(iz.kayit.kes, bas, bit, hedef, s.zaman + g)
         except Exception as e:  # noqa: BLE001
             log.warning("kesme başarısız: %s", e)
             self.sayac["kesilemedi"] += 1
@@ -654,11 +677,12 @@ class Uygulama:
                                      f"chat normalin {s.kat:.1f} katı. 2-3 dk içinde gelir (/sira)")
             except Exception:  # noqa: BLE001
                 pass
-        chat = [(t - bas, k, m) for t, k, m in list(iz.chat_log) if bas <= t <= bit]
+        # chat'i görüntüyle eşle: viewers'ın t anındaki mesajı, bizim kayıtta t+g anına denk gelir
+        chat = [(t + g - bas, k, m) for t, k, m in list(iz.chat_log) if bas <= t + g <= bit]
         esik = int(self.cfg.get("yuz_icin_en_az_izleyici", 2000))
         buyuk = (not iz.oto) or iz.kanal.izleyici >= esik   # senin eklediklerin büyük sayılır
         self._asama(tid, f"⏳ sırada (önünde {self.kuyruk.qsize()} klip)")
-        await self.kuyruk.put(Is(iz.kanal, s, sonuc[0], sonuc[1], bit - bas, chat, buyuk, max(0.0, s.zaman - bas),
+        await self.kuyruk.put(Is(iz.kanal, s, sonuc[0], sonuc[1], bit - bas, chat, buyuk, max(0.0, s.zaman + g - bas),
                                  tid))
 
     # ---------- kurgu işçisi ----------
@@ -713,6 +737,14 @@ class Uygulama:
         if analiz.facecam and not is_.buyuk:
             log.info("küçük yayıncı (%s izleyici): yüzü kullanılmadı", is_.kanal.izleyici)
         segler = cozum.segmentler if cozum else []
+        # yayıncı aslında hesaplarının dilinde konuşmuyorsa (ör. Arapça) klip yapma
+        if (cozum and cozum.guven >= 0.75 and len(segler) >= 2 and cozum.dil not in self._izinli_diller()):
+            log.info("klip elendi: yayıncı %s konuşuyor (hesapların: %s) — %s", cozum.dil,
+                     ",".join(sorted(self._izinli_diller())), kid)
+            self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
+            if is_.kanal.platform != "youtube":
+                self._yabanci.add(is_.kanal.anahtar)
+            return
         kaynak_dil = cozum.dil if cozum else ""
         zoom = float((self.cfg.get("klip") or {}).get("zoom", 1.3))
         ce = self.cfg.get("chat_ekrani") or {}

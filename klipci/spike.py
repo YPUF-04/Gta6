@@ -42,6 +42,27 @@ def mesaj_puani(text: str) -> tuple[float, str | None]:
     return 1.0, None
 
 
+_ALFABE = {"ar": ("\u0600", "\u06FF"), "ru": ("\u0400", "\u04FF"), "ko": ("\uAC00", "\uD7AF"),
+           "ja": ("\u3040", "\u30FF"), "zh": ("\u4E00", "\u9FFF"), "th": ("\u0E00", "\u0E7F"),
+           "he": ("\u0590", "\u05FF"), "hi": ("\u0900", "\u097F")}
+
+
+def yazi_dili(mesajlar: list[str], oran: float = 0.35) -> str:
+    """Chat mesajlarının önemli kısmı Latin olmayan bir alfabeyle mi yazılmış? (Arapça, Rusça...) Değilse ""."""
+    if not mesajlar:
+        return ""
+    sayac: dict[str, int] = {}
+    for m in mesajlar:
+        for dil, (a, b) in _ALFABE.items():
+            if sum(1 for c in m if a <= c <= b) >= 2:
+                sayac[dil] = sayac.get(dil, 0) + 1
+                break
+    if not sayac:
+        return ""
+    dil = max(sayac, key=sayac.get)
+    return dil if sayac[dil] / len(mesajlar) >= oran else ""
+
+
 @dataclass
 class Spike:
     zaman: float          # patlamanın başladığı an (unix sn)

@@ -21,6 +21,7 @@ class Cozum:
     dil: str
     segmentler: list[tuple[float, float, str]]
     kelimeler: list[Kelime]
+    guven: float = 0.0   # dilden ne kadar emin
 
     @property
     def metin(self) -> str:
@@ -122,10 +123,12 @@ class Yaziya:
         except Exception as e:  # noqa: BLE001
             log.warning("altyazı modeli kullanılamıyor: %r", e)
             return None
-        segs, info = m.transcribe(
-            str(wav), word_timestamps=True, language=dil if dil in ("tr", "en") else None,
-            beam_size=5, condition_on_previous_text=False,
-            vad_filter=True, vad_parameters={"threshold": 0.35, "min_silence_duration_ms": 400})
+        ayar = dict(word_timestamps=True, beam_size=5, condition_on_previous_text=False,
+                    vad_filter=True, vad_parameters={"threshold": 0.35, "min_silence_duration_ms": 400})
+        # önce dili kendisi anlasın (yayıncı dilini yanlış seçmiş olabilir); emin değilse yayının dilini kullan
+        segs, info = m.transcribe(str(wav), **ayar)
+        if dil in ("tr", "en") and getattr(info, "language_probability", 1.0) < 0.6 and info.language != dil:
+            segs, info = m.transcribe(str(wav), language=dil, **ayar)
         segler, kelimeler = [], []
         for s in segs:
             if not gercek_konusma_mi(s.text, getattr(s, "no_speech_prob", 0.0), getattr(s, "avg_logprob", 0.0)):
@@ -133,7 +136,7 @@ class Yaziya:
             segler.append((s.start, s.end, s.text.strip()))
             for w in (s.words or []):
                 kelimeler.append(Kelime(w.start, w.end, w.word.strip()))
-        return Cozum(info.language, segler, kelimeler)
+        return Cozum(info.language, segler, kelimeler, float(getattr(info, "language_probability", 0.0)))
 
 
 # Whisper müzik/oyun sesinde bazen olmayan cümleler uydurur; bunlar altyazıya girmesin

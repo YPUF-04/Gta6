@@ -250,3 +250,13 @@ def test_durum_kanal_listesi(tmp_path, monkeypatch):
     u = _app(tmp_path, monkeypatch)
     m = asyncio.run(u._komut("/durum"))
     assert "{kanal}" not in m and "şu an açık yayın yok" in m
+
+
+def test_gecikme_klibi_kaydirir(tmp_path, monkeypatch):
+    from klipci import kesif
+    from klipci.spike import Spike
+    u = _app(tmp_path, monkeypatch)
+    s = Spike(zaman=1000.0, tetik=1010.0, puan=80, taban=10)
+    assert u._gecikme(kesif.Kanal("kick", "x")) == 10
+    bas, bit = u._klip_araligi(s, 10)
+    assert bas == 1000 - 18 + 10 and bit == 1010 + 8 + 10
