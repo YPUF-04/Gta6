@@ -49,7 +49,7 @@ class Yaziya:
         self.model_adi, self.cihaz = model, cihaz
         self._model = None
         self._kilit = threading.Lock()   # birden çok kurgu işçisi aynı modeli paylaşır
-        self.durum = "yüklenmedi"
+        self.durum = "hazırlanıyor (ilk açılışta model indiriliyor, birkaç dk)"
 
     def _yukle(self):
         with self._kilit:

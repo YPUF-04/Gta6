@@ -244,3 +244,9 @@ def test_kalite_suzgeci(tmp_path, monkeypatch):
     assert u._kalite_eler(9.5, 8) == ""
     assert "100" in run("/kalite 100") and u._kalite_eler(1.0, None) == ""
     assert "%" in run("/kalite")
+
+
+def test_durum_kanal_listesi(tmp_path, monkeypatch):
+    u = _app(tmp_path, monkeypatch)
+    m = asyncio.run(u._komut("/durum"))
+    assert "{kanal}" not in m and "şu an açık yayın yok" in m

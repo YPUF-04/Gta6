@@ -67,7 +67,7 @@ class Kaydedici:
         self._baslama = time.time()
         # streamlink'in hata mesajı dosyaya: kayıt neden koptu görülebilsin
         self._hata_yolu = self.klasor.with_name(self.klasor.name + "_hata.txt")
-        hata = open(self._hata_yolu, "ab")
+        hata = open(self._hata_yolu, "wb" if ilk else "ab")   # yeni başlangıçta eski hatalar karışmasın
         self._sl = subprocess.Popen(sl_cmd, stdout=subprocess.PIPE, stderr=hata, creationflags=_PENCERESIZ)
         self._ff = subprocess.Popen(ff_cmd, stdin=self._sl.stdout, stderr=hata, creationflags=_PENCERESIZ)
         hata.close()
@@ -86,7 +86,9 @@ class Kaydedici:
             k in x.lower() for k in ("error", "failed", "unable", "invalid") + reklam_kelime)]
         if not onemli:
             return ""
-        son = onemli[-1]
+        # ffmpeg'in "Invalid data" hatası sonuçtur; asıl nedeni video indiricinin (streamlink) hatası söyler
+        asil = [x for x in onemli if "[cli]" in x or "[plugins" in x or "[stream" in x]
+        son = (asil or onemli)[-1]
         if any(k in son.lower() for k in reklam_kelime):
             return "Twitch reklamı: " + son.split("]")[-1].strip()[:150]
         return son[:200]

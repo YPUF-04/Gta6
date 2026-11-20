@@ -60,6 +60,7 @@ class Izleyici:
     oto: bool = False
     son_yenileme: float = 0.0
     chat_log: deque = field(default_factory=lambda: deque(maxlen=20000))
+    bos_baslama: int = 0   # üst üste kaç kez kayıt başladı ama hiç görüntü gelmedi
 
 
 def _ad_anahtar(k: kesif.Kanal) -> str:
@@ -447,6 +448,11 @@ class Uygulama:
                         log.info("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
                                  butce, iz.kanal.anahtar)
                         continue
+                    if iz.kayit.durum()["parca"] < 4:
+                        log.info("chat patladı ama %s kaydı henüz hazır değil (görüntü gelmiyor), atlandı",
+                                 iz.kanal.anahtar)
+                        self.sayac["kayitsiz"] = self.sayac.get("kayitsiz", 0) + 1
+                        continue
                     log.info("💥 chat patladı: %s (%.0f puan, normalin %.1f katı) %s",
                              iz.kanal.anahtar, s.puan, s.kat, s.kelimeler)
                     self.sayac["patlama"] += 1
@@ -491,6 +497,15 @@ class Uygulama:
             b = await asyncio.to_thread(kesif.kick_bilgi, iz.kanal.ad)
             if b and b.get("playback_url"):
                 iz.kayit.url = "hls://" + b["playback_url"]
+        # hiç görüntü gelmeden koptuysa: başka kalitede dene (bazı yayınlarda 720p akışı bozuk geliyor)
+        if iz.kayit.durum()["parca"] < 2:
+            iz.bos_baslama += 1
+            yedek = {2: "best", 3: "480p,480p30,best", 4: "worst"}.get(iz.bos_baslama)
+            if yedek:
+                log.info("%s: görüntü gelmiyor, '%s' kalitesiyle deneniyor", iz.kanal.anahtar, yedek)
+                iz.kayit.kalite = yedek
+        else:
+            iz.bos_baslama = 0
         await asyncio.to_thread(iz.kayit.yeniden_baslat)
         iz.son_yenileme = time.time()
 
@@ -945,7 +960,7 @@ class Uygulama:
             return (f"{'⏸ DURAKLATILDI' if self.duraklat else '▶ Çalışıyor'}\n"
                     f"İzlenen yayınlar ({len(self.izleyiciler)}/{self._sinir()}"
                     + (f", senin sınırın {self._ust_sinir()} ama bilgisayar şu an bu kadarını kaldırıyor"
-                       if self._sinir() < self._ust_sinir() else ", /sinir ile değiştir") + "):\n{kanal}\n"
+                       if self._sinir() < self._ust_sinir() else ", /sinir ile değiştir") + f"):\n{kanal}\n"
                     f"⭐ = senin eklediğin, 🤖 = otomatik bulunan\n\n"
                     f"⏱ {int((time.time() - self.basladi) / 60)} dakikadır açık\n"
                     f"💥 Chat patlaması: {self.sayac['patlama']} (kota dolu diye atlanan: {self.sayac['kotada']})\n"
@@ -954,7 +969,9 @@ class Uygulama:
                     f"{self.sayac['isleniyor'] + self.kuyruk.qsize()}\n"
                     f"⚠️ Kesilemeyen: {self.sayac['kesilemedi']} · hata: {self.sayac['hata']}\n"
                     f"✅ Onayladığın: {self.sayac['onay']}\n"
-                    f"Altyazı: {self.yaziya.durum if self.yaziya else 'kapalı'}"
+                    + (f"📵 Kaydı hazır olmadığı için atlanan patlama: {self.sayac['kayitsiz']}\n"
+                       if self.sayac.get("kayitsiz") else "")
+                    + f"Altyazı: {self.yaziya.durum if self.yaziya else 'kapalı'}"
                     + (f"\nSon sorun: {self.son_sorun}" if self.son_sorun else "")
                     + ("\n\nℹ️ İlk klip genelde 15-30 dk içinde gelir (chat'in gerçekten patlaması lazım)."
                        if self.sayac["klip"] == 0 else ""))
