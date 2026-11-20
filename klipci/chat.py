@@ -42,7 +42,7 @@ async def twitch_chat(kanal: str, on_msg: MesajFn) -> None:
     bekle = 2
     while True:
         try:
-            async with websockets.connect(TWITCH_WS, ping_interval=60) as ws:
+            async with websockets.connect(TWITCH_WS, ping_interval=60, ping_timeout=60, open_timeout=30) as ws:
                 await ws.send("PASS SCHMOOPIIE")
                 await ws.send(f"NICK justinfan{random.randint(10000, 99999)}")
                 await ws.send(f"JOIN #{kanal}")

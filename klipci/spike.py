@@ -44,7 +44,7 @@ class Spike:
 
     @property
     def kat(self) -> float:
-        return self.puan / max(self.taban, 1e-6)
+        return min(99.0, self.puan / max(self.taban, 1.0))
 
 
 class SpikeDetector:
@@ -60,11 +60,15 @@ class SpikeDetector:
         self._kovalar: dict[int, float] = {}
         self._mesajlar: deque[tuple[float, str, str | None]] = deque()
         self._ilk: float | None = None
+        self._son_mesaj: float | None = None
         self._son_spike = -1e18
 
     def ekle(self, ts: float, text: str) -> None:
-        if self._ilk is None:
+        # chat 20 sn'den uzun sustuysa (bağlantı koptu) normal hızı baştan öğren: yanlış "patlama" olmasın
+        if self._ilk is None or (self._son_mesaj is not None and ts - self._son_mesaj > 20):
             self._ilk = ts
+            self._kovalar.clear()
+        self._son_mesaj = ts
         p, kelime = mesaj_puani(text)
         k = int(ts // self.kova)
         self._kovalar[k] = self._kovalar.get(k, 0.0) + p

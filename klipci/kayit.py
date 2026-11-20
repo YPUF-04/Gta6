@@ -56,7 +56,8 @@ class Kaydedici:
         self._ff = subprocess.Popen(ff_cmd, stdin=self._sl.stdout, stderr=subprocess.DEVNULL,
                                     creationflags=_PENCERESIZ)
         self._sl.stdout.close()  # type: ignore[union-attr]
-        log.info("kayıt başladı: %s", self.url)
+        gorunen = self.url.split("?")[0] if "token=" in self.url else self.url
+        log.info("kayıt başladı: %s", gorunen[:90])
 
     def calisiyor_mu(self) -> bool:
         return bool(self._sl and self._ff and self._sl.poll() is None and self._ff.poll() is None)
@@ -111,7 +112,10 @@ class Kaydedici:
         # kayıt bu aralığı kesintisiz kapsıyor mu? (bilgisayar uyuduysa / yayın koptuysa eksik olur)
         kesintisiz = all(b[1] - a[1] <= azami for a, b in zip(secilen, secilen[1:]))
         if not kesintisiz or secilen[0][1] > bas + 2 or secilen[-1][2] < bit - 2:
-            log.warning("kayıt bu anı tam kapsamıyor (bilgisayar uyumuş ya da yayın kopmuş olabilir), klip atlandı")
+            bosluk = max((b[1] - a[1] for a, b in zip(secilen, secilen[1:])), default=0)
+            log.warning("kayıt bu anı tam kapsamıyor, klip atlandı (kayıt %.0f sn sonra başlıyor, "
+                        "en büyük boşluk %.0f sn, parça ~%.0f sn) — internet/disk yavaşsa olur",
+                        max(0.0, secilen[0][1] - bas), bosluk, tipik)
             return None
         hedef.parent.mkdir(parents=True, exist_ok=True)
         liste = hedef.with_suffix(".txt")

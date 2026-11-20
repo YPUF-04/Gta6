@@ -85,3 +85,10 @@ def test_kes_uzun_parcali_yayin(tmp_path):
         (tmp_path / (datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S") + ".ts")).write_bytes(kaynak.read_bytes())
     kaynak.unlink()
     assert k.kes(simdi - 50, simdi - 20, tmp_path / "out" / "o.ts") is not None
+
+
+def test_baglanti_kopunca_yanlis_alarm_yok():
+    d = SpikeDetector(isinma_sn=60)
+    _besle(d, 0, 300, 3)
+    _besle(d, 340, 420, 3)          # 40 sn sessizlik (koptu) sonra normal chat
+    assert all(d.kontrol(t) is None for t in range(340, 420))

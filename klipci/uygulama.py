@@ -323,7 +323,7 @@ class Uygulama:
         kalite = kl.get("kalite") or YENI_KALITE
         if kalite in ("720p,720p60,best", "720p60,720p,best"):   # eski varsayılan: yüz kamerası net olsun diye yükselt
             kalite = YENI_KALITE
-        kayit = Kaydedici(url, self.klasor / "_tampon" / k.anahtar.replace(":", "_"),
+        kayit = Kaydedici(url, self._tampon_kok() / k.anahtar.replace(":", "_"),
                           kalite, int(kl.get("tampon_sn", 240)))
         kayit.baslat()
         iz = Izleyici(k, kayit, det, oto=oto)
@@ -355,7 +355,7 @@ class Uygulama:
         while True:
             await asyncio.sleep(1)
             if int(time.time()) % 15 == 0:
-                iz.kayit.temizle()
+                await asyncio.to_thread(iz.kayit.temizle)
                 sinir = time.time() - iz.kayit.tampon
                 while iz.chat_log and iz.chat_log[0][0] < sinir:
                     iz.chat_log.popleft()
@@ -400,6 +400,16 @@ class Uygulama:
             if self.dinamik_kat != eski:
                 log.info("klip eşiği ayarlandı: normalin %.2f → %.2f katı (son 1 saatte %d patlama, hedef ~%d)",
                          eski, self.dinamik_kat, n, butce)
+
+    def _tampon_kok(self) -> Path:
+        """Yayınların son dakikaları burada tutulur. OneDrive/Masaüstü dışında (Windows geçici klasörü):
+        OneDrive her 4 sn'lik parçayı buluta yüklemeye çalışınca internet ve disk tıkanıyor."""
+        import tempfile
+        ozel = self.cfg.get("tampon_klasoru")
+        if ozel:
+            return Path(ozel)
+        kok = Path(tempfile.gettempdir()) / "klipci_tampon"
+        return kok if "onedrive" not in str(kok).lower() else Path("C:/klipci_tampon")
 
     def _klip_araligi(self, s: Spike) -> tuple[float, float]:
         """Klibin başı ve sonu: patlamadan önce olayın başlaması + sonrasında tepki. En az hedef_sure_sn."""
