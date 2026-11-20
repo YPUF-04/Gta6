@@ -37,3 +37,11 @@ def test_altyazi():
     assert [x[2] for x in parca] == ["bu ne lan", "abi"]
     assert parca[0][3][1] == (.3, .6, "ne")
     assert tr_buyuk("şaka mı bu iyi") == "ŞAKA MI BU İYİ"
+
+
+def test_kick_emote_temizle():
+    from klipci.chat import emote_temizle, parse_kick_event
+    assert emote_temizle("[emote:6406295:collectiblesCarRe] haha [emote:1:KEKW]") == "haha KEKW"
+    raw = json.dumps({"event": "App\\Events\\ChatMessageEvent",
+                      "data": json.dumps({"content": "[emote:5747991:collectiblespeepo]", "sender": {"username": "z"}})})
+    assert parse_kick_event(raw) == ("z", "💀")

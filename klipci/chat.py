@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 import time
 from typing import Callable
 
@@ -65,6 +66,20 @@ async def twitch_chat(kanal: str, on_msg: MesajFn) -> None:
             bekle = min(bekle * 2, 60)
 
 
+# Kick emojileri mesajın içinde "[emote:12345:KEKW]" diye gelir. Herkesin bildikleri adıyla kalsın,
+# kanala özel olanlar (ör. "collectiblesCarRe") silinsin; ekranda kod görünmesin.
+BILINEN_EMOTE = {"kekw", "lul", "omegalul", "pogchamp", "pog", "poggers", "kappa", "lmao", "monkas", "pepelaugh",
+                 "sadge", "copium", "ez", "gigachad", "catjam", "wtf", "lol", "xd", "kekl", "icant", "aware"}
+_EMOTE_RE = re.compile(r"\[emote:\d+:([^\]]*)\]")
+
+
+def emote_temizle(metin: str) -> str:
+    def degistir(m):
+        ad = m.group(1)
+        return ad if ad.lower() in BILINEN_EMOTE else ""
+    return " ".join(_EMOTE_RE.sub(degistir, metin).split())
+
+
 def parse_kick_event(raw: str) -> tuple[str, str] | None:
     try:
         ev = json.loads(raw)
@@ -81,7 +96,10 @@ def parse_kick_event(raw: str) -> tuple[str, str] | None:
     if not isinstance(data, dict):
         return None
     user = (data.get("sender") or {}).get("username", "?")
-    return user, str(data.get("content", ""))
+    icerik = str(data.get("content", ""))
+    temiz = emote_temizle(icerik)
+    # sadece emojiden oluşan mesaj da bir tepkidir: chat sayımında kalsın ama ekranda boş görünmesin
+    return user, temiz if temiz else ("💀" if "[emote:" in icerik else "")
 
 
 def kick_pub_ayikla(cerceve: dict) -> tuple[str, str] | None:
