@@ -101,7 +101,8 @@ class Kaydedici:
         # bir parça en fazla ne kadar sürer? Yayına göre değişir (Twitch ~4 sn, Kick 6-10 sn): kayıttan ölç
         araliklar = sorted(b[1] - a[1] for a, b in zip(tum, tum[1:]) if b[1] > a[1])
         tipik = araliklar[len(araliklar) // 2] if araliklar else PARCA_SN
-        azami = max(PARCA_SN + 2, tipik * 1.8)
+        # Kick'te parçalar düzensiz (4-8 sn); gerçek kopma (uyku, internet) 20 sn'den uzun olur
+        azami = max(PARCA_SN * 3, tipik * 2.5)
         secilen = []
         for i, (p, t) in enumerate(bitmis):
             bitis = min(tum[i + 1][1], t + azami)

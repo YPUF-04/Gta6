@@ -92,3 +92,19 @@ def test_baglanti_kopunca_yanlis_alarm_yok():
     _besle(d, 0, 300, 3)
     _besle(d, 340, 420, 3)          # 40 sn sessizlik (koptu) sonra normal chat
     assert all(d.kontrol(t) is None for t in range(340, 420))
+
+
+def test_kes_duzensiz_kick_parcalari(tmp_path):
+    import subprocess
+    import time
+    from datetime import datetime
+    from klipci.kayit import Kaydedici
+    k = Kaydedici("x", tmp_path, "best", 9999)
+    simdi = int(time.time())
+    kaynak = tmp_path / "k.ts"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30", "-t", "4",
+                    "-c:v", "libx264", "-f", "mpegts", str(kaynak)], check=True)
+    for t in [simdi - 40, simdi - 36, simdi - 32, simdi - 24, simdi - 20, simdi - 16, simdi - 8, simdi - 4, simdi]:
+        (tmp_path / (datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S") + ".ts")).write_bytes(kaynak.read_bytes())
+    kaynak.unlink()
+    assert k.kes(simdi - 38, simdi - 10, tmp_path / "out" / "o.ts") is not None

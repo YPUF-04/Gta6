@@ -360,9 +360,10 @@ def youtube_arama_ayikla(data: dict) -> list[tuple[Kanal, int]]:
                 m = re.search(r'"canonicalBaseUrl":\s*"/(@[^"]+)"', yol)
                 if canli and OYUN.regex.search(baslik + " " + kanal):
                     izl = _sayi(metin(v.get("viewCountText")))
-                    tr_mi = bool(re.search(r"[çğışöüÇĞİŞÖÜ]|\b(canlı|yayın|türkçe)\b", baslik, re.I))
+                    # YouTube başlıkları izleyicinin diline otomatik çevirebiliyor: dili başlıktan tahmin etme,
+                    # klip yapılırken konuşmadan anlaşılır
                     out.append((Kanal("youtube", v["videoId"], kanal, m.group(1) if m else "",
-                                      dil="tr" if tr_mi else "", izleyici=izl), izl))
+                                      izleyici=izl), izl))
                 return
             for x in o.values():
                 gez(x)
