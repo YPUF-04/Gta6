@@ -112,6 +112,7 @@ class Uygulama:
             pass
         self._uyandir = asyncio.Event()
         self._gonderiliyor: set[str] = set()
+        self.etkin_sinir = 0   # 0 = kısıt yok
         self.isler: dict[str, dict] = {}   # hazırlanan klipler: /sira
         self.dinamik_kat = float((cfg.get("algilama") or {}).get("kat", 3.0))
         self._spike_gecmisi: list[float] = []
@@ -258,9 +259,49 @@ class Uygulama:
     def _hedef_stok(self) -> int:
         return int(self.cfg.get("hedef_stok", max(15, self._gunluk() * 2)))
 
-    def _sinir(self) -> int:
-        """Aynı anda kaç yayın izlensin: Telegram'dan /sinir ile ayarlanan, yoksa config.yaml."""
+    def _ust_sinir(self) -> int:
+        """Senin istediğin üst sınır (/sinir ya da config.yaml)."""
         return int(self._durum_oku().get("sinir") or self.cfg.get("ayni_anda_en_fazla_kanal", 8))
+
+    def _sinir(self) -> int:
+        """Gerçekte uygulanan sınır: bilgisayar kaldıramıyorsa otomatik düşürülür (saglik_ayari)."""
+        ust = self._ust_sinir()
+        return min(ust, self.etkin_sinir) if self.etkin_sinir else ust
+
+    async def saglik_ayari(self) -> None:
+        """Her 2 dk: kayıtların ne kadarı akıyor? Çoğu takılıyorsa izlenen yayın sayısını düşür,
+        hepsi akıyorsa yavaşça artır. (Bilgisayar/internet aynı anda kaç yayın kaldırıyorsa o kadar.)"""
+        while True:
+            await asyncio.sleep(120)
+            try:
+                simdi = time.time()
+                olgun = [iz for iz in self.izleyiciler.values()
+                         if simdi - getattr(iz.kayit, "_baslama", simdi) > 150]
+                if len(olgun) < 3:
+                    continue
+                saglikli = 0
+                for iz in olgun:
+                    d = await asyncio.to_thread(iz.kayit.durum)
+                    if d["son_parca_sn"] is not None and d["son_parca_sn"] < 30 and d["parca"] >= 5:
+                        saglikli += 1
+                oran = saglikli / len(olgun)
+                eski = self._sinir()
+                if oran < 0.6:
+                    self.etkin_sinir = max(4, min(eski, len(self.izleyiciler)) - 3)
+                elif oran > 0.9 and self.etkin_sinir and self.etkin_sinir < self._ust_sinir():
+                    self.etkin_sinir += 1
+                if self._sinir() != eski:
+                    log.info("kayıtların %%%d'i akıyor → aynı anda izlenen yayın: %d → %d", int(oran * 100),
+                             eski, self._sinir())
+                    if self._sinir() < eski:
+                        try:
+                            await self.bot.mesaj(f"⚙️ Bilgisayar {eski} yayını aynı anda kaldıramıyor (kayıtların "
+                                                 f"%{int(oran * 100)}'i akıyor). İzlenen yayın {self._sinir()}'e "
+                                                 f"düşürüldü; düzelince kendisi artırır.")
+                        except Exception:  # noqa: BLE001
+                            pass
+            except Exception:  # noqa: BLE001
+                log.exception("sağlık ayarı hatası")
 
     async def yonetici(self) -> None:
         while True:
@@ -269,7 +310,8 @@ class Uygulama:
                 # sınır düşürüldüyse fazlaları bırak (önce otomatik bulunanlar)
                 fazla = len(self.izleyiciler) - en_fazla
                 if fazla > 0:
-                    sirali = sorted(self.izleyiciler.items(), key=lambda x: not x[1].oto)
+                    sirali = sorted(self.izleyiciler.items(),
+                                    key=lambda x: (not x[1].oto, x[1].kanal.izleyici))   # önce otomatik + küçük
                     for anahtar, _ in sirali[:fazla]:
                         await self._birak(anahtar)
                         self._kapali.pop(anahtar, None)
@@ -817,7 +859,9 @@ class Uygulama:
                 satir.append(f"• {iz.kanal.gorunen} ({iz.kanal.platform})" + (" 🤖" if iz.oto else " ⭐"))
             kanal = "\n".join(satir) or "— (şu an açık yayın yok)"
             return (f"{'⏸ DURAKLATILDI' if self.duraklat else '▶ Çalışıyor'}\n"
-                    f"İzlenen yayınlar ({len(self.izleyiciler)}/{self._sinir()}, /sinir ile değiştir):\n{kanal}\n"
+                    f"İzlenen yayınlar ({len(self.izleyiciler)}/{self._sinir()}"
+                    + (f", senin sınırın {self._ust_sinir()} ama bilgisayar şu an bu kadarını kaldırıyor"
+                       if self._sinir() < self._ust_sinir() else ", /sinir ile değiştir") + "):\n{kanal}\n"
                     f"⭐ = senin eklediğin, 🤖 = otomatik bulunan\n\n"
                     f"⏱ {int((time.time() - self.basladi) / 60)} dakikadır açık\n"
                     f"💥 Chat patlaması: {self.sayac['patlama']} (kota dolu diye atlanan: {self.sayac['kotada']})\n"
@@ -848,6 +892,7 @@ class Uygulama:
             d = self._durum_oku()
             d["sinir"] = n
             self._durum_yaz(d)
+            self.etkin_sinir = 0
             self._uyandir.set()
             not_ = "\n(40'ın üstü güçlü bilgisayar ister; kasarsa düşür.)" if n > 40 else ""
             return f"✅ Artık aynı anda en fazla {n} yayın izlenecek.{not_}"
@@ -1321,6 +1366,7 @@ class Uygulama:
         gorevler.append(asyncio.create_task(self._hazirlik()))
         gorevler.append(asyncio.create_task(self.planci()))
         gorevler.append(asyncio.create_task(self.hiz_ayari()))
+        gorevler.append(asyncio.create_task(self.saglik_ayari()))
         try:
             await self.bot.komut_menusu()
         except Exception:  # noqa: BLE001
