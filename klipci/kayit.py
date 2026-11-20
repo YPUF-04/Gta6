@@ -125,10 +125,13 @@ class Kaydedici:
                 pass
         return sorted(out, key=lambda x: x[1])
 
-    def kes(self, bas: float, bit: float, hedef: Path) -> tuple[Path, float] | None:
+    def kes(self, bas: float, bit: float, hedef: Path, odak: float | None = None,
+            en_az_sn: float = 20.0) -> tuple[Path, float, float, float] | None:
         """[bas, bit] aralığını kapsayan bitmiş parçaları birleştir.
 
-        Dönüş: (birleşik dosya, dosyanın içinde bas'ın denk geldiği saniye)."""
+        Kayıtta boşluk varsa (Twitch reklamı, internet kopması) klibi iptal etmek yerine, `odak` anını
+        (chat'in patladığı an) içeren kesintisiz kısmı alır; en az `en_az_sn` sürmeli.
+        Dönüş: (birleşik dosya, dosyanın içinde başlangıcın saniyesi, gerçek başlangıç, gerçek bitiş)."""
         self.son_neden = ""
         tum = self.parcalar()
         if len(tum) < 2:
@@ -139,26 +142,35 @@ class Kaydedici:
         # bir parça en fazla ne kadar sürer? Yayına göre değişir (Twitch ~4 sn, Kick 6-10 sn): kayıttan ölç
         araliklar = sorted(b[1] - a[1] for a, b in zip(tum, tum[1:]) if b[1] > a[1])
         tipik = araliklar[len(araliklar) // 2] if araliklar else PARCA_SN
-        # Kick'te parçalar düzensiz (4-8 sn); gerçek kopma (uyku, internet) 20 sn'den uzun olur
-        azami = max(20.0, tipik * 3)
-        secilen = []
+        azami = max(12.0, tipik * 2.5)   # bundan uzun ara = kayıtta boşluk
+        # kesintisiz parça grupları: [(başlangıç, bitiş, [(parça, zaman)...]), ...]
+        gruplar: list[list] = []
         for i, (p, t) in enumerate(bitmis):
             bitis = min(tum[i + 1][1], t + azami)
-            if bitis > bas and t < bit:
-                secilen.append((p, t, bitis))
-        if not secilen:
-            self.son_neden = (f"o ana ait parça yok (kayıt {tum[0][1] - bas:+.0f} sn, son parça {tum[-1][1] - bit:+.0f} sn "
-                              f"fark, {len(tum)} parça)")
+            if gruplar and t - gruplar[-1][1] <= 1.5:
+                gruplar[-1][1] = bitis
+                gruplar[-1][2].append((p, t))
+            else:
+                gruplar.append([t, bitis, [(p, t)]])
+        merkez = odak if odak is not None else (bas + bit) / 2
+        aday = next((g for g in gruplar if g[0] <= merkez + 2 and g[1] >= merkez), None)
+        if aday is None:
+            yakin = min(gruplar, key=lambda g: min(abs(g[0] - merkez), abs(g[1] - merkez)))
+            self.son_neden = (f"patlama anında kayıt yok (en yakın kayıt {yakin[0] - merkez:+.0f}/{yakin[1] - merkez:+.0f} sn; "
+                              f"{len(gruplar)} kesintisiz parça grubu — Twitch reklamı ya da kopma). "
+                              f"Son hata: {self.son_hata() or '-'}")
+            log.warning("klip atlandı: %s", self.son_neden)
             return None
-        # kayıt bu aralığı kesintisiz kapsıyor mu? (bilgisayar uyuduysa / yayın koptuysa eksik olur)
-        kesintisiz = all(b[1] - a[1] <= azami for a, b in zip(secilen, secilen[1:]))
-        if not kesintisiz or secilen[0][1] > bas + 2 or secilen[-1][2] < bit - 2:
-            bosluk = max((b[1] - a[1] for a, b in zip(secilen, secilen[1:])), default=0)
-            self.son_neden = (f"kayıtta boşluk: kayıt {max(0.0, secilen[0][1] - bas):.0f} sn geç başlıyor, "
-                              f"en büyük boşluk {bosluk:.0f} sn, son parça {secilen[-1][2] - bit:+.0f} sn, "
-                              f"parça ~{tipik:.0f} sn")
-            log.warning("kayıt bu anı tam kapsamıyor, klip atlandı: %s", self.son_neden)
+        yeni_bas, yeni_bit = max(bas, aday[0]), min(bit, aday[1])
+        if yeni_bit - yeni_bas < en_az_sn:
+            self.son_neden = (f"patlama çevresindeki kesintisiz kayıt çok kısa ({yeni_bit - yeni_bas:.0f} sn; "
+                              f"istenen {bit - bas:.0f}) — Twitch reklamı ya da kopma")
+            log.warning("klip atlandı: %s", self.son_neden)
             return None
+        if yeni_bas > bas + 2 or yeni_bit < bit - 2:
+            log.info("kayıtta boşluk vardı, klip kısaltıldı: %.0f sn → %.0f sn", bit - bas, yeni_bit - yeni_bas)
+        bas, bit = yeni_bas, yeni_bit
+        secilen = [(p, t, 0) for p, t in aday[2] if t < bit and t + azami > bas]
         hedef.parent.mkdir(parents=True, exist_ok=True)
         liste = hedef.with_suffix(".txt")
         liste.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p, _, _ in secilen), encoding="utf-8")
@@ -179,7 +191,7 @@ class Kaydedici:
             log.warning("klip atlandı: %s", self.son_neden)
             hedef.unlink(missing_ok=True)
             return None
-        return hedef, max(0.0, bas - secilen[0][1])
+        return hedef, max(0.0, bas - secilen[0][1]), bas, bit
 
 
 def yetim_kayitlari_kapat(tampon_kok: Path) -> int:

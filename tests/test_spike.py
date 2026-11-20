@@ -146,3 +146,27 @@ def test_yeniden_baslatinca_kayit_silinmez(tmp_path, monkeypatch):
     assert not k.calisiyor_mu()
     k.yeniden_baslat()
     assert (k.klasor / "20261120_120000.ts").exists()
+
+
+def test_reklam_boslugunda_klip_kisalir(tmp_path):
+    """Twitch reklamı gibi 90 sn boşluk: patlama anını içeren kesintisiz kısımdan klip yapılmalı."""
+    import subprocess
+    import time
+    from datetime import datetime
+    from klipci.kayit import Kaydedici
+    k = Kaydedici("x", tmp_path, "best", 9999)
+    simdi = int(time.time())
+    kaynak = tmp_path / "k.ts"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30", "-f", "lavfi",
+                    "-i", "sine", "-t", "4", "-c:v", "libx264", "-c:a", "aac", "-f", "mpegts", str(kaynak)], check=True)
+    zamanlar = list(range(simdi - 200, simdi - 140, 4)) + list(range(simdi - 52, simdi + 1, 4))   # arada 88 sn reklam
+    for t in zamanlar:
+        (tmp_path / (datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S") + ".ts")).write_bytes(kaynak.read_bytes())
+    kaynak.unlink()
+    sonuc = k.kes(simdi - 75, simdi - 15, tmp_path / "out" / "o.ts", odak=simdi - 30)
+    assert sonuc is not None
+    _, _, bas, bit = sonuc
+    assert bas >= simdi - 53 and bit - bas >= 20
+    # patlama tam reklamın ortasındaysa: klip yok, nedeni yazılı
+    assert k.kes(simdi - 130, simdi - 70, tmp_path / "out" / "p.ts", odak=simdi - 100) is None
+    assert "reklam" in k.son_neden

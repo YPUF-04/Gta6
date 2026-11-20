@@ -495,12 +495,6 @@ class Uygulama:
     async def _kes(self, iz: Izleyici, s: Spike) -> None:
         tid = f"{iz.kanal.anahtar}@{int(s.tetik)}"
         self._asama(tid, "⏺ kayıt sürüyor (klibin sonu bekleniyor)", iz.kanal)
-        if self.cfg.get("hazirlaniyor_bildirimi", True):
-            try:
-                await self.bot.mesaj(f"🎬 Yeni klip hazırlanıyor: {iz.kanal.gorunen} ({iz.kanal.platform}) — "
-                                     f"chat normalin {s.kat:.1f} katı. Durum için /sira")
-            except Exception:  # noqa: BLE001
-                pass
         try:
             await self._kes_ic(iz, s, tid)
         finally:
@@ -520,7 +514,7 @@ class Uygulama:
         kid = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + iz.kanal.ad
         hedef = self.klasor / "_is" / f"{kid}.ts"
         try:
-            sonuc = await asyncio.to_thread(iz.kayit.kes, bas, bit, hedef)
+            sonuc = await asyncio.to_thread(iz.kayit.kes, bas, bit, hedef, s.zaman + 3)
         except Exception as e:  # noqa: BLE001
             log.warning("kesme başarısız: %s", e)
             self.sayac["kesilemedi"] += 1
@@ -532,7 +526,14 @@ class Uygulama:
             self.sayac["kesilemedi"] += 1
             self.son_sorun = f"{iz.kanal.gorunen}: {neden}"[:300]
             return
+        bas, bit = sonuc[2], sonuc[3]   # kayıtta boşluk varsa klip kısaltılmış olabilir
         self._kabul_gecmisi.append(time.time())   # kota sadece gerçekten kesilen klipten düşer
+        if self.cfg.get("hazirlaniyor_bildirimi", True):
+            try:
+                await self.bot.mesaj(f"🎬 Klip hazırlanıyor: {iz.kanal.gorunen} ({iz.kanal.platform}) — "
+                                     f"chat normalin {s.kat:.1f} katı. 2-3 dk içinde gelir (/sira)")
+            except Exception:  # noqa: BLE001
+                pass
         chat = [(t - bas, k, m) for t, k, m in list(iz.chat_log) if bas <= t <= bit]
         esik = int(self.cfg.get("yuz_icin_en_az_izleyici", 2000))
         buyuk = (not iz.oto) or iz.kanal.izleyici >= esik   # senin eklediklerin büyük sayılır
