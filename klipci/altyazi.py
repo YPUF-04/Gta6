@@ -122,7 +122,8 @@ class Yaziya:
             m = self._yukle()
         except Exception as e:  # noqa: BLE001
             log.warning("altyazı modeli kullanılamıyor: %r", e)
-            return None
+            self.durum = f"hazırlanamadı: {e!r}"[:200]
+            raise RuntimeError(f"altyazı modeli yüklenemedi: {e!r}"[:200]) from e
         ayar = dict(word_timestamps=True, beam_size=5, condition_on_previous_text=False,
                     vad_filter=True, vad_parameters={"threshold": 0.35, "min_silence_duration_ms": 400})
         # önce dili kendisi anlasın (yayıncı dilini yanlış seçmiş olabilir); emin değilse yayının dilini kullan

@@ -27,8 +27,8 @@ from . import meme, puan, yuz
 from . import SURUM
 from .oyun import OYUN, ayarla as oyun_ayarla
 from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, tweet_video, video_saglam_mi
-from .spike import Spike, SpikeDetector, yazi_dili
-from .oyunsesi import hareketsiz_oran, oyun_altyazi_anlari, oyun_konusmasi_mi
+from .spike import Spike, SpikeDetector, mesaj_puani, yazi_dili
+from .oyunsesi import hareketsiz_oran, oyun_altyazi_anlari, oyun_konusmasi_mi, yuz_tepkisi
 from .telegram import Bot
 from .yazar import Yazar, paylasim_metni, platform_metinleri, tepki_yazisi, trend_arastir
 
@@ -461,6 +461,15 @@ class Uygulama:
                         log.info("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
                                  butce, iz.kanal.anahtar)
                         continue
+                    son = [m for t, _, m in list(iz.chat_log) if t >= time.time() - 12]
+                    tepki_o = sum(1 for m in son if mesaj_puani(m)[0] > 1
+                                  and mesaj_puani(m)[1] not in ("w", "gg", "?", "??", "???")) / max(1, len(son))
+                    klip_n = sum(1 for m in son if mesaj_puani(m)[1] == "clip")
+                    if tepki_o < 0.15 and klip_n < 2:
+                        # chat hızlandı ama gülen/şaşıran yok (abone yağmuru, spam, oylama): klip yapma
+                        self.sayac["zayif"] = self.sayac.get("zayif", 0) + 1
+                        log.info("chat hızlandı ama tepki yok (%s, gülme %%%d), atlandı", iz.kanal.anahtar, int(tepki_o * 100))
+                        continue
                     if iz.kayit.durum()["parca"] < 4:
                         log.info("chat patladı ama %s kaydı henüz hazır değil (görüntü gelmiyor), atlandı",
                                  iz.kanal.anahtar)
@@ -555,7 +564,7 @@ class Uygulama:
         return int(d.get("kalite", self.cfg.get("kalite_yuzde", 50)))
 
     @staticmethod
-    def _bos_an_mi(is_: "Is", ses_tepki: float, oyun_anlari: list) -> str:
+    def _bos_an_mi(is_: "Is", ses_tepki: float, oyun_anlari: list, yuz_t: float = 0.0) -> str:
         """Yapay zekâsız (ücretsiz) 'boş an' kontrolü. Boş string = iyi an."""
         from .spike import mesaj_puani
         yakin = [m for t, _, m in is_.chat if is_.an - 3 <= t <= is_.an + 12]
@@ -563,9 +572,17 @@ class Uygulama:
         sade = {"w", "gg", "?", "??", "???", "help"}
         gulme = sum(1 for m in yakin if mesaj_puani(m)[0] > 1 and mesaj_puani(m)[1] not in sade) / max(1, len(yakin))
         ara_sahne = (sum(v for _, v in oyun_anlari) / len(oyun_anlari)) if oyun_anlari else 0.0
-        if gulme < 0.15 and ses_tepki < 6:
-            return f"ne chat gülüyor ne yayıncı tepki veriyor (tepki %{int(gulme * 100)}, ses +{ses_tepki:.0f} dB)"
-        if ara_sahne >= 0.6 and gulme < 0.3:
+        klip = sum(1 for m in yakin if mesaj_puani(m)[1] == "clip")
+        # en az bir güçlü işaret lazım: chat gerçekten gülüyor / "clip" diyor / yayıncı bağırıyor ya da kamerada coşuyor
+        # 1) chat gerçekten gülüyor/şaşırıyor ya da "clip" diyor  VE  2) yayıncı da tepki veriyor (bağırma / kamerada coşma)
+        #    — chat çok güçlüyse (yarısından fazlası gülüyor) yayıncı sakin kalsa da olur
+        chat_guclu = gulme >= 0.3 or klip >= 3
+        yayinci_tepki = ses_tepki >= 6 or yuz_t >= 2.0 or gulme >= 0.5
+        guclu = chat_guclu and yayinci_tepki
+        if not guclu:
+            return (f"güzel an işareti yok (chat gülme %{int(gulme * 100)}, 'clip' {klip}, "
+                    f"ses +{ses_tepki:.0f} dB, yüz {yuz_t:.1f}x)")
+        if ara_sahne >= 0.6 and gulme < 0.5:
             return f"çoğu oyunun ara sahnesi (%{int(ara_sahne * 100)}), chat'te pek gülme yok"
         return ""
 
@@ -706,15 +723,23 @@ class Uygulama:
 
         self._asama(is_.takip, "🔎 inceleniyor: yüz, ses, altyazı")
         # 1) analizler aynı anda: yüz kamerası + aksiyon, ses, konuşma
+        alt_not: list[str] = []   # altyazı neden yok / ne oldu (Telegram'da klibin altında yazar)
+
         async def konusma():
             if not self.yaziya:
+                alt_not.append("altyazı ayardan kapalı")
                 return None
             wav = is_.kaynak.with_suffix(".wav")
             try:
                 await asyncio.to_thread(ses_cikar, is_.kaynak, is_.ofset, is_.sure, wav)
-                return await asyncio.wait_for(asyncio.to_thread(self.yaziya.coz, wav, is_.kanal.dil), 300)
+                # model daha iniyorsa bekle (altyazısız klip çıkmasın), en fazla 15 dk
+                return await asyncio.wait_for(asyncio.to_thread(self.yaziya.coz, wav, is_.kanal.dil), 900)
+            except asyncio.TimeoutError:
+                alt_not.append(f"altyazı aracı yetişmedi ({self.yaziya.durum})")
+                return None
             except Exception as e:  # noqa: BLE001
                 log.warning("altyazı çıkarılamadı (klip altyazısız yapılacak): %r", e)
+                alt_not.append(f"altyazı hatası: {e!r}"[:160])
                 return None
             finally:
                 wav.unlink(missing_ok=True)
@@ -737,6 +762,10 @@ class Uygulama:
         if analiz.facecam and not is_.buyuk:
             log.info("küçük yayıncı (%s izleyici): yüzü kullanılmadı", is_.kanal.izleyici)
         segler = cozum.segmentler if cozum else []
+        if cozum is None and not alt_not:
+            alt_not.append(f"altyazı aracı çalışmadı ({self.yaziya.durum if self.yaziya else 'kapalı'})")
+        elif cozum is not None and not segler:
+            alt_not.append("yayıncının konuşması duyulmadı")
         # yayıncı aslında hesaplarının dilinde konuşmuyorsa (ör. Arapça) klip yapma
         if (cozum and cozum.guven >= 0.75 and len(segler) >= 2 and cozum.dil not in self._izinli_diller()):
             log.info("klip elendi: yayıncı %s konuşuyor (hesapların: %s) — %s", cozum.dil,
@@ -750,6 +779,7 @@ class Uygulama:
         ce = self.cfg.get("chat_ekrani") or {}
         ses_tepki = await asyncio.to_thread(puan.an_tepkisi, is_.kaynak, is_.ofset, is_.sure, is_.an)
         duran = await asyncio.to_thread(hareketsiz_oran, is_.kaynak, is_.ofset, is_.sure, analiz.facecam)
+        yuz_t = await asyncio.to_thread(yuz_tepkisi, is_.kaynak, is_.ofset, is_.sure, analiz.facecam, is_.an)
         if duran >= 0.5:   # harita / menü / ayarlar: kimse izlemez
             log.info("klip elendi: oyun ekranı zamanın %%%d'inde duruyor (menü/harita) — %s", int(duran * 100), kid)
             self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
@@ -774,6 +804,7 @@ class Uygulama:
                 secili = {i for i, (b, e, _) in enumerate(segler) if not oyun_konusmasi_mi(b, e, oyun_anlari)}
                 if len(secili) < len(segler):
                     log.info("oyundan gelen %d konuşma altyazıya alınmadı", len(segler) - len(secili))
+                    alt_not.append(f"{len(segler) - len(secili)}/{len(segler)} konuşma oyundaki karakterlere ait, yazılmadı")
             if veri.get("altyazi") and len(veri["altyazi"]) == len(segler) and kaynak_dil != dil:
                 alt = segment_parcala([(b, e, t) for i, ((b, e, _), t) in enumerate(zip(segler, veri["altyazi"]))
                                        if i in secili])
@@ -796,7 +827,7 @@ class Uygulama:
             # sadece iyi anlar video olur: yapay zekâ "boş an" dediyse ya da son kliplerin zayıf yarısındaysa atla
             yz = veri.get("puan") if self.yazar.client else None
             elendi = self._kalite_eler(skor, yz) or (
-                "" if yz is not None else self._bos_an_mi(is_, ses_tepki, oyun_anlari))
+                "" if yz is not None else self._bos_an_mi(is_, ses_tepki, oyun_anlari, yuz_t))
             if elendi:
                 log.info("klip elendi (%s): %s — puan %.1f", elendi, hid, skor)
                 self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
@@ -809,7 +840,9 @@ class Uygulama:
             ass = klasor / "yazi.ass"
             an = is_.an if self.cfg.get("yakinlasma", True) else None
             # yüz varsa: üstte yüz, altta oyun. Yoksa: tweet tarzı (ayardan "tek" de seçilebilir)
-            duzen = "yuz" if facecam else str(self.cfg.get("yuzsuz_duzen", "tweet"))
+            # yüz varsa: varsayılan "pip" (oyun tam ekran, kamera sol üstte kutu); "yuz" = üstte kamera altta oyun
+            duzen = (str(self.cfg.get("yuzlu_duzen", "pip")) if facecam
+                     else str(self.cfg.get("yuzsuz_duzen", "tweet")))
             tepki = None
             if self.cfg.get("tepki_yazisi", True):
                 tepki = (is_.an, tepki_yazisi(is_.spike.kelimeler, is_.spike.ornek_mesajlar, dil, hid))
@@ -824,9 +857,9 @@ class Uygulama:
                                             sayfa.get("profil_yol"), an)
                 else:
                     ass_yaz(ass, is_.sure, veri.get("baslik", ""), f"🎥 {is_.kanal.kredi}", h.get("imza", ""), alt,
-                            chat_pop, duzen, None, tepki)
+                            [] if duzen == "pip" else chat_pop, duzen, None, tepki)
                     await asyncio.to_thread(dikey_video, is_.kaynak, is_.ofset, is_.sure, mp4, ass, zoom, facecam,
-                                            an, bool(self.cfg.get("ilerleme_cubugu", False)))
+                                            an, bool(self.cfg.get("ilerleme_cubugu", False)), duzen)
             finally:
                 ass.unlink(missing_ok=True)
             if not await asyncio.to_thread(video_saglam_mi, mp4):
@@ -845,7 +878,8 @@ class Uygulama:
                 "kanal": is_.kanal.anahtar, "yayinci": is_.kanal.gorunen, "platform": is_.kanal.platform,
                 "hesap": ad, "dil": dil, "puan": skor, "neden": neden, "ozellikler": oz,
                 "facecam": bool(facecam), "chat_kat": round(is_.spike.kat, 1), "kelimeler": is_.spike.kelimeler,
-                "transkript": [t for _, _, t in segler]}, ensure_ascii=False, indent=1), encoding="utf-8")
+                "transkript": [t for _, _, t in segler],
+                "altyazi_notu": "; ".join(dict.fromkeys(alt_not)) or (f"{len(alt)} satır altyazı" if alt else "")}, ensure_ascii=False, indent=1), encoding="utf-8")
             self.sayac["klip"] += 1
             if hedef_kok == "dusuk_puan":
                 log.info("düşük puan (%.1f < %.1f), Telegram'a yollanmadı: %s", skor, en_dusuk, hid)
@@ -863,6 +897,8 @@ class Uygulama:
             ust += f" · son 24 saatin {sira}./{toplam}"
         if bilgi.get("neden"):
             ust += f"\n💡 {bilgi['neden']}"
+        if bilgi.get("altyazi_notu"):
+            ust += f"\n📝 {bilgi['altyazi_notu']}"
         return ust + "\n\n" + metin
 
     async def _gonder(self, klasor: Path) -> bool:
@@ -1006,6 +1042,8 @@ class Uygulama:
                     f"{self.sayac['isleniyor'] + self.kuyruk.qsize()}\n"
                     f"⚠️ Kesilemeyen: {self.sayac['kesilemedi']} · hata: {self.sayac['hata']}\n"
                     f"✅ Onayladığın: {self.sayac['onay']}\n"
+                    + (f"😐 Chat hızlandı ama gülen yok diye atlanan: {self.sayac['zayif']}\n"
+                       if self.sayac.get("zayif") else "")
                     + (f"📵 Kaydı hazır olmadığı için atlanan patlama: {self.sayac['kayitsiz']}\n"
                        if self.sayac.get("kayitsiz") else "")
                     + f"Altyazı: {self.yaziya.durum if self.yaziya else 'kapalı'}"

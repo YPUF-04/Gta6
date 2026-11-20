@@ -127,6 +127,7 @@ yuz_icin_en_az_izleyici: 2000   # bundan küçük (otomatik bulunan) yayıncıla
 # Yüz yoksa: "tweet" = beyaz zemin, üstte sayfa profili + büyük başlık, ortada kare video
 #            "tek"   = ortada oyun, arkası bulanık
 # Tweet tarzının adı/başlığı/fotoğrafı Telegram'dan: /ad, /ustyazi, fotoğraf + "/profil"
+yuzlu_duzen: "pip"          # pip = oyun tam ekran, kamera sol üstte kutu · yuz = üstte kamera, altta oyun
 yuzsuz_duzen: "tweet"
 tepki_yazisi: true          # chat patladığı an ekrana chat'in tepkisine göre makara yazı ("chat koptu 😭")
 yakinlasma: true            # chat'in patladığı an ani yakınlaşma (editörlerin yaptığı gibi)

@@ -31,10 +31,12 @@ def test_bos_an(tmp_path, monkeypatch):
     s = Spike(zaman=0, tetik=0, puan=1, taban=1)
     sakin = Is(k, s, tmp_path / "a.ts", 0, 30, [(20.0, "a", "nice"), (21.0, "b", "hello")] * 5, True, 20.0, "x")
     from klipci.uygulama import Uygulama
-    assert "tepki" in Uygulama._bos_an_mi(sakin, 2.0, [])
+    assert "işareti yok" in Uygulama._bos_an_mi(sakin, 2.0, [])
     komik = Is(k, s, tmp_path / "a.ts", 0, 30, [(20.0, "a", "LMAOOO"), (21.0, "b", "KEKW")] * 5, True, 20.0, "x")
     assert Uygulama._bos_an_mi(komik, 2.0, []) == ""
-    assert "ara sahne" in Uygulama._bos_an_mi(sakin, 9.0, [(t, True) for t in range(10)])
+    biraz = Is(k, s, tmp_path / "a.ts", 0, 30, [(20.0, "a", "LMAO"), (20.5, "b", "KEKW"), (21.0, "c", "ok"),
+                                                (21.5, "d", "yo"), (22.0, "e", "hi")] * 3, True, 20.0, "x")
+    assert "ara sahne" in Uygulama._bos_an_mi(biraz, 9.0, [(t, True) for t in range(10)])
 
 
 def test_hareketsiz_ekran(tmp_path):

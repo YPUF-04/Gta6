@@ -17,7 +17,12 @@ HYPE = {
     "💀", "😂", "🤣", "pog", "pogchamp", "poggers", "monkas", "holy", "insane",
     "ajsdk", "skull", "bruh", "xdd", "lmaooo", "sjsj", "jsjs", "aşdk", "asdasd",
     "gg", "?", "??", "???", "help", "ripbozo", "rip",
+    # Türkçe tepkiler
+    "oha", "lan", "efsane", "öldüm", "oldum", "koptum", "kopuyorum", "ağla", "agla", "yok artık", "yokartık",
+    "aşko", "ahahah", "hahah", "ksksks", "skskks", "jfjf", "dkdk", "kdkd", "hshs", "ajsjs", "asjdj", "nolmuş",
+    "noldu", "dehşet", "pff",
 }
+_EV_SIRASI = set("asdfghjklşi")   # klavyenin orta sırası: "asdjkasd", "sjdkfj" gibi rastgele basma = gülme
 _KUTLAMA = ("gift", "subscri", "resub", "raid", "welcome", "hoş geldin", "hosgeldin", "abone",
             "bağış", "donat", "hype train", "giveaway", "çekiliş", "cekilis", "happy birthday", "doğum günü")
 _word = re.compile(r"[\w💀😂🤣?]+", re.UNICODE)
@@ -35,9 +40,14 @@ def mesaj_puani(text: str) -> tuple[float, str | None]:
         return 0.3, None
     tokens = _word.findall(t)
     for tok in tokens:
-        if tok in HYPE or tok.startswith(("lmao", "kekw", "omegalul", "haha", "xdd")):
+        if tok in HYPE or tok.startswith(("lmao", "kekw", "omegalul", "haha", "xdd", "ahah", "sjsj", "jsjs", "skdj")):
             return 1.5, tok
-    if "clip" in t:
+        if (len(tok) >= 6 and sum(c in _EV_SIRASI for c in tok) / len(tok) >= 0.85
+                and len(set(tok) & set("jkdsfgh")) >= 2):
+            return 1.5, "asdf"   # klavyeye rastgele basma = Türk chat'inde gülme
+    if "yok art" in t or "yok arti" in t:
+        return 1.5, "yok artık"
+    if "clip" in t or "klip" in t:
         return 2.0, "clip"
     return 1.0, None
 

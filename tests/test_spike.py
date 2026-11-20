@@ -221,3 +221,10 @@ def test_latin_harfli_yabanci_chat():
     assert yazi_dili(en) == ""
     tr = ["abi ne yapıyon", "bu ne ya", "KEKW", "çok iyi"] * 4
     assert yazi_dili(tr) == ""
+
+
+def test_turkce_gulme():
+    for m in ("asdjkasdjk", "sjsjsjsj", "OHA", "yok artık", "ahahahah", "klipleyin"):
+        assert mesaj_puani(m)[0] > 1, m
+    for m in ("merhaba", "tamamdır", "kanka napıyon", "geliyorum"):
+        assert mesaj_puani(m)[0] == 1.0, m

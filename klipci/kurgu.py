@@ -62,6 +62,8 @@ def _zaman(t: float) -> str:
 DUZEN = {
     "yuz": {"kam_h": 680, "alt_pos": (540, 680), "chat_y": 1420, "kredi_mv": 70, "imza_mv": 30},
     "tek": {"kam_h": 0, "baslik": (540, 300), "alt_pos": (540, 1400), "chat_y": 1236, "kredi_mv": 230, "imza_mv": 170},
+    # "pip": oyun tam ekran, yayıncının kamerası sol üstte yuvarlak köşeli küçük kutu (en çok izlenen GTA klip tarzı)
+    "pip": {"kam_h": 0, "kutu": (24, 24, 600, 450), "alt_pos": (540, 1640), "chat_y": 1236, "kredi_mv": 0},
     "tweet": {"video_y": 400, "video_h": 1080, "alt_pos": (540, 1390), "baslik": (540, 560)},
 }
 MOR = "&H00E43F7B&"   # söylenen kelimenin arkasındaki mor kutu (BGR)
@@ -99,8 +101,9 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
     d = DUZEN.get(duzen, DUZEN["tek"])
     import random
     rnd = random.Random(yol.parent.name)   # her videoda biraz farklı: hepsi aynı şablondan çıkmış gibi durmasın
-    alt_font = rnd.choice(["Arial Black", "Arial", "Impact"]) if duzen != "yuz" else rnd.choice(["Arial", "Arial Black"])
-    alt_boy = {"yuz": 70, "tek": 74, "tweet": 60}[duzen] + rnd.choice([-4, 0, 4])
+    alt_font = (rnd.choice(["Arial Black", "Arial", "Impact"]) if duzen not in ("yuz", "pip")
+                else rnd.choice(["Arial", "Arial Black"]))
+    alt_boy = {"yuz": 70, "tek": 74, "tweet": 60, "pip": 76}[duzen] + rnd.choice([-4, 0, 4])
     stiller = [
         # Altyazı: beyaz kalın + siyah kenar (söylenen kelime mor kutuda)
         f"Style: Alt,{alt_font},{alt_boy},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,5,40,40,0,1",
@@ -135,6 +138,8 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
         an, yazi = tepki
         if duzen == "yuz":
             ty = d["kam_h"] + 170
+        elif duzen == "pip":
+            ty = 760
         elif duzen == "tweet":
             ty = DUZEN["tweet"]["video_y"] + 160
         else:
@@ -164,6 +169,19 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
                             f"{_ass_metin(baslik)}")
         if kredi:
             satirlar.append(f"Dialogue: 1,0:00:00.00,{son},TKredi,,0,0,0,,{{\\pos(540,1530)}}{_ass_metin(kredi)}")
+        satirlar += _altyazi_olaylari(altyazilar, sure, ax, ay)
+        yol.write_text("\n".join(satirlar) + "\n", encoding="utf-8")
+        return
+
+    if duzen == "pip":
+        # sade: başlık / chat yazısı yok. Kaynak sağ üstte minik, kullanıcı adın kamera kutusunun alt ortasında
+        kx, ky, kw, kh = d["kutu"]
+        if kredi:
+            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},Kredi,,0,0,0,,{{\\an9\\pos({W - 28},30)\\fs26\\alpha&H40&}}"
+                            f"{_ass_metin(kredi)}")
+        if imza:
+            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},ImzaYuz,,0,0,0,,{{\\pos({kx + kw // 2},{ky + kh - 30})\\fs30}}"
+                            f"{_ass_metin(imza)}")
         satirlar += _altyazi_olaylari(altyazilar, sure, ax, ay)
         yol.write_text("\n".join(satirlar) + "\n", encoding="utf-8")
         return
@@ -209,10 +227,27 @@ def _yakinlas(genislik: int, yukseklik: int, an: float | None) -> str:
 
 def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: Path | None,
                 zoom: float = 1.3, facecam: tuple[float, float, float, float] | None = None,
-                an: float | None = None, cubuk: bool = False) -> Path:
+                an: float | None = None, cubuk: bool = False, duzen: str = "yuz") -> Path:
     """facecam (0-1 arası x,y,w,h) verilirse: üstte yayıncının kamerası, altta oyun.
     an: klipte chat'in patladığı saniye (o anda kısa yakınlaşma). cubuk: altta ilerleme çubuğu."""
-    if facecam:
+    if facecam and duzen == "pip":
+        fx, fy, fw, fh = facecam
+        kx, ky, kw, kh = DUZEN["pip"]["kutu"]
+        r = 28   # köşe yuvarlaklığı
+        kose = (f"if(gt(abs(X-W/2),W/2-{r})*gt(abs(Y-H/2),H/2-{r}),"
+                f"if(lte(hypot({r}-(W/2-abs(X-W/2)),{r}-(H/2-abs(Y-H/2))),{r}),255,0),255)")
+        filtre = (
+            f"[0:v]setpts=PTS-STARTPTS,split=2[a][b];"
+            f"[b]crop=min(iw\\,ih*{W}/{H}):ih:(iw-min(iw\\,ih*{W}/{H}))/2:0,"
+            f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps=30"
+            f"{_yakinlas(W, H, an)}[oyun];"
+            f"[a]crop=iw*{fw:.4f}:ih*{fh:.4f}:iw*{fx:.4f}:ih*{fy:.4f},"
+            f"scale={kw}:{kh}:force_original_aspect_ratio=increase,crop={kw}:{kh},setsar=1,fps=30,"
+            f"format=yuva420p,geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)':a='{kose}'[kam];"
+            f"[oyun][kam]overlay={kx}:{ky},fps=30,format=yuv420p[v0]"
+        )
+        cubuk = True   # bu tarzda altta ince ilerleme çubuğu var
+    elif facecam:
         fx, fy, fw, fh = facecam
         kh = DUZEN["yuz"]["kam_h"]
         oh = H - kh
@@ -237,8 +272,9 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p[v0]"
         )
     if cubuk:   # altta ilerleme çubuğu (isteğe bağlı; çoğu insan editör kullanmıyor)
-        filtre += (f";color=c=0xFFD400:s={W}x10:r=30:d={sure + 1:.2f}[bar];"
-                   f"[v0][bar]overlay=x='-w+w*t/{max(sure, 0.1):.2f}':y=H-10:shortest=1[v1]")
+        renk, kalin = ("0xE8283C", 8) if duzen == "pip" else ("0xFFD400", 10)
+        filtre += (f";color=c={renk}:s={W}x{kalin}:r=30:d={sure + 1:.2f}[bar];"
+                   f"[v0][bar]overlay=x='-w+w*t/{max(sure, 0.1):.2f}':y=H-{kalin}:shortest=1[v1]")
     else:
         filtre += ";[v0]null[v1]"
     if ass is not None:

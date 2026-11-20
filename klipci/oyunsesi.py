@@ -76,3 +76,31 @@ def hareketsiz_oran(video: Path, ofset: float, sure: float, facecam=None) -> flo
     except Exception as e:  # noqa: BLE001
         log.debug("hareket ölçülemedi: %r", e)
         return 0.0
+
+
+def yuz_tepkisi(video: Path, ofset: float, sure: float, facecam, an: float) -> float:
+    """Yayıncı patlama anında kamerada ne kadar hareketlendi? (normaline göre kat; elleri başında, zıplıyor...)
+    Kamera yoksa 0."""
+    if not facecam:
+        return 0.0
+    try:
+        import numpy as np
+        fx, fy, fw, fh = facecam
+        w, h = 96, 96
+        ham = subprocess.run(
+            [arac("ffmpeg"), "-v", "error", "-ss", f"{ofset:.2f}", "-t", f"{sure:.2f}", "-i", str(video),
+             "-vf", f"fps=2,crop=iw*{fw:.4f}:ih*{fh:.4f}:iw*{fx:.4f}:ih*{fy:.4f},scale={w}:{h},format=gray",
+             "-f", "rawvideo", "-"], capture_output=True, timeout=120, creationflags=_PENCERESIZ).stdout
+        n = len(ham) // (w * h)
+        if n < 8:
+            return 0.0
+        k = np.frombuffer(ham[:n * w * h], np.uint8).reshape(n, h, w).astype(np.float32)
+        d = np.array([np.mean(np.abs(k[i] - k[i - 1])) for i in range(1, n)])
+        a, b = max(0, int((an - 4) * 2)), min(len(d), int((an + 6) * 2))
+        if b <= a:
+            return 0.0
+        normal = float(np.median(d)) + 0.5
+        return float(np.percentile(d[a:b], 80)) / normal
+    except Exception as e:  # noqa: BLE001
+        log.debug("yüz tepkisi ölçülemedi: %r", e)
+        return 0.0
