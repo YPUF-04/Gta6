@@ -87,10 +87,10 @@ algilama:
   isinma_sn: 90             # yayına girince önce chat'in normal hızını öğren
 
 klip:
-  once_sn: 22               # patlamadan kaç saniye önce başlasın (chat geç tepki verir)
-  sonra_sn: 12              # patlamadan sonra kaç saniye devam etsin
-  hedef_sure_sn: 50         # klip en az bu kadar (sn); kısa kalırsa öncesi/sonrası eklenir
-  en_uzun_sn: 60            # chat coşmaya devam ederse klip bu kadara kadar uzar
+  # Sabit süre yok: klip olayın biraz öncesinden başlar, chat coştuğu sürece devam eder, sakinleşince biter.
+  once_sn: 18               # patlamadan kaç saniye önce başlasın (chat geç tepki verir)
+  sonra_sn: 8               # chat sakinleştikten sonra kaç saniye tepki payı
+  en_uzun_sn: 90            # en fazla bu kadar uzar
   tampon_sn: 240            # bilgisayarda her yayının son kaç saniyesi tutulsun
   kalite: "720p,720p60,best"   # (değiştirmek için kalite_zorla: true da ekle)
   zoom: 1.3                 # oyun görüntüsünü ortadan ne kadar yakınlaştır (1.0 = hiç)

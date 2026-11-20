@@ -177,10 +177,10 @@ def test_klip_suresi(tmp_path, monkeypatch):
     u = _app(tmp_path, monkeypatch)
     s = Spike(zaman=1000.0, tetik=1010.0, puan=80, taban=10)
     bas, bit = u._klip_araligi(s)
-    assert 49.9 <= bit - bas <= 50.1 and bas < 1000 - 22 and bit > 1010 + 12
-    u.cfg["klip"] = {"hedef_sure_sn": 30}
+    assert bas == 1000 - 18 and bit == 1010 + 8      # sabit süre yok: olay + ilk tepki
+    u.cfg["klip"] = {"once_sn": 22, "hedef_sure_sn": 50}   # eski ayar dosyası
     bas, bit = u._klip_araligi(s)
-    assert abs((bit - bas) - 44) < 0.01   # varsayılan 22 + 10 + 12 zaten 30'dan uzun
+    assert bit - bas == 36
 
 
 def test_info(tmp_path, monkeypatch):

@@ -53,6 +53,28 @@ def ses_ozellikleri(video: Path, baslangic: float, sure: float) -> dict:
         return {"ses": 0.0, "ses_db": -60.0}
 
 
+def an_tepkisi(video: Path, baslangic: float, sure: float, an: float) -> float:
+    """Patlama anı çevresinde ses ne kadar yükseldi (dB, klibin normaline göre)? Yayıncı bağırdı/güldü mü?"""
+    try:
+        import numpy as np
+        ham = subprocess.run(
+            [arac("ffmpeg"), "-v", "error", "-ss", f"{baslangic:.2f}", "-t", f"{sure:.2f}", "-i", str(video),
+             "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
+            capture_output=True, timeout=60, creationflags=_PENCERESIZ).stdout
+        x = np.frombuffer(ham, np.int16).astype(np.float32) / 32768.0
+        d = 4000   # yarım saniye
+        if len(x) < d * 4:
+            return 0.0
+        db = 20 * np.log10(np.sqrt(np.array([np.mean(x[i:i + d] ** 2) for i in range(0, len(x) - d + 1, d)])) + 1e-10)
+        a, b = max(0, int((an - 8) * 2)), min(len(db), int((an + 5) * 2) + 1)
+        if b <= a:
+            return 0.0
+        return float(np.max(db[a:b]) - np.median(db))
+    except Exception as e:  # noqa: BLE001
+        log.debug("an tepkisi ölçülemedi: %s", e)
+        return 0.0
+
+
 def ozellik_cikar(chat_kat: float, chat: list[tuple[float, str, str]], sure: float, ses: dict,
                   aksiyon: float, kelime_sayisi: int, facecam: bool, yz_puan: float | None) -> dict:
     from .spike import mesaj_puani

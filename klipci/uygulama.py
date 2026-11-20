@@ -28,6 +28,7 @@ from . import SURUM
 from .oyun import OYUN, ayarla as oyun_ayarla
 from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, tweet_video, video_saglam_mi
 from .spike import Spike, SpikeDetector
+from .oyunsesi import oyun_altyazi_anlari, oyun_konusmasi_mi
 from .telegram import Bot
 from .yazar import Yazar, paylasim_metni, platform_metinleri, tepki_yazisi, trend_arastir
 
@@ -525,6 +526,21 @@ class Uygulama:
         d = self._durum_oku()
         return int(d.get("kalite", self.cfg.get("kalite_yuzde", 50)))
 
+    @staticmethod
+    def _bos_an_mi(is_: "Is", ses_tepki: float, oyun_anlari: list) -> str:
+        """Yapay zekâsız (ücretsiz) 'boş an' kontrolü. Boş string = iyi an."""
+        from .spike import mesaj_puani
+        yakin = [m for t, _, m in is_.chat if is_.an - 3 <= t <= is_.an + 12]
+        # "W", "gg", "?" komiklik göstermez; gülme/şok tepkileri sayılır
+        sade = {"w", "gg", "?", "??", "???", "help"}
+        gulme = sum(1 for m in yakin if mesaj_puani(m)[0] > 1 and mesaj_puani(m)[1] not in sade) / max(1, len(yakin))
+        ara_sahne = (sum(v for _, v in oyun_anlari) / len(oyun_anlari)) if oyun_anlari else 0.0
+        if gulme < 0.15 and ses_tepki < 6:
+            return f"ne chat gülüyor ne yayıncı tepki veriyor (tepki %{int(gulme * 100)}, ses +{ses_tepki:.0f} dB)"
+        if ara_sahne >= 0.6 and gulme < 0.3:
+            return f"çoğu oyunun ara sahnesi (%{int(ara_sahne * 100)}), chat'te pek gülme yok"
+        return ""
+
     def _kalite_eler(self, skor: float, yz: int | None) -> str:
         """Boş string = geçti. Değilse elenme nedeni."""
         onceki = sorted(self._son_puanlar)
@@ -541,16 +557,12 @@ class Uygulama:
         return ""
 
     def _klip_araligi(self, s: Spike) -> tuple[float, float]:
-        """Klibin başı ve sonu: patlamadan önce olayın başlaması + sonrasında tepki. En az hedef_sure_sn."""
+        """Klibin başı ve sonu: olayın girişi (chat geç tepki verir) + chat'in ilk tepkisi.
+        Sabit bir süre yok: chat coşmaya devam ettikçe _kes_ic klibi uzatır, sakinleşince biter."""
         kl = self.cfg.get("klip") or {}
-        once, sonra = float(kl.get("once_sn", 22)), float(kl.get("sonra_sn", 12))
-        hedef = float(kl.get("hedef_sure_sn", 50))
-        bas, bit = s.zaman - once, s.tetik + sonra
-        eksik = hedef - (bit - bas)
-        if eksik > 0:   # kısa kaldıysa: biraz daha öncesi (olayın girişi) + biraz daha sonrası (tepkiler)
-            bas -= eksik * 0.4
-            bit += eksik * 0.6
-        return bas, bit
+        once, sonra = float(kl.get("once_sn", 18)), float(kl.get("sonra_sn", 8))
+        once = min(once, 18.0)   # eski ayar (22) gereksiz uzun giriş yapıyordu
+        return s.zaman - once, s.tetik + sonra
 
     @staticmethod
     def _chat_sicak_mi(iz: Izleyici) -> bool:
@@ -591,11 +603,16 @@ class Uygulama:
 
     async def _kes_ic(self, iz: Izleyici, s: Spike, tid: str) -> None:
         bas, bit = self._klip_araligi(s)
-        en_uzun = float((self.cfg.get("klip") or {}).get("en_uzun_sn", 60))
+        en_uzun = max(90.0, float((self.cfg.get("klip") or {}).get("en_uzun_sn", 90)))
         await asyncio.sleep(max(0.0, bit - time.time()))
-        # chat hâlâ coşuyorsa klibi uzat (5'er sn, en fazla en_uzun_sn)
-        while bit - bas + 5 <= en_uzun and self._chat_sicak_mi(iz):
-            bit += 5
+        # komiklik sürdükçe (chat hâlâ coşuyor) klip uzar; sakinleşince birkaç saniye tepki payı bırakıp biter
+        uzadi = False
+        while bit - bas + 3 <= en_uzun and self._chat_sicak_mi(iz):
+            bit += 3
+            uzadi = True
+            await asyncio.sleep(max(0.0, bit - time.time()))
+        if uzadi:
+            bit += 3
             await asyncio.sleep(max(0.0, bit - time.time()))
         await asyncio.sleep(PARCA_SN * 2 + 1)
         self._asama(tid, "✂️ kesiliyor")
@@ -663,10 +680,11 @@ class Uygulama:
             finally:
                 wav.unlink(missing_ok=True)
 
-        analiz, ses, cozum = await asyncio.gather(
+        analiz, ses, cozum, oyun_anlari = await asyncio.gather(
             asyncio.to_thread(yuz.analiz_et, is_.kaynak, is_.ofset, is_.sure),
             asyncio.to_thread(puan.ses_ozellikleri, is_.kaynak, is_.ofset, is_.sure),
-            konusma())
+            konusma(),
+            asyncio.to_thread(oyun_altyazi_anlari, is_.kaynak, is_.ofset, is_.sure))
         # meme'ler için oyun görüntüsünün ham hâlini sakla (3 gün)
         try:
             ham = self.klasor / "ham" / f"{kid}.mp4"
@@ -683,6 +701,7 @@ class Uygulama:
         kaynak_dil = cozum.dil if cozum else ""
         zoom = float((self.cfg.get("klip") or {}).get("zoom", 1.3))
         ce = self.cfg.get("chat_ekrani") or {}
+        ses_tepki = await asyncio.to_thread(puan.an_tepkisi, is_.kaynak, is_.ofset, is_.sure, is_.an)
         chat_pop = (chat_sec(is_.chat, is_.sure, 1, float(ce.get("sure_sn", 1.8)),
                              en_fazla=int(ce.get("en_fazla_mesaj", 5)), an=is_.an)
                     if ce.get("acik", True) else [])
@@ -697,8 +716,12 @@ class Uygulama:
                                            kaynak_dil, is_.spike.ornek_mesajlar, is_.spike.kelimeler, kareler)
             # sadece YAYINCININ konuşması altyazı olur (oyundaki karakterler, ara sahneler, radyo değil)
             sec = veri.get("yayinci_konusmasi")
-            secili = ({i for i in sec if isinstance(i, int) and 0 <= i < len(segler)}
-                      if isinstance(sec, list) else set(range(len(segler))))
+            if isinstance(sec, list):
+                secili = {i for i in sec if isinstance(i, int) and 0 <= i < len(segler)}
+            else:   # ücretsiz yol: o an ekranda oyunun kendi altyazısı varsa konuşan oyundaki karakterdir
+                secili = {i for i, (b, e, _) in enumerate(segler) if not oyun_konusmasi_mi(b, e, oyun_anlari)}
+                if len(secili) < len(segler):
+                    log.info("oyundan gelen %d konuşma altyazıya alınmadı", len(segler) - len(secili))
             if veri.get("altyazi") and len(veri["altyazi"]) == len(segler) and kaynak_dil != dil:
                 alt = segment_parcala([(b, e, t) for i, ((b, e, _), t) in enumerate(zip(segler, veri["altyazi"]))
                                        if i in secili])
@@ -720,7 +743,8 @@ class Uygulama:
             hedef_kok = "bekleyen" if skor >= en_dusuk else "dusuk_puan"
             # sadece iyi anlar video olur: yapay zekâ "boş an" dediyse ya da son kliplerin zayıf yarısındaysa atla
             yz = veri.get("puan") if self.yazar.client else None
-            elendi = self._kalite_eler(skor, yz)
+            elendi = self._kalite_eler(skor, yz) or (
+                "" if yz is not None else self._bos_an_mi(is_, ses_tepki, oyun_anlari))
             if elendi:
                 log.info("klip elendi (%s): %s — puan %.1f", elendi, hid, skor)
                 self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
