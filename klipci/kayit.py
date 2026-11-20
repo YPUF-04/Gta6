@@ -56,20 +56,14 @@ class Kaydedici:
                 self.klasor.mkdir(parents=True, exist_ok=True)
                 log.info("eski kayıt dosyaları kilitli, yeni klasör kullanılıyor")
         kalite = self.kalite
-        if "youtube.com" in self.url:   # YouTube 1080p'de görüntü/sesi ayrı veriyor; 720p60 tek parça ve sağlam
-            kalite = "720p60,720p,best"
         sl_cmd = [sys.executable, "-m", "streamlink", "--stdout", "--loglevel", "info",
-                  "--ffmpeg-ffmpeg", arac("ffmpeg"),
-                  "--hls-live-edge", "3", "--stream-segment-threads", "2",
-                  "--stream-segment-attempts", "5", "--stream-timeout", "90", "--hls-playlist-reload-attempts", "6",
+                  "--hls-live-edge", "2", "--stream-segment-threads", "2",
                   self.url, kalite]
-        # Parçalara bölme BİLGİSAYAR SAATİNE göre: Twitch reklamı atlanınca videonun kendi zaman damgaları
-        # geriye sıçrıyor ve ffmpeg hiç yeni parça açmıyordu (her şey tek dosyaya yazılıyordu).
-        ff_cmd = [arac("ffmpeg"), "-hide_banner", "-loglevel", "error",
-                  "-use_wallclock_as_timestamps", "1", "-fflags", "+genpts+discardcorrupt", "-i", "pipe:0",
+        # TEST'te çalıştığı kanıtlanmış ayarlar (değiştirme)
+        ff_cmd = [arac("ffmpeg"), "-hide_banner", "-loglevel", "error", "-i", "pipe:0",
                   "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
-                  "-f", "segment", "-segment_time", str(PARCA_SN), "-segment_atclocktime", "1",
-                  "-reset_timestamps", "1", "-strftime", "1", str(self.klasor / f"{_FMT}.ts")]
+                  "-f", "segment", "-segment_time", str(PARCA_SN), "-reset_timestamps", "1",
+                  "-strftime", "1", str(self.klasor / f"{_FMT}.ts")]
         self._baslama = time.time()
         # streamlink'in hata mesajı dosyaya: kayıt neden koptu görülebilsin
         self._hata_yolu = self.klasor.with_name(self.klasor.name + "_hata.txt")

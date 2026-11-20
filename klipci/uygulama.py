@@ -32,7 +32,9 @@ from .telegram import Bot
 from .yazar import Yazar, paylasim_metni, platform_metinleri, tepki_yazisi, trend_arastir
 
 log = logging.getLogger("klipci")
-YENI_KALITE = "1080p60,1080p,936p60,900p60,720p60,720p,best"
+# TEST'te üç platformda da çalışan kalite. 1080p60'ta Kick/YouTube kayıtları bozuluyor ve 25 yayında
+# bağlantı yetmiyordu; 720p yüz bulma için de yeterli.
+YENI_KALITE = "720p,720p60,best"
 
 
 @dataclass
@@ -337,9 +339,7 @@ class Uygulama:
             room = bilgi["chatroom_id"]
             if bilgi.get("playback_url"):
                 url = "hls://" + bilgi["playback_url"]   # Kick'in kendi yayın linki (tarayıcı gerekmez)
-        kalite = kl.get("kalite") or YENI_KALITE
-        if kalite in ("720p,720p60,best", "720p60,720p,best"):   # eski varsayılan: yüz kamerası net olsun diye yükselt
-            kalite = YENI_KALITE
+        kalite = YENI_KALITE if not kl.get("kalite_zorla") else (kl.get("kalite") or YENI_KALITE)
         kayit = Kaydedici(url, self._tampon_kok() / k.anahtar.replace(":", "_"),
                           kalite, int(kl.get("tampon_sn", 240)))
         kayit.baslat()
