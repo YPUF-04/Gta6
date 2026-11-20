@@ -60,3 +60,17 @@ def test_oyun_karakteri_ani(tmp_path):
     assert not Uygulama._oyun_ani_mi(is_, 7.0, [(t / 2, False) for t in range(60)])
     # yayıncı sakin (yüz 1x) ama karakter anı: geçer
     assert Uygulama._bos_an_mi(is_, 7.0, npc, 1.0, oyun_ani=True) == ""
+
+
+def test_akilli_aralik_bos_kuyrugu_keser(tmp_path):
+    from klipci import kesif
+    from klipci.spike import Spike
+    from klipci.uygulama import Is, Uygulama
+    # patlama 10. sn; chat 9-15 arası güldü, sonra sıradan mesajlar (soygun devam ediyor ama komik bir şey yok)
+    chat = [(9 + i * 0.25, "a", "KEKW") for i in range(24)] + [(16 + i, "b", "devam abi") for i in range(14)]
+    is_ = Is(kesif.Kanal("kick", "barisg"), Spike(0, 0, 1, 1), tmp_path / "a.ts", 0, 30, chat, False, 10.0, "x")
+    bas, son = Uygulama._akilli_aralik(is_, [])
+    assert bas == 0.0 and 17 <= son <= 22          # 30 sn yerine ~20 sn, boş kuyruk gitti
+    # yayıncı tam bitişte konuşuyorsa cümlesini bitirsin
+    bas2, son2 = Uygulama._akilli_aralik(is_, [(18.0, 23.0, "abi bu ne ya")])
+    assert abs(son2 - 23.3) < 0.01

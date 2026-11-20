@@ -586,6 +586,35 @@ class Uygulama:
         return int(d.get("kalite", self.cfg.get("kalite_yuzde", 50)))
 
     @staticmethod
+    def _akilli_aralik(is_: "Is", segler: list, giris_sn: float = 11.0) -> tuple[float, float]:
+        """Klibin gerçekten izlenecek kısmı (klip içi saniyeler): (başlangıç, bitiş).
+        Bitiş: chat'in gülme/şaşırma tepkisi söndükten ~2 sn sonra (chat zaten olaydan 2-4 sn geç tepki verir).
+        Başlangıç: patlamadan ~11 sn önce. İkisi de yayıncının cümlesini ortadan bölmez."""
+        from .spike import mesaj_puani
+        sade = {"w", "gg", "?", "??", "???", "help"}
+        tepki = sorted(t for t, _, m in is_.chat
+                       if t >= is_.an - 2 and mesaj_puani(m)[0] > 1 and mesaj_puani(m)[1] not in sade)
+        son = is_.sure
+        if len(tepki) >= 4:
+            # 3 sn'lik pencerelerde tepki yoğunluğu; zirvenin %35'inin altına düştüğü son yer
+            yog = [(t, sum(1 for x in tepki if t <= x < t + 3)) for t in tepki]
+            zirve = max(n for _, n in yog)
+            canli = [t for t, n in yog if n >= max(2, zirve * 0.35)]
+            if canli:
+                son = canli[-1] + 3 + 2
+        son = min(is_.sure, max(son, is_.an + 6))
+        bas = max(0.0, is_.an - giris_sn)
+        for b, e, _ in segler:   # cümle ortasında kesme
+            if b < son < e:
+                son = min(is_.sure, e + 0.3) if e - son <= 5 else son
+            if b < bas < e and bas - b <= 5:
+                bas = max(0.0, b - 0.2)
+        if son - bas < 12:   # çok kısa kalmasın
+            son = min(is_.sure, bas + 12)
+            bas = max(0.0, son - 12)
+        return bas, son
+
+    @staticmethod
     def _oyun_ani_mi(is_: "Is", ses_tepki: float, oyun_anlari: list) -> bool:
         """Komik olan oyundaki karakter mi? (patlama anında oyunda biri konuşuyor/bağırıyor + ses yükseliyor)"""
         yakin = [v for t, v in oyun_anlari if is_.an - 8 <= t <= is_.an + 4]
@@ -820,6 +849,22 @@ class Uygulama:
             log.info("klip elendi: oyun ekranı zamanın %%%d'inde duruyor (menü/harita) — %s", int(duran * 100), kid)
             self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
             return
+        # akıllı başlangıç/bitiş: tepki sönünce bitir, cümleyi bölme; boş kuyruk ve uzun giriş kesilir
+        kb, ke = self._akilli_aralik(is_, segler)
+        if kb > 0.5 or ke < is_.sure - 0.5:
+            log.info("klip kırpıldı: %.0f sn → %.0f sn (baştan %.0f, sondan %.0f)", is_.sure, ke - kb, kb,
+                     is_.sure - ke)
+            is_.ofset += kb
+            is_.sure = ke - kb
+            is_.an -= kb
+            is_.chat = [(t - kb, k, m) for t, k, m in is_.chat if kb <= t <= ke]
+            segler = [(b - kb, e - kb, t) for b, e, t in segler if e > kb and b < ke]
+            if cozum:
+                cozum.segmentler = segler
+                cozum.kelimeler = [type(w)(w.bas - kb, w.bit - kb, w.metin) for w in cozum.kelimeler
+                                   if kb <= w.bas < ke]
+                cozum.en_segler = [(b - kb, e - kb, t) for b, e, t in cozum.en_segler if e > kb and b < ke]
+            oyun_anlari = [(t - kb, v) for t, v in oyun_anlari if kb <= t <= ke]
         chat_pop = (chat_sec(is_.chat, is_.sure, 1, float(ce.get("sure_sn", 1.8)),
                              en_fazla=int(ce.get("en_fazla_mesaj", 5)), an=is_.an)
                     if ce.get("acik", True) else [])
