@@ -51,3 +51,28 @@ def oyun_konusmasi_mi(bas: float, bit: float, anlar: list[tuple[float, bool]], o
     """Bu konuşma süresince ekranın çoğunda oyun altyazısı varsa: oyundaki karakter konuşuyor."""
     ic = [v for t, v in anlar if bas - 0.3 <= t <= bit + 0.3]
     return bool(ic) and sum(ic) / len(ic) >= oran
+
+
+def hareketsiz_oran(video: Path, ofset: float, sure: float, facecam=None) -> float:
+    """Oyun görüntüsü zamanın ne kadarında neredeyse hiç değişmiyor? (harita, menü, ayarlar, duraklatma)
+    facecam (0-1 x,y,w,h) verilirse yayıncının kamerası hesaba katılmaz."""
+    try:
+        import numpy as np
+        w, h = 160, 90
+        ham = subprocess.run(
+            [arac("ffmpeg"), "-v", "error", "-ss", f"{ofset:.2f}", "-t", f"{sure:.2f}", "-i", str(video),
+             "-vf", f"fps=1,scale={w}:{h},format=gray", "-f", "rawvideo", "-"],
+            capture_output=True, timeout=120, creationflags=_PENCERESIZ).stdout
+        n = len(ham) // (w * h)
+        if n < 4:
+            return 0.0
+        k = np.frombuffer(ham[:n * w * h], np.uint8).reshape(n, h, w).astype(np.float32)
+        maske = np.ones((h, w), bool)
+        if facecam:
+            fx, fy, fw, fh = facecam
+            maske[max(0, int(fy * h) - 2):int((fy + fh) * h) + 2, max(0, int(fx * w) - 2):int((fx + fw) * w) + 2] = False
+        farklar = [float(np.mean(np.abs(k[i] - k[i - 1])[maske])) / 255 for i in range(1, n)]
+        return sum(1 for d in farklar if d < 0.02) / len(farklar)
+    except Exception as e:  # noqa: BLE001
+        log.debug("hareket ölçülemedi: %r", e)
+        return 0.0

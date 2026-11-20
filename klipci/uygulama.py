@@ -28,7 +28,7 @@ from . import SURUM
 from .oyun import OYUN, ayarla as oyun_ayarla
 from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, tweet_video, video_saglam_mi
 from .spike import Spike, SpikeDetector, yazi_dili
-from .oyunsesi import oyun_altyazi_anlari, oyun_konusmasi_mi
+from .oyunsesi import hareketsiz_oran, oyun_altyazi_anlari, oyun_konusmasi_mi
 from .telegram import Bot
 from .yazar import Yazar, paylasim_metni, platform_metinleri, tepki_yazisi, trend_arastir
 
@@ -749,6 +749,11 @@ class Uygulama:
         zoom = float((self.cfg.get("klip") or {}).get("zoom", 1.3))
         ce = self.cfg.get("chat_ekrani") or {}
         ses_tepki = await asyncio.to_thread(puan.an_tepkisi, is_.kaynak, is_.ofset, is_.sure, is_.an)
+        duran = await asyncio.to_thread(hareketsiz_oran, is_.kaynak, is_.ofset, is_.sure, analiz.facecam)
+        if duran >= 0.5:   # harita / menü / ayarlar: kimse izlemez
+            log.info("klip elendi: oyun ekranı zamanın %%%d'inde duruyor (menü/harita) — %s", int(duran * 100), kid)
+            self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
+            return
         chat_pop = (chat_sec(is_.chat, is_.sure, 1, float(ce.get("sure_sn", 1.8)),
                              en_fazla=int(ce.get("en_fazla_mesaj", 5)), an=is_.an)
                     if ce.get("acik", True) else [])

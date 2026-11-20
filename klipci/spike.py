@@ -47,6 +47,18 @@ _ALFABE = {"ar": ("\u0600", "\u06FF"), "ru": ("\u0400", "\u04FF"), "ko": ("\uAC0
            "he": ("\u0590", "\u05FF"), "hi": ("\u0900", "\u097F")}
 
 
+_SIK_KELIME = {
+    "en": {"the", "you", "is", "what", "this", "that", "he", "bro", "and", "why", "just", "it's", "i'm", "dont"},
+    "tr": {"bir", "ne", "bu", "abi", "mi", "çok", "var", "yok", "ya", "ama", "neden", "aynen", "kanka", "olm"},
+    "de": {"ich", "nicht", "und", "das", "ist", "du", "der", "die", "bin", "auch", "mal", "digga", "alter", "wie"},
+    "es": {"que", "jajaja", "jaja", "por", "como", "pero", "esta", "para", "wey", "hermano", "qué", "muy"},
+    "pt": {"kkkk", "kkk", "né", "não", "voce", "você", "mano", "tá", "uma", "muito"},
+    "fr": {"je", "pas", "est", "les", "mdr", "c'est", "oui", "trop", "il", "frère"},
+    "it": {"che", "non", "è", "ahah", "sono", "perché", "anche", "fra"},
+    "pl": {"nie", "jest", "co", "się", "xdd", "kurwa", "jak", "tak"},
+}
+
+
 def yazi_dili(mesajlar: list[str], oran: float = 0.35) -> str:
     """Chat mesajlarının önemli kısmı Latin olmayan bir alfabeyle mi yazılmış? (Arapça, Rusça...) Değilse ""."""
     if not mesajlar:
@@ -57,10 +69,22 @@ def yazi_dili(mesajlar: list[str], oran: float = 0.35) -> str:
             if sum(1 for c in m if a <= c <= b) >= 2:
                 sayac[dil] = sayac.get(dil, 0) + 1
                 break
-    if not sayac:
+    if sayac:
+        dil = max(sayac, key=sayac.get)
+        if sayac[dil] / len(mesajlar) >= oran:
+            return dil
+    # Latin harfli diller: en sık kelimelere bak (Almanca, İspanyolca...)
+    puan: dict[str, int] = {}
+    for m in mesajlar:
+        kel = set(re.findall(r"[\wçğıöşüäßñãõéèêàâ']+", m.lower()))
+        for dil, sozluk in _SIK_KELIME.items():
+            if kel & sozluk:
+                puan[dil] = puan.get(dil, 0) + 1
+    if not puan:
         return ""
-    dil = max(sayac, key=sayac.get)
-    return dil if sayac[dil] / len(mesajlar) >= oran else ""
+    dil = max(puan, key=puan.get)
+    rakip = max([v for d, v in puan.items() if d != dil] or [0])
+    return dil if dil not in ("en", "tr") and puan[dil] >= 12 and puan[dil] >= 1.5 * rakip else ""
 
 
 @dataclass

@@ -211,3 +211,13 @@ def test_chat_alfabesi():
     from klipci.spike import yazi_dili
     assert yazi_dili(["هههههه", "والله", "lol", "يا رجل"]) == "ar"
     assert yazi_dili(["LMAO", "kekw", "abi napıyon", "😂"]) == ""
+
+
+def test_latin_harfli_yabanci_chat():
+    from klipci.spike import yazi_dili
+    de = ["digga was ist das", "ich kann nicht mehr", "alter wie", "das ist krank", "LUL"] * 4
+    assert yazi_dili(de) == "de"
+    en = ["bro what is he doing", "LMAO", "why is he like this", "this is crazy"] * 4
+    assert yazi_dili(en) == ""
+    tr = ["abi ne yapıyon", "bu ne ya", "KEKW", "çok iyi"] * 4
+    assert yazi_dili(tr) == ""

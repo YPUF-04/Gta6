@@ -35,3 +35,13 @@ def test_bos_an(tmp_path, monkeypatch):
     komik = Is(k, s, tmp_path / "a.ts", 0, 30, [(20.0, "a", "LMAOOO"), (21.0, "b", "KEKW")] * 5, True, 20.0, "x")
     assert Uygulama._bos_an_mi(komik, 2.0, []) == ""
     assert "ara sahne" in Uygulama._bos_an_mi(sakin, 9.0, [(t, True) for t in range(10)])
+
+
+def test_hareketsiz_ekran(tmp_path):
+    import subprocess
+    from klipci.oyunsesi import hareketsiz_oran
+    durgun, hareketli = tmp_path / "d.mp4", tmp_path / "h.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=gray:s=320x180:d=8", str(durgun)], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=320x180:d=8", str(hareketli)], check=True)
+    assert hareketsiz_oran(durgun, 0, 8) > 0.9
+    assert hareketsiz_oran(hareketli, 0, 8) < 0.2
