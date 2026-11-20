@@ -90,11 +90,12 @@ def test_paylasim_hatirlatma(tmp_path, monkeypatch):
 def test_sinir(tmp_path, monkeypatch):
     u = _app(tmp_path, monkeypatch)
     run = lambda m: asyncio.run(u._komut(m))
-    assert u._sinir() == 8
-    assert "30" in run("/sinir 30") and u._sinir() == 30
+    assert u._ust_sinir() == 8 and u._sinir() == 6      # az yayınla başlar
+    assert "30" in run("/sinir 30") and u._ust_sinir() == 30 and u._sinir() == 6
     assert "1 ile 100" in run("/sinir 500")
     assert "Sayı" in run("/sinir çok")
     assert "30" in run("/sinir")
+    assert "4" in run("/sinir 4") and u._sinir() == 4
 
 
 def test_kolay_komutlar_ve_dil_yonlendirme(tmp_path, monkeypatch):

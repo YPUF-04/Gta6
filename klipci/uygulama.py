@@ -112,7 +112,8 @@ class Uygulama:
             pass
         self._uyandir = asyncio.Event()
         self._gonderiliyor: set[str] = set()
-        self.etkin_sinir = 0   # 0 = kısıt yok
+        # Az yayınla başla; kayıtlar akıcıysa saglik_ayari yavaş yavaş /sinir'e kadar artırır
+        self.etkin_sinir = int(cfg.get("baslangic_yayin_sayisi", 6))
         self.isler: dict[str, dict] = {}   # hazırlanan klipler: /sira
         self.dinamik_kat = float((cfg.get("algilama") or {}).get("kat", 3.0))
         self._spike_gecmisi: list[float] = []
@@ -286,10 +287,10 @@ class Uygulama:
                         saglikli += 1
                 oran = saglikli / len(olgun)
                 eski = self._sinir()
-                if oran < 0.6:
-                    self.etkin_sinir = max(4, min(eski, len(self.izleyiciler)) - 3)
-                elif oran > 0.9 and self.etkin_sinir and self.etkin_sinir < self._ust_sinir():
-                    self.etkin_sinir += 1
+                if oran < 0.7:
+                    self.etkin_sinir = max(3, min(eski, len(self.izleyiciler)) - 2)
+                elif oran >= 0.9 and self.etkin_sinir and self.etkin_sinir < self._ust_sinir():
+                    self.etkin_sinir += 2
                 if self._sinir() != eski:
                     log.info("kayıtların %%%d'i akıyor → aynı anda izlenen yayın: %d → %d", int(oran * 100),
                              eski, self._sinir())
@@ -881,8 +882,8 @@ class Uygulama:
             return ""
         if komut in ("/sinir", "/sınır"):
             if not arg.strip():
-                return (f"Şu an aynı anda en fazla {self._sinir()} yayın izleniyor "
-                        f"({len(self.izleyiciler)} tanesi açık).\nDeğiştirmek için: /sinir 25")
+                return (f"Üst sınır: {self._ust_sinir()} yayın. Şu an {self._sinir()} yayına izin var "
+                        f"({len(self.izleyiciler)} tanesi açık). Kayıtlar akıcıysa kendisi artırır.\nDeğiştirmek için: /sinir 25")
             try:
                 n = int(arg.strip())
             except ValueError:
@@ -892,10 +893,12 @@ class Uygulama:
             d = self._durum_oku()
             d["sinir"] = n
             self._durum_yaz(d)
-            self.etkin_sinir = 0
+            # hepsini birden açma: şu anki sayıdan devam, kayıtlar akıcıysa {n}'e kadar artar
+            self.etkin_sinir = min(n, max(self.etkin_sinir or 6, 3))
             self._uyandir.set()
             not_ = "\n(40'ın üstü güçlü bilgisayar ister; kasarsa düşür.)" if n > 40 else ""
-            return f"✅ Artık aynı anda en fazla {n} yayın izlenecek.{not_}"
+            return (f"✅ Artık aynı anda en fazla {n} yayın izlenecek.\n"
+                    f"Şimdi {self.etkin_sinir} ile devam ediyor; kayıtlar akıcıysa birkaç dakikada bir 2 artar.{not_}")
         if komut in ("/ad", "/ustyazi", "/üstyazı", "/ustyazı"):
             parca = arg.split(maxsplit=1)
             if not parca:

@@ -56,8 +56,10 @@ kanallar:
   yasakli: []
 
 # Aynı anda kaç yayın izlensin. Hepsi paralel izlenir, hangisinde chat patlarsa ondan klip çıkar.
-# Her yayın ~2.5-5 Mbps internet ve biraz RAM yer. 1000 Mbps'te 25 ile başla, bilgisayar rahatsa artır.
-ayni_anda_en_fazla_kanal: 25    # Telegram'dan /sinir 30 ile de değişir
+# Her yayın ~2.5-5 Mbps internet ve biraz RAM yer. Fazlası kayıtları bozar; 10-15 genelde en iyisi.
+ayni_anda_en_fazla_kanal: 12    # ÜST sınır. Telegram'dan /sinir 12 ile de değişir
+# Program bu kadarla BAŞLAR; kayıtlar akıcıysa birkaç dakikada bir 2 artırır, takılırsa azaltır
+baslangic_yayin_sayisi: 6
 
 # Türkçe hesap için malzeme: en az bu kadar Türkçe yayın izlensin (küçük de olsa)
 dil_kotasi:
