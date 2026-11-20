@@ -94,7 +94,7 @@ def _altyazi_olaylari(altyazilar, sure: float, x: int, y: int, katman: int = 3) 
 def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
             altyazilar: list[tuple],
             chat: list[tuple[float, float, int, str, str]] | None = None, duzen: str = "tek",
-            sayfa: dict | None = None) -> None:
+            sayfa: dict | None = None, tepki: tuple[float, str] | None = None) -> None:
     """sayfa (tweet düzeni için): {"ad": "GTA 6 Anları", "kullanici": "@hesap", "ust": "BAŞLIK", "tik": False}"""
     d = DUZEN.get(duzen, DUZEN["tek"])
     import random
@@ -117,6 +117,7 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
         "Style: TKredi,Arial,32,&H00727272,&H00727272,&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,1,0,0,5,30,30,0,1",
         "Style: TTik,Arial,40,&H00F09B1D,&H00F09B1D,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1",
         "Style: TAvatar,Arial,240,&H00B07A2E,&H00B07A2E,&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1",
+        "Style: Tepki,Arial Black,68,&H00FFFFFF,&H00FFFFFF,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,6,3,5,50,50,0,1",
         "Style: THarf,Arial,58,&H00FFFFFF,&H00FFFFFF,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1",
     ]
     satirlar = [
@@ -130,6 +131,13 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
     ]
     son = _zaman(sure + 1)
     ax, ay = d["alt_pos"]
+    if tepki and tepki[1]:   # chat patladığı an ekrana düşen makara yazı (büyüyerek gelir, 2.6 sn kalır)
+        an, yazi = tepki
+        ty = {"yuz": d["kam_h"] + 170, "tek": 470, "tweet": DUZEN["tweet"]["video_y"] + 160}.get(duzen, 470)
+        b, e = max(0.0, an - 0.2), min(sure, an + 2.6)
+        efekt = (f"{{\\pos(540,{ty})\\fscx40\\fscy40\\t(0,140,\\fscx112\\fscy112)"
+                 f"\\t(140,240,\\fscx100\\fscy100)\\fad(0,250)}}")
+        satirlar.append(f"Dialogue: 6,{_zaman(b)},{_zaman(e)},Tepki,,0,0,0,,{efekt}{_ass_metin(yazi)}")
 
     if duzen == "tweet":
         sp = sayfa or {}
@@ -268,24 +276,24 @@ def tweet_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
     return cikti
 
 
-def video_saglam_mi(yol: Path, en_az_sn: float = 5.0) -> bool:
-    """Çıkan videoda görüntü var mı ve yeterince uzun mu? (boş/bozuk klipleri yollamamak için)"""
+def video_saglam_mi(yol: Path, en_az_sn: float = 5.0, ses_gerekli: bool = True) -> bool:
+    """Çıkan video gerçekten dolu mu? (görüntü uzunluğu + ses + düz beyaz/siyah değil)"""
+    from .kayit import sure_olc
+    v = sure_olc(yol, "v:0")
+    if v < en_az_sn:
+        return False
+    if ses_gerekli and sure_olc(yol, "a:0") < v * 0.5:
+        return False
+    # görüntünün ortası tek renk mi? (oyun görüntüsü gelmemişse beyaz/siyah kalır)
     try:
-        out = subprocess.run([arac("ffprobe"), "-v", "error", "-select_streams", "v:0",
-                              "-show_entries", "stream=codec_type:format=duration", "-of", "default=nw=1",
-                              str(yol)], capture_output=True, text=True, timeout=30,
-                             creationflags=_PENCERESIZ).stdout
+        out = subprocess.run([arac("ffmpeg"), "-v", "error", "-ss", f"{v / 2:.1f}", "-i", str(yol), "-frames:v", "1",
+                              "-vf", "crop=iw:ih/3:0:ih/3,scale=64:36,format=gray", "-f", "rawvideo", "-"],
+                             capture_output=True, timeout=30, creationflags=_PENCERESIZ).stdout
+        if out and max(out) - min(out) < 12:
+            return False
     except Exception:  # noqa: BLE001
-        return False
-    if "codec_type=video" not in out:
-        return False
-    for satir in out.splitlines():
-        if satir.startswith("duration="):
-            try:
-                return float(satir.split("=", 1)[1]) >= en_az_sn
-            except ValueError:
-                return False
-    return False
+        pass
+    return True
 
 
 def ses_cikar(kaynak: Path, baslangic: float, sure: float, cikti: Path) -> Path:

@@ -126,6 +126,7 @@ yuz_icin_en_az_izleyici: 2000   # bundan küçük (otomatik bulunan) yayıncıla
 #            "tek"   = ortada oyun, arkası bulanık
 # Tweet tarzının adı/başlığı/fotoğrafı Telegram'dan: /ad, /ustyazi, fotoğraf + "/profil"
 yuzsuz_duzen: "tweet"
+tepki_yazisi: true          # chat patladığı an ekrana chat'in tepkisine göre makara yazı ("chat koptu 😭")
 yakinlasma: true            # chat'in patladığı an ani yakınlaşma (editörlerin yaptığı gibi)
 ilerleme_cubugu: false      # altta sarı ilerleme çubuğu
 

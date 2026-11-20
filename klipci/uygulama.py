@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 import json
 import logging
 import shutil
@@ -28,7 +29,7 @@ from .oyun import OYUN, ayarla as oyun_ayarla
 from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, tweet_video, video_saglam_mi
 from .spike import Spike, SpikeDetector
 from .telegram import Bot
-from .yazar import Yazar, paylasim_metni, platform_metinleri, trend_arastir
+from .yazar import Yazar, paylasim_metni, platform_metinleri, tepki_yazisi, trend_arastir
 
 log = logging.getLogger("klipci")
 YENI_KALITE = "1080p60,1080p,936p60,900p60,720p60,720p,best"
@@ -55,6 +56,11 @@ class Izleyici:
     oto: bool = False
     son_yenileme: float = 0.0
     chat_log: deque = field(default_factory=lambda: deque(maxlen=20000))
+
+
+def _ad_anahtar(k: kesif.Kanal) -> str:
+    """Platformdan bağımsız yayıncı adı: 'xQc' (kick) == 'xqc' (twitch)."""
+    return re.sub(r"[^a-z0-9]", "", (k.gorunen if k.platform == "youtube" else k.ad).lower())
 
 
 class Uygulama:
@@ -102,6 +108,7 @@ class Uygulama:
         except OSError:
             pass
         self._uyandir = asyncio.Event()
+        self._gonderiliyor: set[str] = set()
         self.dinamik_kat = float((cfg.get("algilama") or {}).get("kat", 3.0))
         self._spike_gecmisi: list[float] = []
         self._kabul_gecmisi: list[float] = []
@@ -279,6 +286,10 @@ class Uygulama:
                     yasak = self._yasaklar()
                     for k, oto, kesin in adaylar:
                         if k.ad.lower() in yasak or k.gorunen.lower() in yasak or k.anahtar in self.izleyiciler:
+                            continue
+                        # aynı yayıncı aynı yayını hem Twitch'te hem Kick'te açabiliyor: bir kez izle
+                        izlenen_adlar = {_ad_anahtar(iz.kanal) for iz in self.izleyiciler.values()}
+                        if _ad_anahtar(k) in izlenen_adlar:
                             continue
                         if time.time() - self._kapali.get(k.anahtar, 0) < 300:
                             continue
@@ -572,17 +583,20 @@ class Uygulama:
             an = is_.an if self.cfg.get("yakinlasma", True) else None
             # yüz varsa: üstte yüz, altta oyun. Yoksa: tweet tarzı (ayardan "tek" de seçilebilir)
             duzen = "yuz" if facecam else str(self.cfg.get("yuzsuz_duzen", "tweet"))
+            tepki = None
+            if self.cfg.get("tepki_yazisi", True):
+                tepki = (is_.an, tepki_yazisi(is_.spike.kelimeler, is_.spike.ornek_mesajlar, dil, hid))
             mp4 = klasor / f"{hid}.mp4"
             try:
                 if duzen == "tweet":
                     sayfa = self._sayfa(h)
                     ass_yaz(ass, is_.sure, veri.get("baslik", ""), f"🎥 {is_.kanal.kredi}", h.get("imza", ""), alt,
-                            [], "tweet", sayfa)
+                            [], "tweet", sayfa, tepki)
                     await asyncio.to_thread(tweet_video, is_.kaynak, is_.ofset, is_.sure, mp4, ass,
                                             sayfa.get("profil_yol"), an)
                 else:
                     ass_yaz(ass, is_.sure, veri.get("baslik", ""), f"🎥 {is_.kanal.kredi}", h.get("imza", ""), alt,
-                            chat_pop, duzen)
+                            chat_pop, duzen, None, tepki)
                     await asyncio.to_thread(dikey_video, is_.kaynak, is_.ofset, is_.sure, mp4, ass, zoom, facecam,
                                             an, bool(self.cfg.get("ilerleme_cubugu", False)))
             finally:
@@ -627,6 +641,16 @@ class Uygulama:
         isaret = klasor / ".gonderildi"
         if isaret.exists():
             return True
+        # aynı klip aynı anda iki kez yollanmasın (ilk gönderim sürerken tekrar deneme döngüsü de görebiliyor)
+        if klasor.name in self._gonderiliyor:
+            return True
+        self._gonderiliyor.add(klasor.name)
+        try:
+            return await self._gonder_ic(klasor, isaret)
+        finally:
+            self._gonderiliyor.discard(klasor.name)
+
+    async def _gonder_ic(self, klasor: Path, isaret: Path) -> bool:
         mp4s = list(klasor.glob("*.mp4"))
         if not mp4s or not self.bot.chat_id:
             return False

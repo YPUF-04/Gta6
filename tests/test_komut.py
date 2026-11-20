@@ -188,3 +188,31 @@ def test_info(tmp_path, monkeypatch):
     for k in ("/durum", "/twitch", "/kick", "/youtube", "/guncelle", "/isim", "/gunluk", "/info"):
         assert k in m
     assert len(m) < 4000   # Telegram mesaj sınırı
+
+
+def test_ayni_klip_iki_kez_gitmez(tmp_path, monkeypatch):
+    import json
+    u = _app(tmp_path, monkeypatch)
+    u.bot.chat_id = "42"
+    giden = []
+
+    async def video(yol, aciklama, kid, butonlar=None):
+        await asyncio.sleep(0.05)
+        giden.append(kid)
+    u.bot.video_gonder = video
+    k = u.klasor / "bekleyen" / "20261120_120000_kai_EN"
+    k.mkdir(parents=True)
+    (k / "a.mp4").write_bytes(b"x")
+    (k / "bilgi.json").write_text(json.dumps({"puan": 5}))
+
+    async def iki_kez():
+        await asyncio.gather(u._gonder(k), u._gonder(k))
+    asyncio.run(iki_kez())
+    asyncio.run(u._gonder(k))
+    assert giden == ["20261120_120000_kai_EN"]
+
+
+def test_ad_anahtar():
+    from klipci.kesif import Kanal
+    from klipci.uygulama import _ad_anahtar
+    assert _ad_anahtar(Kanal("kick", "xqc", "xQc")) == _ad_anahtar(Kanal("twitch", "xqc"))

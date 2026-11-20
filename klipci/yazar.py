@@ -196,3 +196,39 @@ def trend_arastir(yazar: "Yazar") -> str:
         return ""
     metin = "".join(b.text for b in r.content if b.type == "text").strip()
     return metin[:1500]
+
+
+# ---------- chat'in tepkisine göre ekrana düşen makara yazı ----------
+TEPKI_TURLERI = {
+    "gul": ({"lol", "lmao", "lmfao", "kekw", "omegalul", "lul", "haha", "ahah", "xd", "xdd", "icant", "dead", "💀",
+             "😂", "🤣", "skull", "sjsj", "jsjs", "aşdk", "asdasd", "kekl", "lmaooo"},
+            {"tr": ["chat koptu 😭", "chat gülmekten öldü 💀", "chat yerlerde 😭", "bu an efsane 😭"],
+             "en": ["chat is dying 😭", "chat lost it 💀", "chat can't breathe 😭", "bro what 😭"]}),
+    "sok": ({"wtf", "?", "??", "???", "omg", "holy", "no way", "noway", "nah", "bruh", "monkas", "what"},
+            {"tr": ["ne oldu az önce 💀", "chat: NE?? 😳", "kimse bunu beklemiyordu 😳", "dur bi dakika 😳"],
+             "en": ["what just happened 💀", "nobody saw that coming 😳", "chat: WHAT?? 😳", "hold up 😳"]}),
+    "klip": ({"clip", "clipit", "clipthat"},
+             {"tr": ["chat: KLİPLEYİN 📸", "chat klip diye bağırıyor 📸"],
+              "en": ["chat: CLIP THAT 📸", "chat screaming clip it 📸"]}),
+    "w": ({"w", "gg", "pog", "pogchamp", "poggers", "insane", "goat"},
+          {"tr": ["chat: W 🔥", "efsane an 🔥", "chat ayakta 🔥"], "en": ["chat: W 🔥", "massive W 🔥", "chat going crazy 🔥"]}),
+    "rip": ({"rip", "f", "ripbozo", "l", "help"},
+            {"tr": ["RIP 💀", "chat F basıyor 💀", "bitti bu iş 💀"], "en": ["RIP 💀", "chat pressing F 💀", "it's over 💀"]}),
+}
+
+
+def tepki_yazisi(kelimeler: list[str], ornek_mesajlar: list[str], dil: str, tohum: str = "") -> str:
+    """Chat'te en çok hangi tepki var? Ona göre kısa, doğal bir yazı ('chat koptu 😭', 'ne oldu az önce 💀')."""
+    from .spike import mesaj_puani
+    sayac = {t: 0 for t in TEPKI_TURLERI}
+    for kelime in list(kelimeler) + [mesaj_puani(m)[1] or "" for m in ornek_mesajlar]:
+        k = (kelime or "").lower()
+        for tur, (anahtarlar, _) in TEPKI_TURLERI.items():
+            if k in anahtarlar or any(k.startswith(a) for a in ("lmao", "kekw", "haha", "xdd")) and tur == "gul":
+                sayac[tur] += 1
+                break
+    tur = max(sayac, key=lambda t: sayac[t])
+    if sayac[tur] == 0:
+        return ""
+    secenek = TEPKI_TURLERI[tur][1].get(dil, TEPKI_TURLERI[tur][1]["en"])
+    return random.Random(tohum).choice(secenek)

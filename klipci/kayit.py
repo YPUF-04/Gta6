@@ -155,10 +155,22 @@ class Kaydedici:
         hedef.parent.mkdir(parents=True, exist_ok=True)
         liste = hedef.with_suffix(".txt")
         liste.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p, _, _ in secilen), encoding="utf-8")
-        subprocess.run([arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
-                        "-f", "concat", "-safe", "0", "-i", str(liste), "-c", "copy", str(hedef)],
-                       check=True, creationflags=_PENCERESIZ)
+        # Parçaları TEMİZ bir videoya çevir: kayıt arada koptuysa zaman bilgisi bozuk olabiliyor
+        # (sonuç: boş/beyaz video, sessiz klip). Kareleri sırayla yeniden numaralandırıyoruz.
+        hedef = hedef.with_suffix(".mp4")
+        subprocess.run([arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", "-fflags", "+genpts+discardcorrupt",
+                        "-f", "concat", "-safe", "0", "-i", str(liste),
+                        "-map", "0:v:0", "-map", "0:a:0?",
+                        "-vf", "fps=30,setpts=N/30/TB", "-af", "aresample=async=1000:first_pts=0,asetpts=N/SR/TB",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "17", "-g", "30",
+                        "-c:a", "aac", "-b:a", "192k", str(hedef)],
+                       check=True, creationflags=_PENCERESIZ, timeout=600)
         liste.unlink(missing_ok=True)
+        sure = sure_olc(hedef)
+        if sure < (bit - bas) * 0.6:
+            log.warning("birleşen kayıt çok kısa (%.0f sn / beklenen %.0f), klip atlandı", sure, bit - bas)
+            hedef.unlink(missing_ok=True)
+            return None
         return hedef, max(0.0, bas - secilen[0][1])
 
 
@@ -180,3 +192,15 @@ def yetim_kayitlari_kapat(tampon_kok: Path) -> int:
         time.sleep(1)
     shutil.rmtree(tampon_kok, ignore_errors=True)
     return kapatilan
+
+
+def sure_olc(yol: Path, akis: str = "v:0") -> float:
+    """Videodaki (ya da 'a:0' ile sesteki) gerçek süre (sn). Okunamazsa 0."""
+    try:
+        out = subprocess.run([arac("ffprobe"), "-v", "error", "-select_streams", akis, "-show_entries",
+                              "stream=duration:format=duration", "-of", "default=nw=1:nk=1", str(yol)],
+                             capture_output=True, text=True, timeout=30, creationflags=_PENCERESIZ).stdout
+        degerler = [float(x) for x in out.split() if x.replace(".", "", 1).isdigit()]
+        return min(degerler) if degerler else 0.0
+    except Exception:  # noqa: BLE001
+        return 0.0
