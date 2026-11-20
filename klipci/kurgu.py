@@ -133,7 +133,12 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
     ax, ay = d["alt_pos"]
     if tepki and tepki[1]:   # chat patladığı an ekrana düşen makara yazı (büyüyerek gelir, 2.6 sn kalır)
         an, yazi = tepki
-        ty = {"yuz": d["kam_h"] + 170, "tek": 470, "tweet": DUZEN["tweet"]["video_y"] + 160}.get(duzen, 470)
+        if duzen == "yuz":
+            ty = d["kam_h"] + 170
+        elif duzen == "tweet":
+            ty = DUZEN["tweet"]["video_y"] + 160
+        else:
+            ty = 470
         b, e = max(0.0, an - 0.2), min(sure, an + 2.6)
         efekt = (f"{{\\pos(540,{ty})\\fscx40\\fscy40\\t(0,140,\\fscx112\\fscy112)"
                  f"\\t(140,240,\\fscx100\\fscy100)\\fad(0,250)}}")

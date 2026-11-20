@@ -45,6 +45,7 @@ class Is:
     chat: list = field(default_factory=list)   # (klibe göre sn, kullanıcı, mesaj)
     buyuk: bool = True                          # büyük yayıncı mı (yüzü kullanılsın mı)
     an: float = 0.0                             # klip içinde chat'in patladığı saniye
+    takip: str = ""                             # /sira'da görünen iş kimliği
 
 
 @dataclass
@@ -109,6 +110,7 @@ class Uygulama:
             pass
         self._uyandir = asyncio.Event()
         self._gonderiliyor: set[str] = set()
+        self.isler: dict[str, dict] = {}   # hazırlanan klipler: /sira
         self.dinamik_kat = float((cfg.get("algilama") or {}).get("kat", 3.0))
         self._spike_gecmisi: list[float] = []
         self._kabul_gecmisi: list[float] = []
@@ -470,7 +472,42 @@ class Uygulama:
         except Exception:  # noqa: BLE001
             return False
 
+    def _asama(self, tid: str, asama: str | None, kanal: kesif.Kanal | None = None) -> None:
+        """Hazırlanan klibin aşamasını güncelle (None = bitti, listeden çıkar)."""
+        if asama is None:
+            self.isler.pop(tid, None)
+            return
+        bilgi = self.isler.setdefault(tid, {"t": time.time(), "ad": kanal.gorunen if kanal else tid,
+                                            "platform": kanal.platform if kanal else ""})
+        bilgi["asama"] = asama
+
+    def _sira_metni(self) -> str:
+        if not self.isler:
+            return ("🎬 Şu an hazırlanan klip yok.\n"
+                    f"Chat patlayınca burada görünür. (Bu oturumda {self.sayac['klip']} klip yapıldı.)")
+        satir = [f"🎬 Hazırlanan klipler ({len(self.isler)})\n"]
+        for i, b in enumerate(sorted(self.isler.values(), key=lambda x: x["t"]), 1):
+            dk = int((time.time() - b["t"]) // 60)
+            satir.append(f"{i}. {b['ad']} ({b['platform']}) — {b['asama']} · {dk} dk")
+        satir.append("\nGenelde patlamadan 3-5 dk sonra telefonuna gelir.")
+        return "\n".join(satir)
+
     async def _kes(self, iz: Izleyici, s: Spike) -> None:
+        tid = f"{iz.kanal.anahtar}@{int(s.tetik)}"
+        self._asama(tid, "⏺ kayıt sürüyor (klibin sonu bekleniyor)", iz.kanal)
+        if self.cfg.get("hazirlaniyor_bildirimi", True):
+            try:
+                await self.bot.mesaj(f"🎬 Yeni klip hazırlanıyor: {iz.kanal.gorunen} ({iz.kanal.platform}) — "
+                                     f"chat normalin {s.kat:.1f} katı. Durum için /sira")
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            await self._kes_ic(iz, s, tid)
+        finally:
+            if self.isler.get(tid, {}).get("asama", "").startswith(("⏺", "✂️")):
+                self._asama(tid, None)   # kuyruğa giremediyse listeden çıkar
+
+    async def _kes_ic(self, iz: Izleyici, s: Spike, tid: str) -> None:
         bas, bit = self._klip_araligi(s)
         en_uzun = float((self.cfg.get("klip") or {}).get("en_uzun_sn", 60))
         await asyncio.sleep(max(0.0, bit - time.time()))
@@ -479,6 +516,7 @@ class Uygulama:
             bit += 5
             await asyncio.sleep(max(0.0, bit - time.time()))
         await asyncio.sleep(PARCA_SN * 2 + 1)
+        self._asama(tid, "✂️ kesiliyor")
         kid = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + iz.kanal.ad
         hedef = self.klasor / "_is" / f"{kid}.ts"
         try:
@@ -497,7 +535,9 @@ class Uygulama:
         chat = [(t - bas, k, m) for t, k, m in list(iz.chat_log) if bas <= t <= bit]
         esik = int(self.cfg.get("yuz_icin_en_az_izleyici", 2000))
         buyuk = (not iz.oto) or iz.kanal.izleyici >= esik   # senin eklediklerin büyük sayılır
-        await self.kuyruk.put(Is(iz.kanal, s, sonuc[0], sonuc[1], bit - bas, chat, buyuk, max(0.0, s.zaman - bas)))
+        self._asama(tid, f"⏳ sırada (önünde {self.kuyruk.qsize()} klip)")
+        await self.kuyruk.put(Is(iz.kanal, s, sonuc[0], sonuc[1], bit - bas, chat, buyuk, max(0.0, s.zaman - bas),
+                                 tid))
 
     # ---------- kurgu işçisi ----------
     async def isci(self) -> None:
@@ -513,10 +553,12 @@ class Uygulama:
             finally:
                 self.sayac["isleniyor"] -= 1
                 is_.kaynak.unlink(missing_ok=True)
+                self._asama(is_.takip, None)
 
     async def _isle(self, is_: Is) -> None:
         kid = is_.kaynak.stem
 
+        self._asama(is_.takip, "🔎 inceleniyor: yüz, ses, altyazı")
         # 1) analizler aynı anda: yüz kamerası + aksiyon, ses, konuşma
         async def konusma():
             if not self.yaziya:
@@ -559,6 +601,7 @@ class Uygulama:
         for h in self._hedef_hesaplar(kaynak_dil or is_.kanal.dil):
             dil, ad = h.get("dil", "tr"), h.get("ad", "TR")
             hid = f"{kid}_{ad}"
+            self._asama(is_.takip, f"✍️ yazılar hazırlanıyor ({ad})")
             veri = await asyncio.to_thread(self.yazar.yaz, dil, is_.kanal.gorunen, is_.kanal.platform, segler,
                                            kaynak_dil, is_.spike.ornek_mesajlar, is_.spike.kelimeler)
             if veri.get("altyazi") and len(veri["altyazi"]) == len(segler) and kaynak_dil != dil:
@@ -588,6 +631,7 @@ class Uygulama:
                 tepki = (is_.an, tepki_yazisi(is_.spike.kelimeler, is_.spike.ornek_mesajlar, dil, hid))
             mp4 = klasor / f"{hid}.mp4"
             try:
+                self._asama(is_.takip, f"🎞 video kurgulanıyor ({ad})")
                 if duzen == "tweet":
                     sayfa = self._sayfa(h)
                     ass_yaz(ass, is_.sure, veri.get("baslik", ""), f"🎥 {is_.kanal.kredi}", h.get("imza", ""), alt,
@@ -623,6 +667,7 @@ class Uygulama:
                 log.info("düşük puan (%.1f < %.1f), Telegram'a yollanmadı: %s", skor, en_dusuk, hid)
                 continue
             log.info("✅ klip hazır: %s (puan %.1f)", mp4, skor)
+            self._asama(is_.takip, "📤 Telegram'a gönderiliyor")
             await self._gonder(klasor)
 
     def _baslik_metni(self, bilgi: dict, metin: str, hid: str) -> str:
@@ -699,6 +744,7 @@ class Uygulama:
         "📋 TÜM KOMUTLAR  (bu listeyi her zaman /info ile açabilirsin)\n\n"
         "📊 DURUM\n"
         "/durum — neler izleniyor, kaç klip çıktı\n"
+        "/sira — şu an hazırlanan klipler ve hangi aşamada oldukları\n"
         "/plan — bugünün paylaşım saatleri\n"
         "/stok — hesaplarda kaç video hazır\n"
         "/istatistik — neyi sevdiğini ne kadar öğrendim\n\n"
@@ -736,6 +782,8 @@ class Uygulama:
             return await self._ekle(metin) if kesif.kanal_coz(metin) and "." in metin else ""
         if komut in ("/info", "/komutlar", "/yardim", "/yardım", "/help"):
             return self.YARDIM
+        if komut in ("/sira", "/sıra", "/kuyruk"):
+            return self._sira_metni()
         if komut == "/durum":
             satir = []
             for k, iz in self.izleyiciler.items():

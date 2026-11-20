@@ -216,3 +216,18 @@ def test_ad_anahtar():
     from klipci.kesif import Kanal
     from klipci.uygulama import _ad_anahtar
     assert _ad_anahtar(Kanal("kick", "xqc", "xQc")) == _ad_anahtar(Kanal("twitch", "xqc"))
+
+
+def test_sira(tmp_path, monkeypatch):
+    from klipci.kesif import Kanal
+    from klipci.uygulama import Is
+    u = _app(tmp_path, monkeypatch)
+    assert "hazırlanan klip yok" in asyncio.run(u._komut("/sira"))
+    k = Kanal("twitch", "kaicenat", "KaiCenat")
+    u._asama("t1", "⏳ sırada", k)
+    m = asyncio.run(u._komut("/sira"))
+    assert "KaiCenat (twitch) — ⏳ sırada" in m
+    u._asama("t1", None)
+    assert "yok" in asyncio.run(u._komut("/sira"))
+    i = Is(k, None, tmp_path / "x.mp4", 1.0, 50.0, [], True, 22.0, "t9")
+    assert i.an == 22.0 and i.takip == "t9"

@@ -53,3 +53,13 @@ def test_chat_az_ve_patlama_aninda():
     assert 1 <= len(sec) <= 5
     assert all(17 <= b <= 32 for b, *_ in sec)
     assert all(m == "LMAO" for *_, m in sec)
+
+
+def test_ass_her_duzen_tepki_ile(tmp_path):
+    from klipci.kurgu import ass_yaz
+    alt = [(0.2, 2.0, "Oh my god", [(0.2, 0.6, "Oh"), (0.6, 1.0, "my"), (1.0, 2.0, "god")])]
+    for duzen in ("yuz", "tek", "tweet"):
+        (tmp_path / duzen).mkdir()
+        ass_yaz(tmp_path / duzen / "a.ass", 10, "başlık", "🎥 x", "@y", alt, [], duzen,
+                {"ad": "A", "kullanici": "@y", "ust": "U"}, (3.0, "chat koptu 😭"))
+        assert "chat koptu" in (tmp_path / duzen / "a.ass").read_text(encoding="utf-8")
