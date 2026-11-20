@@ -67,12 +67,13 @@ class Bot:
 
     async def komut_menusu(self) -> None:
         """Telegram'da / yazınca çıkan komut listesi."""
-        komutlar = [("durum", "Neler izleniyor, kaç klip çıktı"), ("yayinlar", "Şu an açık GTA 6 yayınları — dokun, seç"),
+        komutlar = [("durum", "Neler izleniyor, kaç klip çıktı"), ("yayinlar", "Şu an açık yayınlar — dokun, seç"),
                     ("platform", "Twitch / Kick / YouTube aç-kapat"), ("istatistik", "Neyi sevdiğimi öğrendin?"),
-                    ("sinir", "Aynı anda kaç yayın izlensin: /sinir 25"), ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
+                    ("sinir", "Aynı anda kaç yayın izlensin: /sinir 25"), ("meme", "Şimdi meme videosu yap"), ("gunluk", "Günde kaç paylaşım: /gunluk 10"), ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
                     ("isim", "Videonun altındaki kullanıcı adı: /isim @hesap"),
                     ("hesap", "TR / EN hesaplarını aç-kapat"),
-                    ("ekle", "Yayıncı ekle: /ekle kick adinross"),
+                    ("twitch", "Twitch yayıncısı ekle: /twitch kaicenat"), ("kick", "Kick yayıncısı ekle: /kick adinross"),
+                    ("youtube", "YouTube kanalı ekle: /youtube @IShowSpeed"),
                     ("cikar", "Yayıncıyı listeden çıkar"), ("yasakla", "Bu yayıncıyı asla klipleme"),
                     ("liste", "Eklediklerim ve yasaklılar"), ("duraklat", "Kliplemeyi durdur"),
                     ("devam", "Tekrar başlat"), ("yardim", "Tüm komutlar")]
@@ -104,7 +105,7 @@ class Bot:
                     self.chat_id = cid
                     self._kaydet(cid)
                 if cid == self.chat_id:
-                    await self.mesaj("👋 Hazırım! Chat patlayan GTA 6 anlarını buraya yollayacağım.\n"
+                    await self.mesaj("👋 Hazırım! Chat patlayan anları buraya yollayacağım.\n"
                                      "Yardım için /yardim yaz.")
                 return
             if cid != self.chat_id:

@@ -28,7 +28,7 @@ def test_ekle_cikar_yasakla(tmp_path, monkeypatch):
     assert "kaldırıldı" in run("/yasak_kaldir adinross")
     liste = run("/liste")
     assert "kaicenat" in liste and "kotu" in liste
-    assert "/ekle" in run("/yardim")
+    assert "/twitch" in run("/yardim")
     assert run("selam") == ""
     # kalıcı: yeni uygulama aynı listeyi görür
     assert _app(tmp_path, monkeypatch)._liste("twitch") == ["kaicenat"]
@@ -95,3 +95,52 @@ def test_sinir(tmp_path, monkeypatch):
     assert "1 ile 100" in run("/sinir 500")
     assert "Sayı" in run("/sinir çok")
     assert "30" in run("/sinir")
+
+
+def test_kolay_komutlar_ve_dil_yonlendirme(tmp_path, monkeypatch):
+    u = _app(tmp_path, monkeypatch)
+    run = lambda m: asyncio.run(u._komut(m))
+    out = run("/twitch kaicenat jynxzi")
+    assert out.count("eklendi") == 2 and {"kaicenat", "jynxzi"} <= set(u._liste("twitch"))
+    assert "eklendi" in run("/kick adinross") and "adinross" in u._liste("kick")
+    assert "Örnek" in run("/youtube")
+    assert [h["ad"] for h in u._hedef_hesaplar("tr")] == ["TR"]
+    assert [h["ad"] for h in u._hedef_hesaplar("en")] == ["EN"]
+    assert [h["ad"] for h in u._hedef_hesaplar("es")] == ["EN"]
+    asyncio.run(u._buton("hs:EN"))
+    assert [h["ad"] for h in u._hedef_hesaplar("en")] == ["TR"]   # tek hesap açıksa her şey ona
+
+
+def test_dil_kotasi(tmp_path, monkeypatch):
+    from klipci.kesif import Kanal
+    u = _app(tmp_path, monkeypatch)
+    bulunan = [(Kanal("twitch", f"en{i}", dil="en"), 50000 - i) for i in range(10)] + \
+              [(Kanal("twitch", "tr_buyuk", dil="tr"), 4000), (Kanal("twitch", "tr_kucuk", dil="tr"), 100)]
+
+    async def tara(adet):
+        return bulunan
+    u._tara = tara
+    sira = [k.ad for k, _ in asyncio.run(u._adaylar_oto(20))]
+    assert sira[:2] == ["tr_buyuk", "tr_kucuk"] and "en0" in sira
+
+
+def test_meme_uret(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+    u = _app(tmp_path, monkeypatch)
+    (u.klasor / "ham").mkdir(parents=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30", "-f", "lavfi",
+                    "-i", "sine", "-t", "4", "-c:v", "libx264", "-c:a", "aac", str(u.klasor / "ham" / "a.mp4")],
+                   check=True)
+    gonderilen = []
+
+    async def gonder(k):
+        gonderilen.append(k)
+        return True
+    u._gonder = gonder
+    n = asyncio.run(u.meme_uret(1))
+    assert n == 2 and len(gonderilen) == 2   # TR + EN
+    assert all(list(k.glob("*.mp4")) and (k / "aciklama.json").exists() for k in gonderilen)
+    assert "#gta6 #meme" in (gonderilen[0] / "aciklama.json").read_text()
+    shutil.rmtree(u.klasor / "ham")
+    assert asyncio.run(u.meme_uret(1)) == 0

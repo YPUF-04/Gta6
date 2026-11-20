@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import json
 import logging
 import shutil
+import subprocess
 from datetime import date as tarih, datetime as zaman, timedelta
 from html import escape
 import time
@@ -18,9 +20,10 @@ import httpx
 from . import kesif
 from .altyazi import Yaziya, kelime_parcala, segment_parcala, tr_buyuk
 from .chat import kick_chat, twitch_chat, youtube_chat
-from .kayit import PARCA_SN, Kaydedici
+from .kayit import _PENCERESIZ, PARCA_SN, Kaydedici, arac
 from . import plan as planmod
-from . import puan, yuz
+from . import meme, puan, yuz
+from .oyun import OYUN, ayarla as oyun_ayarla
 from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, video_saglam_mi
 from .spike import Spike, SpikeDetector
 from .telegram import Bot
@@ -38,6 +41,8 @@ class Is:
     ofset: float
     sure: float
     chat: list = field(default_factory=list)   # (klibe göre sn, kullanıcı, mesaj)
+    buyuk: bool = True                          # büyük yayıncı mı (yüzü kullanılsın mı)
+    an: float = 0.0                             # klip içinde chat'in patladığı saniye
 
 
 @dataclass
@@ -53,6 +58,7 @@ class Izleyici:
 class Uygulama:
     def __init__(self, cfg: dict, kok: Path):
         self.cfg, self.kok = cfg, kok
+        oyun_ayarla(cfg)
         self.klasor = (kok / cfg.get("klasor", "klipler")).resolve()
         self.durum_yolu = kok / "durum.json"
         durum = self._durum_oku()
@@ -66,7 +72,7 @@ class Uygulama:
         eski = (cfg.get("kanallar") or {}).get("twitch_otomatik_kesif") or {}   # eski ayar dosyası uyumu
         ob = cfg.get("otomatik_bul") or {}
         self.oto_acik = bool(ob.get("acik", eski.get("acik", True)))
-        oyun = ob.get("oyun_adi", eski.get("oyun_adi", "Grand Theft Auto VI"))
+        oyun = ob.get("oyun_adi", eski.get("oyun_adi", OYUN.ad))
         dil = ob.get("dil", eski.get("dil", ""))
         self.en_az_izleyici = int(ob.get("en_az_izleyici", eski.get("en_az_izleyici", 300)))
         self.kesifler: dict[str, object] = {}
@@ -77,7 +83,7 @@ class Uygulama:
             self.kesifler["kick"] = kesif.KickKesif(oyun, ob.get("kick_client_id", ""),
                                                     ob.get("kick_client_secret", ""), dil)
         if ob.get("youtube", True):
-            self.kesifler["youtube"] = kesif.YoutubeKesif(ob.get("youtube_arama", "GTA 6"))
+            self.kesifler["youtube"] = kesif.YoutubeKesif(ob.get("youtube_arama", ""))
         self.izleyiciler: dict[str, Izleyici] = {}
         self.kuyruk: asyncio.Queue[Is] = asyncio.Queue()
         self.duraklat = False
@@ -91,6 +97,9 @@ class Uygulama:
         except OSError:
             pass
         self._uyandir = asyncio.Event()
+        self.dinamik_kat = float((cfg.get("algilama") or {}).get("kat", 3.0))
+        self._spike_gecmisi: list[float] = []
+        self._kabul_gecmisi: list[float] = []
         self._kapali: dict[str, float] = {}   # yakın zamanda kapalı bulunan kanallar
 
     # ---------- durum ----------
@@ -140,6 +149,18 @@ class Uygulama:
                 out.append(h)
         return out
 
+    def _hedef_hesaplar(self, kaynak_dil: str) -> list[dict]:
+        """Türkçe yayın -> Türkçe hesap, İngilizce yayın -> İngilizce hesap. Başka dil -> İngilizce hesap."""
+        hesaplar = self._hesaplar()
+        if not self.cfg.get("dil_yonlendirme", True) or len(hesaplar) <= 1:
+            return hesaplar
+        kaynak_dil = (kaynak_dil or "").lower()[:2]
+        uyan = [h for h in hesaplar if h["dil"] == kaynak_dil]
+        if uyan:
+            return uyan
+        en = [h for h in hesaplar if h["dil"] == "en"]
+        return en or hesaplar[:1]
+
     def _durum_yaz(self, d: dict) -> None:
         self.durum_yolu.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -163,7 +184,7 @@ class Uygulama:
                 log.warning("%s yayın bulma hatası: %r%s", ad, r,
                             " — config.yaml'a Twitch anahtarı girersen düzelir" if ad == "twitch" else "")
                 continue
-            log.info("%s: %d GTA 6 yayını bulundu", ad, len(r))
+            log.info("%s: %d %s yayını bulundu", ad, len(r), OYUN.kisa)
             out += r
         out.sort(key=lambda x: -x[1])
         self.son_bulunan, self.son_tarama = out, time.time()
@@ -173,12 +194,35 @@ class Uygulama:
         bulunan = await self._tara(adet)
         if not self._oto_acik_mi():
             return []
-        return [x for x in bulunan if x[1] >= self.en_az_izleyici]
+        uygun = [x for x in bulunan if x[1] >= self.en_az_izleyici]
+        # dil kotası: ör. {tr: 8} -> en az 8 Türkçe yayın listenin başına (Türkçe hesap için malzeme)
+        kota = {str(k).lower(): int(v) for k, v in (self.cfg.get("dil_kotasi") or {"tr": 8}).items()}
+        once, sonra = [], []
+        sayac: dict[str, int] = {}
+        for k, izl in uygun:
+            if k.dil in kota and sayac.get(k.dil, 0) < kota[k.dil]:
+                once.append((k, izl))
+                sayac[k.dil] = sayac.get(k.dil, 0) + 1
+            else:
+                sonra.append((k, izl))
+        # Türkçe yayın kotası dolmadıysa küçük Türkçe yayınları da al (izleyici sınırı olmadan)
+        for k, izl in bulunan:
+            if k.dil in kota and sayac.get(k.dil, 0) < kota[k.dil] and (k, izl) not in once:
+                once.append((k, izl))
+                sayac[k.dil] = sayac.get(k.dil, 0) + 1
+        return once + sonra
 
     async def _youtube_elle(self) -> list[kesif.Kanal]:
         hs = self._liste("youtube") if self._platform_acik_mi("youtube") else []
         sonuc = await asyncio.gather(*(asyncio.to_thread(kesif.youtube_kanal_canli, h) for h in hs))
         return [k for k in sonuc if k]
+
+    def _gunluk(self) -> int:
+        """Her hesap için günde kaç paylaşım (Telegram /gunluk ile değişir)."""
+        return int(self._durum_oku().get("gunluk") or self.cfg.get("gunluk_paylasim", 10))
+
+    def _hedef_stok(self) -> int:
+        return int(self.cfg.get("hedef_stok", max(15, self._gunluk() * 2)))
 
     def _sinir(self) -> int:
         """Aynı anda kaç yayın izlensin: Telegram'dan /sinir ile ayarlanan, yoksa config.yaml."""
@@ -299,11 +343,45 @@ class Uygulama:
                     iz.chat_log.popleft()
             if self.duraklat:
                 continue
+            iz.algila.kat = self.dinamik_kat
             s = iz.algila.kontrol(time.time())
             if s:
+                self._spike_gecmisi.append(time.time())
+                butce = self._saatlik_butce()
+                son_saat = [t for t in self._kabul_gecmisi if t > time.time() - 3600]
+                if len(son_saat) >= butce and s.kat < self.dinamik_kat * 1.8:
+                    log.info("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
+                             butce, iz.kanal.anahtar)
+                    continue
+                self._kabul_gecmisi.append(time.time())
                 log.info("💥 chat patladı: %s (%.0f puan, normalin %.1f katı) %s",
                          iz.kanal.anahtar, s.puan, s.kat, s.kelimeler)
                 asyncio.create_task(self._kes(iz, s))
+
+    def _saatlik_butce(self) -> int:
+        # yayınlar günde ~12 saat yoğun: günlük hedefi saatlere böl
+        return max(2, round(int(self.cfg.get("hedef_gunluk_klip", 40)) / 12))
+
+    async def hiz_ayari(self) -> None:
+        """Her 20 dk: çok klip çıkıyorsa eşiği yükselt, hiç çıkmıyorsa düşür (günde ~hedef kadar klip)."""
+        a = self.cfg.get("algilama") or {}
+        alt, ust = float(a.get("en_dusuk_kat", 2.0)), float(a.get("en_yuksek_kat", 8.0))
+        while True:
+            await asyncio.sleep(1200)
+            if not self.izleyiciler or self.duraklat:
+                continue
+            simdi = time.time()
+            self._spike_gecmisi = [t for t in self._spike_gecmisi if t > simdi - 3600]
+            self._kabul_gecmisi = [t for t in self._kabul_gecmisi if t > simdi - 6 * 3600]
+            n, butce = len(self._spike_gecmisi), self._saatlik_butce()
+            eski = self.dinamik_kat
+            if n > butce * 3:
+                self.dinamik_kat = min(ust, self.dinamik_kat + 0.5)
+            elif n < butce * 0.5:
+                self.dinamik_kat = max(alt, self.dinamik_kat - 0.25)
+            if self.dinamik_kat != eski:
+                log.info("klip eşiği ayarlandı: normalin %.2f → %.2f katı (son 1 saatte %d patlama, hedef ~%d)",
+                         eski, self.dinamik_kat, n, butce)
 
     async def _kes(self, iz: Izleyici, s: Spike) -> None:
         kl = self.cfg.get("klip") or {}
@@ -321,7 +399,9 @@ class Uygulama:
             log.warning("kesilecek görüntü yok (kayıt yeni başlamış olabilir)")
             return
         chat = [(t - bas, k, m) for t, k, m in list(iz.chat_log) if bas <= t <= bit]
-        await self.kuyruk.put(Is(iz.kanal, s, sonuc[0], sonuc[1], bit - bas, chat))
+        esik = int(self.cfg.get("yuz_icin_en_az_izleyici", 2000))
+        buyuk = (not iz.oto) or iz.kanal.izleyici >= esik   # senin eklediklerin büyük sayılır
+        await self.kuyruk.put(Is(iz.kanal, s, sonuc[0], sonuc[1], bit - bas, chat, buyuk, max(0.0, s.zaman - bas)))
 
     # ---------- kurgu işçisi ----------
     async def isci(self) -> None:
@@ -355,7 +435,18 @@ class Uygulama:
             asyncio.to_thread(yuz.analiz_et, is_.kaynak, is_.ofset, is_.sure),
             asyncio.to_thread(puan.ses_ozellikleri, is_.kaynak, is_.ofset, is_.sure),
             konusma())
-        facecam = analiz.facecam if self.cfg.get("yuz_kamerasi", True) else None
+        # meme'ler için oyun görüntüsünün ham hâlini sakla (3 gün)
+        try:
+            ham = self.klasor / "ham" / f"{kid}.mp4"
+            ham.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(subprocess.run, [
+                arac("ffmpeg"), "-y", "-v", "error", "-ss", f"{is_.ofset:.2f}", "-t", f"{is_.sure:.2f}",
+                "-i", str(is_.kaynak), "-c", "copy", str(ham)], check=True, creationflags=_PENCERESIZ)
+        except Exception as e:  # noqa: BLE001
+            log.debug("ham saklanamadı: %r", e)
+        facecam = analiz.facecam if (self.cfg.get("yuz_kamerasi", True) and is_.buyuk) else None
+        if analiz.facecam and not is_.buyuk:
+            log.info("küçük yayıncı (%s izleyici): yüzü kullanılmadı", is_.kanal.izleyici)
         segler = cozum.segmentler if cozum else []
         kaynak_dil = cozum.dil if cozum else ""
         zoom = float((self.cfg.get("klip") or {}).get("zoom", 1.3))
@@ -364,7 +455,7 @@ class Uygulama:
                     if ce.get("acik", True) else [])
         en_dusuk = float(self.cfg.get("en_dusuk_puan", 0))
 
-        for h in self._hesaplar():
+        for h in self._hedef_hesaplar(kaynak_dil or is_.kanal.dil):
             dil, ad = h.get("dil", "tr"), h.get("ad", "TR")
             hid = f"{kid}_{ad}"
             veri = await asyncio.to_thread(self.yazar.yaz, dil, is_.kanal.gorunen, is_.kanal.platform, segler,
@@ -393,7 +484,9 @@ class Uygulama:
                     chat_pop, "yuz" if facecam else "tek")
             mp4 = klasor / f"{hid}.mp4"
             try:
-                await asyncio.to_thread(dikey_video, is_.kaynak, is_.ofset, is_.sure, mp4, ass, zoom, facecam)
+                await asyncio.to_thread(dikey_video, is_.kaynak, is_.ofset, is_.sure, mp4, ass, zoom, facecam,
+                                        is_.an if self.cfg.get("yakinlasma", True) else None,
+                                        bool(self.cfg.get("ilerleme_cubugu", False)))
             finally:
                 ass.unlink(missing_ok=True)
             if not await asyncio.to_thread(video_saglam_mi, mp4):
@@ -473,7 +566,7 @@ class Uygulama:
         shutil.move(str(kaynak), str(hedef))
         self.sayac["onay"] += 1
         n = len(self.plan.stok(hesap))
-        hedef_n = int(self.cfg.get("hedef_stok", 15))
+        hedef_n = self._hedef_stok()
         return f"📦 {hesap} stok: {n}/{hedef_n}" + (" ✅ yarın için yeterli" if n >= hedef_n else "")
 
     async def _sil(self, kid: str) -> None:
@@ -483,16 +576,20 @@ class Uygulama:
     YARDIM = (
         "📋 Komutlar\n\n"
         "/durum — neler izleniyor, kaç klip çıktı\n"
-        "/ekle kick adinross — yayıncı ekle (twitch / kick / youtube)\n"
+        "/twitch kaicenat — Twitch yayıncısı ekle (birden çok: /twitch kaicenat xqc)\n"
+        "/kick adinross — Kick yayıncısı ekle\n"
+        "/youtube @IShowSpeed — YouTube kanalı ekle\n"
         "   ya da direkt linki at: https://twitch.tv/kaicenat\n"
         "/cikar twitch xqc — listeden çıkar\n"
         "/yasakla xqc — bu yayıncıyı asla klipleme\n"
         "/yasak_kaldir xqc — yasağı kaldır\n"
         "/liste — eklediklerin ve yasaklılar\n"
-        "/yayinlar — şu an açık GTA 6 yayınları, dokunarak seç ⭐ / ⛔\n"
+        f"/yayinlar — şu an açık {OYUN.kisa} yayınları, dokunarak seç ⭐ / ⛔\n"
         "/platform — Twitch / Kick / YouTube aç-kapat, otomatik bulma aç-kapat\n"
         "/istatistik — neyi sevdiğini ne kadar öğrendim\n"
         "/sinir 25 — aynı anda kaç yayın izlensin\n"
+        "/meme — şimdi meme videosu yap (her gün 10:00'da kendisi de yapar)\n"
+        "/gunluk 10 — her hesap için günde kaç paylaşım\n"
         "/plan — bugünün paylaşım saatleri\n"
         "/stok — hesaplarda kaç video hazır\n"
         "/isim @hesapadin — videonun altındaki isim\n"
@@ -538,6 +635,20 @@ class Uygulama:
             self._uyandir.set()
             not_ = "\n(40'ın üstü güçlü bilgisayar ister; kasarsa düşür.)" if n > 40 else ""
             return f"✅ Artık aynı anda en fazla {n} yayın izlenecek.{not_}"
+        if komut == "/gunluk":
+            if not arg.strip().isdigit():
+                return (f"Şu an her hesap için günde {self._gunluk()} paylaşım planlanıyor "
+                        f"({len(self._hesaplar())} hesap = günde ~{self._gunluk() * len(self._hesaplar())} video).\n"
+                        f"Değiştirmek için: /gunluk 12")
+            n = max(1, min(30, int(arg.strip())))
+            d = self._durum_oku()
+            d["gunluk"] = n
+            self._durum_yaz(d)
+            return f"✅ Her hesap için günde {n} paylaşım (toplam ~{n * len(self._hesaplar())}). Yarının planından itibaren geçerli."
+        if komut == "/meme":
+            n = await self.meme_uret(int(arg) if arg.strip().isdigit() else 2)
+            return f"🎭 {n} meme yapıldı, onayına geldi." if n else \
+                "Meme yapacak oyun görüntüsü yok henüz (önce birkaç klip çıkması lazım)."
         if komut == "/plan":
             return self._plan_metni()
         if komut == "/stok":
@@ -565,6 +676,15 @@ class Uygulama:
             return f"✅ {kim}: videonun altına " + (f"“{yeni}” yazılacak." if yeni else "isim yazılmayacak.")
         if komut in ("/istatistik", "/zevk"):
             return self.ogrenci.ozet()
+        if komut in ("/twitch", "/kick", "/youtube", "/yt"):
+            if not arg.strip():
+                ornek = {"/twitch": "kaicenat", "/kick": "adinross"}.get(komut, "@IShowSpeed")
+                return f"Örnek: {komut} {ornek}"
+            platform = {"/yt": "youtube"}.get(komut, komut[1:])
+            sonuc = []
+            for ad in arg.replace(",", " ").split():   # birden çok isim: /twitch kaicenat xqc
+                sonuc.append(await self._ekle(f"{platform} {ad}"))
+            return "\n".join(sonuc)
         if komut == "/ekle":
             return await self._ekle(arg) if arg else "Örnek: /ekle kick adinross  ya da  /ekle https://twitch.tv/kaicenat"
         if komut in ("/cikar", "/çıkar", "/sil"):
@@ -638,7 +758,7 @@ class Uygulama:
                          "callback_data": "pl:oto"}]]
         metin = ("📡 Hangi platformlara bakayım?\n"
                  "Dokununca açılır/kapanır.\n\n"
-                 "🤖 Otomatik bul AÇIK: en çok izlenen GTA 6 yayınlarını kendim seçerim (+ senin eklediklerin).\n"
+                 f"🤖 Otomatik bul AÇIK: en çok izlenen {OYUN.kisa} yayınlarını kendim seçerim (+ senin eklediklerin).\n"
                  "⭐ Sadece benim seçtiklerim: sadece /yayinlar'dan ⭐ yaptıklarını izlerim.")
         return metin, klavye
 
@@ -659,7 +779,7 @@ class Uygulama:
             ])
         klavye.append([{"text": "🔄 Yenile", "callback_data": "yy:"}, {"text": "📡 Platformlar", "callback_data": "pm:"}])
         ne_zaman = int((time.time() - self.son_tarama) / 60) if self.son_tarama else None
-        metin = (f"🎮 Şu an açık GTA 6 yayınları ({len(self.son_bulunan)})"
+        metin = (f"🎮 Şu an açık {OYUN.kisa} yayınları ({len(self.son_bulunan)})"
                  + (f" — {ne_zaman} dk önce" if ne_zaman else "") + "\n\n"
                  "Dokun: ⭐ izle listeme ekle (tekrar dokun: çıkar) · ⛔ asla klipleme\n"
                  "👁 = şu an izleniyor · ➕ = izlenmiyor")
@@ -771,16 +891,27 @@ class Uygulama:
     # ---------- günlük paylaşım planı ----------
     async def planci(self) -> None:
         """Her dakika: bugünün planı var mı, saati gelen paylaşım var mı, akşam stok raporu, günlük trend."""
-        son_rapor, son_trend = "", 0.0
+        son_rapor, son_trend, son_meme = "", 0.0, self._durum_oku().get("son_meme", "")
         while True:
             try:
                 simdi = zaman.now()
                 hesaplar = [h["ad"] for h in self._hesaplar()]
-                adet = int(self.cfg.get("gunluk_paylasim", 5))
+                adet = self._gunluk()
                 self.plan.plan_yap(simdi.date(), hesaplar, adet, simdi)
                 for hesap, it in self.plan.zamani_gelenler(simdi):
                     if await self._paylasim_hatirlat(hesap, it):
                         self.plan.isaretle(it["hid"], "gonderildi", simdi.date().isoformat())
+                if simdi.hour >= 10 and son_meme != simdi.date().isoformat():
+                    son_meme = simdi.date().isoformat()
+                    d = self._durum_oku()
+                    d["son_meme"] = son_meme
+                    self._durum_yaz(d)
+                    n = await self.meme_uret()
+                    if n:
+                        log.info("günün meme'leri hazır: %d", n)
+                    for eski in (self.klasor / "ham").glob("*.mp4"):
+                        if eski.stat().st_mtime < time.time() - 3 * 86400:
+                            eski.unlink(missing_ok=True)
                 rapor_saat = str(self.cfg.get("stok_rapor_saati", "21:30"))
                 if simdi.strftime("%H:%M") >= rapor_saat and son_rapor != simdi.date().isoformat():
                     son_rapor = simdi.date().isoformat()
@@ -797,6 +928,45 @@ class Uygulama:
             except Exception:  # noqa: BLE001
                 log.exception("plan hatası")
             await asyncio.sleep(60)
+
+    async def meme_uret(self, adet: int | None = None) -> int:
+        """Her açık hesap için meme videosu yap ve onaya yolla. Kaç tane yapıldığını döndürür."""
+        adet = int(self.cfg.get("gunluk_meme", 2)) if adet is None else adet
+        hamlar = sorted((self.klasor / "ham").glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)[:40]
+        if not hamlar or adet <= 0:
+            return 0
+        d = self._durum_oku()
+        kullanilan = set(d.get("kullanilan_meme") or [])
+        yapilan = 0
+        for h in self._hesaplar():
+            metinler = await asyncio.to_thread(meme.meme_metinleri, self.yazar, h["dil"], adet, kullanilan)
+            for i, (yazi, aciklama) in enumerate(metinler):
+                hid = f"{zaman.now().strftime('%Y%m%d_%H%M%S')}_meme{i}_{h['ad']}"
+                klasor = self.klasor / "bekleyen" / hid
+                klasor.mkdir(parents=True, exist_ok=True)
+                mp4 = klasor / f"{hid}.mp4"
+                try:
+                    await asyncio.to_thread(meme.meme_video, random.choice(hamlar), yazi, mp4, h["imza"])
+                except Exception as e:  # noqa: BLE001
+                    log.warning("meme yapılamadı: %r", e)
+                    shutil.rmtree(klasor, ignore_errors=True)
+                    continue
+                tek = yazi.replace("\n", " / ")
+                tags = f"{OYUN.etiket} #meme"
+                pm = {"instagram": f"{aciklama} {tags}".strip(), "tiktok": f"{aciklama} {tags}".strip(),
+                      "youtube_baslik": f"{tek[:85]} #shorts", "youtube_aciklama": f"{tek}\n{tags} #shorts"}
+                (klasor / "aciklama.json").write_text(json.dumps(pm, ensure_ascii=False, indent=1), encoding="utf-8")
+                (klasor / "aciklama.txt").write_text(pm["instagram"], encoding="utf-8")
+                (klasor / "bilgi.json").write_text(json.dumps({
+                    "yayinci": "meme", "platform": "meme", "hesap": h["ad"], "dil": h["dil"], "puan": 6.0,
+                    "neden": "günlük meme", "meme": yazi}, ensure_ascii=False, indent=1), encoding="utf-8")
+                kullanilan.add(yazi)
+                yapilan += 1
+                await self._gonder(klasor)
+        d = self._durum_oku()
+        d["kullanilan_meme"] = sorted(kullanilan)[-200:]
+        self._durum_yaz(d)
+        return yapilan
 
     async def _paylasim_hatirlat(self, hesap: str, it: dict) -> bool:
         k = self.klasor / "hazir" / hesap / it["hid"]
@@ -825,8 +995,8 @@ class Uygulama:
             return False
 
     def _stok_metni(self, yarin: bool = False) -> str:
-        hedef_n = int(self.cfg.get("hedef_stok", 15))
-        adet = int(self.cfg.get("gunluk_paylasim", 5))
+        hedef_n = self._hedef_stok()
+        adet = self._gunluk()
         satir = ["📦 Stok durumu" + (" (yarın için)" if yarin else "")]
         for h in self._hesaplar():
             n = len(self.plan.stok(h["ad"]))
@@ -866,12 +1036,13 @@ class Uygulama:
         gorevler.append(asyncio.create_task(self.gonderici()))
         gorevler.append(asyncio.create_task(self._hazirlik()))
         gorevler.append(asyncio.create_task(self.planci()))
+        gorevler.append(asyncio.create_task(self.hiz_ayari()))
         try:
             await self.bot.komut_menusu()
         except Exception:  # noqa: BLE001
             pass
         try:
-            await self.bot.mesaj("▶ GTA 6 Klipçi açıldı. Yayınlar aranıyor... (/durum)")
+            await self.bot.mesaj(f"▶ {OYUN.kisa} Klipçi açıldı. Yayınlar aranıyor... (/durum)")
         except Exception as e:  # noqa: BLE001
             log.warning("Telegram'a ulaşılamadı: %s", e)
         try:

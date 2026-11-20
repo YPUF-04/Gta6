@@ -59,6 +59,12 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
             altyazilar: list[tuple[float, float, str]],
             chat: list[tuple[float, float, int, str, str]] | None = None, duzen: str = "tek") -> None:
     d = DUZEN.get(duzen, DUZEN["tek"])
+    # her videoda biraz farklı görünüm: hepsi aynı şablondan çıkmış gibi durmasın
+    import random
+    rnd = random.Random(yol.parent.name)
+    alt_font = rnd.choice(["Arial Black", "Impact", "Arial Black"])
+    alt_renk = rnd.choice(["&H00FFFFFF", "&H00FFFFFF", "&H0000E5FF"])   # beyaz (çoğu) / sarı
+    baslik_boy = rnd.choice([54, 58, 62])
     satirlar = [
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {W}", f"PlayResY: {H}",
         "WrapStyle: 0", "ScaledBorderAndShadow: yes", "",
@@ -67,9 +73,9 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
         "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
         # Başlık: telefonla yazılmış gibi sade beyaz kalın yazı + siyah kenar (kutu yok)
-        "Style: Baslik,Arial,58,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,5,60,60,0,1",
+        f"Style: Baslik,Arial,{baslik_boy},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,5,60,60,0,1",
         # Altyazı: beyaz, konuşulan kelime sarı; kalın siyah kenar
-        f"Style: Alt,Arial Black,76,&H00FFFFFF,&H0000E5FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,{d['alt_mv']},1",
+        f"Style: Alt,{alt_font},76,{alt_renk},&H0000E5FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,7,3,2,60,60,{d['alt_mv']},1",
         f"Style: Kredi,Arial,40,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,{d['kredi_mv']},1",
         # Chat baloncukları: yarı saydam koyu kutu, beyaz yazı
         "Style: Chat,Arial,38,&H00FFFFFF,&H00FFFFFF,&H50000000,&H50000000,-1,0,0,0,100,100,0,0,3,10,0,7,0,0,0,1",
@@ -103,9 +109,20 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
     yol.write_text("\n".join(satirlar) + "\n", encoding="utf-8")
 
 
+def _yakinlas(genislik: int, yukseklik: int, an: float | None) -> str:
+    """Chat'in patladığı anda oyun görüntüsüne ani yakınlaşma (editörlerin 'punch-in'i), 1.4 sn sürer."""
+    if an is None or an < 0:
+        return ""
+    a, b = max(0.0, an - 0.3), an + 1.1
+    return (f",zoompan=z='if(between(it\\,{a:.2f}\\,{b:.2f})\\,1.18\\,1)':d=1"
+            f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={genislik}x{yukseklik}:fps=30")
+
+
 def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: Path | None,
-                zoom: float = 1.3, facecam: tuple[float, float, float, float] | None = None) -> Path:
-    """facecam (0-1 arası x,y,w,h) verilirse: üstte yayıncının kamerası, altta oyun."""
+                zoom: float = 1.3, facecam: tuple[float, float, float, float] | None = None,
+                an: float | None = None, cubuk: bool = False) -> Path:
+    """facecam (0-1 arası x,y,w,h) verilirse: üstte yayıncının kamerası, altta oyun.
+    an: klipte chat'in patladığı saniye (o anda kısa yakınlaşma). cubuk: altta ilerleme çubuğu."""
     if facecam:
         fx, fy, fw, fh = facecam
         kh = DUZEN["yuz"]["kam_h"]
@@ -115,12 +132,14 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
             f"[a]crop=iw*{fw:.4f}:ih*{fh:.4f}:iw*{fx:.4f}:ih*{fy:.4f},"
             f"scale={W}:{kh}:force_original_aspect_ratio=increase,crop={W}:{kh},setsar=1[kam];"
             f"[b]crop=min(iw\\,ih*{W}/{oh}):ih:(iw-min(iw\\,ih*{W}/{oh}))/2:0,"
-            f"scale={W}:{oh}:force_original_aspect_ratio=increase,crop={W}:{oh},setsar=1[oyun];"
+            f"scale={W}:{oh}:force_original_aspect_ratio=increase,crop={W}:{oh},setsar=1,fps=30"
+            f"{_yakinlas(W, oh, an)}[oyun];"
             f"[kam][oyun]vstack=inputs=2,fps=30,format=yuv420p[v0]"
         )
     else:
         zoom = max(1.0, zoom)
-        fg = f"crop=iw/{zoom}:ih:(iw-iw/{zoom})/2:0,scale={W}:-2"
+        fh = int(round(W * 9 * zoom / 16 / 2)) * 2   # 16:9 kaynak varsayımı
+        fg = f"crop=iw/{zoom}:ih:(iw-iw/{zoom})/2:0,scale={W}:{fh},setsar=1,fps=30{_yakinlas(W, fh, an)}"
         filtre = (
             f"[0:v]setpts=PTS-STARTPTS,split=2[a][b];"
             f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
@@ -128,9 +147,11 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
             f"[b]{fg}[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p[v0]"
         )
-    # altta ilerleme çubuğu (izleyici sonuna kadar kalsın diye — reels'lerde yaygın)
-    filtre += (f";color=c=0xFFD400:s={W}x10:r=30:d={sure + 1:.2f}[bar];"
-               f"[v0][bar]overlay=x='-w+w*t/{max(sure, 0.1):.2f}':y=H-10:shortest=1[v1]")
+    if cubuk:   # altta ilerleme çubuğu (isteğe bağlı; çoğu insan editör kullanmıyor)
+        filtre += (f";color=c=0xFFD400:s={W}x10:r=30:d={sure + 1:.2f}[bar];"
+                   f"[v0][bar]overlay=x='-w+w*t/{max(sure, 0.1):.2f}':y=H-10:shortest=1[v1]")
+    else:
+        filtre += ";[v0]null[v1]"
     if ass is not None:
         filtre += f";[v1]ass={ass.name}[v]"   # cwd=ass klasörü: Windows'ta C:\ kaçış derdi yok
         son = "[v]"

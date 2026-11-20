@@ -41,6 +41,15 @@ Sen sadece ✅ ya da 🗑 basarsın, beğendiğini paylaşırsın.
 
 İlk açışta Telegram'da botuna **/start** yaz. Bot seni tanır ve klipleri sana yollamaya başlar.
 
+**Yayıncı nasıl seçilir?** (en kolay yollar)
+
+- Twitch için: `/twitch kaicenat` (birden çok: `/twitch kaicenat xqc jynxzi`)
+- Kick için: `/kick adinross`
+- YouTube için: `/youtube @IShowSpeed`
+- Ya da yayının linkini bota at: `https://kick.com/adinross` → kendisi anlar.
+- Hiçbir şey yapmazsan da en çok izlenen GTA 6 yayınlarını kendisi bulur.
+- Liste görüp dokunarak seçmek istersen: `/yayinlar` → ⭐ izle, ⛔ asla.
+
 **Telegram komutları** (Telegram'da `/` yazınca liste çıkar):
 
 | Komut | Ne yapar |
@@ -50,6 +59,9 @@ Sen sadece ✅ ya da 🗑 basarsın, beğendiğini paylaşırsın.
 | `/durum` | Neler izleniyor, kaç klip çıktı, altyazı hazır mı |
 | `/plan` | Bugünün paylaşım saatleri |
 | `/stok` | TR / EN hesaplarında kaç video hazır |
+| `/sinir 30` | Aynı anda kaç yayın izlensin |
+| `/gunluk 10` | Her hesap için günde kaç paylaşım |
+| `/meme` | Şimdi meme videosu yap (her gün 10:00'da kendisi yapar) |
 | `/isim @hesabim` | Videonun altındaki isim (sadece biri için: `/isim en @x`, kaldırmak: `/isim sil`) |
 | `/hesap` | TR / EN hesaplarını aç-kapat |
 | `/istatistik` | Beğenilerinden ne öğrendiği |

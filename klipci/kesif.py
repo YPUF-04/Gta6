@@ -20,7 +20,7 @@ YT_HDR = {
     "Cookie": "CONSENT=YES+1; SOCS=CAI",
 }
 TWITCH_WEB_CLIENT = "kimne78kx3ncx6brgo4mv6wki5h1ko"   # twitch.tv sitesinin kendi herkese açık kimliği
-GTA_RE = re.compile(r"gta\s*-?\s*(6|vi)\b|grand theft auto\s*(6|vi)\b", re.I)
+from .oyun import OYUN
 
 
 @dataclass(frozen=True)
@@ -29,6 +29,8 @@ class Kanal:
     ad: str         # twitch/kick: kullanıcı adı, youtube: video id
     isim: str = field(default="", compare=False)   # ekranda/açıklamada görünecek ad
     tutamac: str = field(default="", compare=False)  # YouTube kanal adresi (@kullanici)
+    dil: str = field(default="", compare=False)      # yayının dili ("tr", "en"...), biliniyorsa
+    izleyici: int = field(default=0, compare=False)  # bulunduğu andaki izleyici sayısı
 
     @property
     def url(self) -> str:
@@ -130,16 +132,21 @@ class TwitchKesif:
             p["language"] = self.dil
         r = await c.get("https://api.twitch.tv/helix/streams", params=p, headers=h)
         r.raise_for_status()
-        return [(Kanal("twitch", s["user_login"], s.get("user_name", "")), int(s["viewer_count"]))
-                for s in r.json()["data"]][:adet]
+        return [(Kanal("twitch", s["user_login"], s.get("user_name", ""), dil=(s.get("language") or "").lower()[:2],
+                       izleyici=int(s["viewer_count"])), int(s["viewer_count"])) for s in r.json()["data"]][:adet]
 
     async def _gql(self, c, adet):
-        q = ("query($n:String!,$f:Int!){game(name:$n){streams(first:$f,options:{sort:VIEWER_COUNT})"
-             "{edges{node{viewersCount broadcaster{login displayName}}}}}}")
-        r = await c.post("https://gql.twitch.tv/gql", headers={"Client-Id": TWITCH_WEB_CLIENT},
-                         json={"query": q, "variables": {"n": self.oyun_adi, "f": min(100, max(adet, 30))}})
-        r.raise_for_status()
-        return twitch_gql_ayikla(r.json())[:adet]
+        degisken = {"n": self.oyun_adi, "f": min(100, max(adet, 30))}
+        for alanlar in ("login displayName broadcastSettings{language}", "login displayName"):
+            q = ("query($n:String!,$f:Int!){game(name:$n){streams(first:$f,options:{sort:VIEWER_COUNT})"
+                 "{edges{node{viewersCount broadcaster{" + alanlar + "}}}}}}")
+            r = await c.post("https://gql.twitch.tv/gql", headers={"Client-Id": TWITCH_WEB_CLIENT},
+                             json={"query": q, "variables": degisken})
+            r.raise_for_status()
+            j = r.json()
+            if not j.get("errors"):
+                return twitch_gql_ayikla(j)[:adet]
+        raise RuntimeError(f"Twitch GQL hata: {str(j.get('errors'))[:200]}")
 
 
 def twitch_gql_ayikla(j: dict) -> list[tuple[Kanal, int]]:
@@ -149,7 +156,9 @@ def twitch_gql_ayikla(j: dict) -> list[tuple[Kanal, int]]:
         n = e.get("node") or {}
         b = n.get("broadcaster") or {}
         if b.get("login"):
-            out.append((Kanal("twitch", b["login"], b.get("displayName", "")), int(n.get("viewersCount") or 0)))
+            dil = str(((b.get("broadcastSettings") or {}).get("language")) or "").lower()[:2]
+            izl = int(n.get("viewersCount") or 0)
+            out.append((Kanal("twitch", b["login"], b.get("displayName", ""), dil=dil, izleyici=izl), izl))
     return out
 
 
@@ -204,9 +213,9 @@ class KickKesif:
         if not self._kat_id:
             r = await c.get("https://api.kick.com/public/v2/categories", params={"name": self.oyun_adi}, headers=h)
             r.raise_for_status()
-            kat = [k for k in r.json().get("data", []) if GTA_RE.search(k.get("name", ""))]
+            kat = [k for k in r.json().get("data", []) if OYUN.regex.search(k.get("name", ""))]
             if not kat:
-                raise RuntimeError("Kick'te GTA 6 kategorisi bulunamadı")
+                raise RuntimeError(f"Kick'te {OYUN.kisa} kategorisi bulunamadı")
             self._kat_id = kat[0]["id"]
         out, cursor = [], None
         for _ in range(3):
@@ -221,8 +230,10 @@ class KickKesif:
             for s in j.get("data", []):
                 slug = (s.get("channel") or {}).get("slug") or (s.get("broadcaster_user") or {}).get("username")
                 if slug:
-                    out.append((Kanal("kick", slug, (s.get("broadcaster_user") or {}).get("username", "")),
-                                int(s.get("viewer_count") or 0)))
+                    izl = int(s.get("viewer_count") or 0)
+                    out.append((Kanal("kick", slug, (s.get("broadcaster_user") or {}).get("username", ""),
+                                      dil=str(s.get("language_code") or s.get("language") or "").lower()[:2],
+                                      izleyici=izl), izl))
             cursor = (j.get("pagination") or {}).get("next_cursor")
             if not cursor:
                 break
@@ -256,8 +267,9 @@ def kick_site_ayikla(j) -> list[tuple[Kanal, int]]:
             slug = (o.get("channel") or {}).get("slug") if isinstance(o.get("channel"), dict) else None
             slug = slug or o.get("slug") or o.get("channel_slug")
             izl = o.get("viewer_count", o.get("viewers"))
-            if slug and izl is not None and GTA_RE.search(metin):
-                out.append((Kanal("kick", str(slug)), _sayi(izl)))
+            if slug and izl is not None and OYUN.regex.search(metin):
+                dil = str(o.get("language_code") or o.get("language") or "").lower()[:2]
+                out.append((Kanal("kick", str(slug), dil=dil, izleyici=_sayi(izl)), _sayi(izl)))
                 return
             for v in o.values():
                 gez(v)
@@ -294,9 +306,11 @@ def youtube_arama_ayikla(data: dict) -> list[tuple[Kanal, int]]:
                 kanal = metin(v.get("ownerText")) or metin(v.get("longBylineText"))
                 yol = json.dumps(v.get("ownerText") or {})
                 m = re.search(r'"canonicalBaseUrl":\s*"/(@[^"]+)"', yol)
-                if canli and GTA_RE.search(baslik + " " + kanal):
-                    out.append((Kanal("youtube", v["videoId"], kanal, m.group(1) if m else ""),
-                                _sayi(metin(v.get("viewCountText")))))
+                if canli and OYUN.regex.search(baslik + " " + kanal):
+                    izl = _sayi(metin(v.get("viewCountText")))
+                    tr_mi = bool(re.search(r"[çğışöüÇĞİŞÖÜ]|\b(canlı|yayın|türkçe)\b", baslik, re.I))
+                    out.append((Kanal("youtube", v["videoId"], kanal, m.group(1) if m else "",
+                                      dil="tr" if tr_mi else "", izleyici=izl), izl))
                 return
             for x in o.values():
                 gez(x)
@@ -309,8 +323,8 @@ def youtube_arama_ayikla(data: dict) -> list[tuple[Kanal, int]]:
 
 
 class YoutubeKesif:
-    def __init__(self, arama: str = "GTA 6"):
-        self.arama = arama
+    def __init__(self, arama: str = ""):
+        self.arama = arama or OYUN.arama
 
     async def bul(self, c: httpx.AsyncClient, adet: int) -> list[tuple[Kanal, int]]:
         r = await c.get("https://www.youtube.com/results", headers=YT_HDR, params={

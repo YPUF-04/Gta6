@@ -150,7 +150,8 @@ async def ana() -> None:
 
     ob = cfg.get("otomatik_bul") or {}
     eski = (cfg.get("kanallar") or {}).get("twitch_otomatik_kesif") or {}
-    oyun = ob.get("oyun_adi", "Grand Theft Auto VI")
+    from .oyun import ayarla
+    oyun = ob.get("oyun_adi", ayarla(cfg).ad)
     klasor = KOK / "klipler" / "_test"
     shutil.rmtree(klasor, ignore_errors=True)
     klasor.mkdir(parents=True, exist_ok=True)
@@ -158,7 +159,7 @@ async def ana() -> None:
         "twitch": kesif.TwitchKesif(oyun, ob.get("twitch_client_id", eski.get("client_id", "")),
                                     ob.get("twitch_client_secret", eski.get("client_secret", ""))),
         "kick": kesif.KickKesif(oyun, ob.get("kick_client_id", ""), ob.get("kick_client_secret", "")),
-        "youtube": kesif.YoutubeKesif(ob.get("youtube_arama", "GTA 6")),
+        "youtube": kesif.YoutubeKesif(ob.get("youtube_arama", "")),
     }
     secim = [a.lower() for a in sys.argv[1:]] or list(platformlar)
     for ad in secim:

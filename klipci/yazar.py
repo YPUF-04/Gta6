@@ -5,6 +5,8 @@ import json
 import logging
 import random
 
+from .oyun import OYUN
+
 log = logging.getLogger("yazar")
 
 DIL_ADI = {"tr": "Turkish", "en": "English", "es": "Spanish", "de": "German", "pt": "Portuguese"}
@@ -15,7 +17,7 @@ DIL_ADI = {"tr": "Turkish", "en": "English", "es": "Spanish", "de": "German", "p
 #  TUTMAYAN: "Wait for it… Kai Cenat in GTA 6 🤯", "Kai Cenat goes CRAZY in GTA 6 😂 Follow for daily clips",
 #            "Clip from Kai Cenat's GTA 6 stream. All credit to…"                                           (8-265 izlenme)
 # Yani: yayıncının adı + TAM OLARAK ne olduğu + 1-2 emoji + 2-3 hashtag. Genel/klişe laf = yapay zekâ kokusu.
-STIL = """You write the text for a GTA 6 streamer-clip page on Instagram Reels / TikTok / YouTube Shorts.
+STIL_SABLON = """You write the text for a {oyun} streamer-clip page on Instagram Reels / TikTok / YouTube Shorts.
 Sound like a real human clip-page admin, not like an AI or a marketer.
 
 What actually performs (real posts, Nov 2026):
@@ -27,18 +29,19 @@ What flops (generic, AI-sounding): "Wait for it…", "X goes CRAZY in GTA 6", "Y
 
 Rules:
 - Say WHAT SPECIFICALLY HAPPENED, using the streamer's name and the concrete event from the transcript/chat.
-  Pattern: "<Streamer> <did/said/couldn't believe/got ...> <concrete thing> in GTA 6 😂😭".
+  Pattern: "<Streamer> <did/said/couldn't believe/got ...> <concrete thing> in {oyun} 😂😭".
 - If you can't tell what happened from the transcript and chat, keep it short and plain
-  (e.g. "Kai Cenat GTA 6'da 😭") and set baslik to "" — never invent events.
+  (e.g. "Kai Cenat {oyun}'da 😭") and set baslik to "" — never invent events.
 - baslik = the on-screen text: the same idea, shorter (max ~9 words), lowercase-ish casual, no hashtags.
 - aciklama = the post caption sentence (no hashtags). 1 sentence. Max 2 emoji, only from 😂😭💀🤯😳.
 - youtube_baslik = a YouTube Shorts title for the same moment (max 80 chars, specific, like a human wrote it).
-- hashtagler = exactly 2-3: the streamer's name as one tag, #gta6, optionally one more relevant name tag.
+- hashtagler = exactly 2-3: the streamer's name as one tag, {etiket}, optionally one more relevant name tag.
   Never #fyp #viral #trending #keşfet spam.
 - Never use: "wait for it", "sonuna kadar izle", "inanılmaz an", "çıldırdı", "epic", "insane", "follow",
   "takip et", "beğenmeyi unutma", "link in bio", em dashes.
 - Write like a native young speaker of the target language would type it on their phone (casual, natural slang).
-- puan: honest 1-10 for how funny/surprising the moment really is for a GTA 6 audience."""
+- puan: honest 1-10 for how funny/surprising the moment really is for a {oyun} audience.
+The examples above are from GTA 6; apply the same style to {oyun}."""
 
 SEMA = {
     "type": "object",
@@ -57,8 +60,8 @@ SEMA = {
 
 # Anahtar yoksa: ne olduğunu bilmeden uydurma; sade, insan gibi kısa yaz, ekrana yazı koyma.
 SABLON = {
-    "tr": ["{ad} GTA 6'da 😭", "{ad} GTA 6 😂😭", "{ad} ve GTA 6 💀"],
-    "en": ["{ad} in GTA 6 😭", "{ad} GTA 6 😂😭", "{ad} playing GTA 6 💀"],
+    "tr": ["{ad} {oyun}'da 😭", "{ad} {oyun} 😂😭", "{ad} ve {oyun} 💀"],
+    "en": ["{ad} in {oyun} 😭", "{ad} {oyun} 😂😭", "{ad} playing {oyun} 💀"],
 }
 YASAK_KALIP = ["wait for it", "sonuna kadar", "follow for", "takip et", "link in bio", "all credit", "goes crazy",
                "inanılmaz an", "çıldırdı", "you won't believe", "watch till", "—"]
@@ -110,7 +113,7 @@ class Yazar:
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": SEMA}},
-            system=STIL + (f"\n\nFresh research on what is trending right now (use it as a style hint only):\n{self.trend}"
+            system=STIL_SABLON.format(oyun=OYUN.kisa, etiket=OYUN.etiket) + (f"\n\nFresh research on what is trending right now (use it as a style hint only):\n{self.trend}"
                            if self.trend else ""),
             messages=[{"role": "user", "content": istek}],
         )
@@ -123,19 +126,19 @@ class Yazar:
         # klişe/yapay zekâ kokan kalıp kaçarsa ekrandan kaldır
         for alan in ("baslik", "aciklama"):
             if any(k in out.get(alan, "").lower() for k in YASAK_KALIP):
-                out[alan] = "" if alan == "baslik" else random.choice(SABLON.get(dil, SABLON["en"])).format(ad=yayinci)
+                out[alan] = "" if alan == "baslik" else random.choice(SABLON.get(dil, SABLON["en"])).format(ad=yayinci, oyun=OYUN.kisa)
         tags = [t if t.startswith("#") else "#" + t for t in out.get("hashtagler", [])
                 if t.lower().lstrip("#") not in ("fyp", "viral", "trending", "keşfet", "kesfet", "foryou", "explore")]
-        out["hashtagler"] = (tags or [etiket(yayinci), "#gta6"])[:3]
+        out["hashtagler"] = (tags or [etiket(yayinci), OYUN.etiket])[:3]
         return out
 
     def _sablon(self, dil, segmentler, kaynak_dil, yayinci="") -> dict:
         ad = yayinci or "bro"
         return {
             "baslik": "",   # ne olduğunu bilmiyoruz: ekrana uydurma yazı koyma
-            "aciklama": random.choice(SABLON.get(dil, SABLON["en"])).format(ad=ad),
-            "youtube_baslik": (f"{ad} GTA 6'da" if dil == "tr" else f"{ad} plays GTA 6") + " 😭",
-            "hashtagler": [etiket(ad), "#gta6"],
+            "aciklama": random.choice(SABLON.get(dil, SABLON["en"])).format(ad=ad, oyun=OYUN.kisa),
+            "youtube_baslik": (f"{ad} {OYUN.kisa}'da" if dil == "tr" else f"{ad} plays {OYUN.kisa}") + " 😭",
+            "hashtagler": [etiket(ad), OYUN.etiket],
             # çeviri yok: konuşma zaten hedef dildeyse göster, değilse altyazı koyma
             "altyazi": [t for _, _, t in segmentler] if kaynak_dil == dil else [],
             "puan": 5,
@@ -166,7 +169,7 @@ def platform_metinleri(veri: dict, kanal, dil: str) -> dict:
     }
 
 
-TREND_ISTEK = """Search the web for what GTA 6 streamer clips are doing well on Instagram Reels, TikTok and
+TREND_ISTEK = """Search the web for what {oyun} streamer clips are doing well on Instagram Reels, TikTok and
 YouTube Shorts in the last few days (today is {bugun}). Look at real clip pages and real captions.
 Answer in under 120 words, plain text, as practical notes for a clip-page admin:
 - which streamers / moments are getting the most views right now,
@@ -180,7 +183,7 @@ def trend_arastir(yazar: "Yazar") -> str:
     if not yazar.client:
         return ""
     from datetime import date
-    mesajlar = [{"role": "user", "content": TREND_ISTEK.format(bugun=date.today().isoformat())}]
+    mesajlar = [{"role": "user", "content": TREND_ISTEK.format(bugun=date.today().isoformat(), oyun=OYUN.kisa)}]
     araclar = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}]
     r = None
     for _ in range(4):   # uzun aramalarda "pause_turn" ile devam

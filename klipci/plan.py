@@ -14,7 +14,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 # İnsanların en çok baktığı saat aralıkları (Türkiye saati); her gün içlerinden rastgele dakika seçilir
-PENCERELER = [(9, 11), (11, 13), (13, 15), (15, 17), (17, 19), (19, 21), (21, 23), (23, 24)]
+PENCERELER = [(8, 9), (9, 10), (10, 11), (11, 12), (12, 13), (13, 14), (14, 15), (15, 16), (16, 17), (17, 18),
+              (18, 19), (19, 20), (20, 21), (21, 22), (22, 23), (23, 24)]
 
 
 def saatler_sec(adet: int, gun: date, simdi: datetime | None = None, tohum: str = "") -> list[str]:
