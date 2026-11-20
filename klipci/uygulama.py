@@ -53,6 +53,7 @@ class Izleyici:
     algila: SpikeDetector
     gorevler: list[asyncio.Task] = field(default_factory=list)
     oto: bool = False
+    son_yenileme: float = 0.0
     chat_log: deque = field(default_factory=lambda: deque(maxlen=20000))
 
 
@@ -265,12 +266,7 @@ class Uygulama:
                         canli = await asyncio.to_thread(kesif.yayinda_mi, iz.kanal)
                         if canli and not self.duraklat:
                             log.info("kayıt yeniden başlatılıyor: %s", anahtar)
-                            iz.kayit.durdur()
-                            if iz.kanal.platform == "kick":   # imzalı yayın linki yenilenmeli
-                                b = await asyncio.to_thread(kesif.kick_bilgi, iz.kanal.ad)
-                                if b and b.get("playback_url"):
-                                    iz.kayit.url = "hls://" + b["playback_url"]
-                            iz.kayit.baslat()
+                            await self._kayit_yenile(iz)
                         else:
                             log.info("yayın bitti: %s", anahtar)
                             await self._birak(anahtar)
@@ -360,33 +356,45 @@ class Uygulama:
     async def _izle(self, iz: Izleyici) -> None:
         while True:
             await asyncio.sleep(1)
-            if int(time.time()) % 15 == 0:
-                await asyncio.to_thread(iz.kayit.temizle)
-                sinir = time.time() - iz.kayit.tampon
-                while iz.chat_log and iz.chat_log[0][0] < sinir:
-                    iz.chat_log.popleft()
-            if self.duraklat:
-                continue
-            iz.algila.kat = self.dinamik_kat
-            s = iz.algila.kontrol(time.time())
-            if s:
-                self._spike_gecmisi.append(time.time())
-                butce = self._saatlik_butce()
-                son_saat = [t for t in self._kabul_gecmisi if t > time.time() - 3600]
-                if len(son_saat) >= butce and s.kat < self.dinamik_kat * 1.8:
-                    self.sayac["kotada"] += 1
-                    log.info("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
-                             butce, iz.kanal.anahtar)
+            try:
+                if int(time.time()) % 15 == 0:
+                    await asyncio.to_thread(iz.kayit.temizle)
+                    sinir = time.time() - iz.kayit.tampon
+                    while iz.chat_log and iz.chat_log[0][0] < sinir:
+                        iz.chat_log.popleft()
+                if self.duraklat:
                     continue
-                self._kabul_gecmisi.append(time.time())
-                log.info("💥 chat patladı: %s (%.0f puan, normalin %.1f katı) %s",
-                         iz.kanal.anahtar, s.puan, s.kat, s.kelimeler)
-                self.sayac["patlama"] += 1
-                asyncio.create_task(self._kes(iz, s))
+                # kayıt koptuysa hemen (en fazla dakikada bir) yeniden başlat: boşluk kısa kalsın, klip kesilebilsin
+                if int(time.time()) % 5 == 0 and not iz.kayit.calisiyor_mu() and time.time() - iz.son_yenileme > 60:
+                    iz.son_yenileme = time.time()
+                    try:
+                        await self._kayit_yenile(iz)
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("kayıt yeniden başlatılamadı (%s): %r", iz.kanal.anahtar, e)
+                iz.algila.kat = self.dinamik_kat
+                s = iz.algila.kontrol(time.time())
+                if s:
+                    self._spike_gecmisi.append(time.time())
+                    butce = self._saatlik_butce()
+                    son_saat = [t for t in self._kabul_gecmisi if t > time.time() - 3600]
+                    if len(son_saat) >= butce and s.kat < self.dinamik_kat * 1.8:
+                        self.sayac["kotada"] += 1
+                        log.info("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
+                                 butce, iz.kanal.anahtar)
+                        continue
+                    log.info("💥 chat patladı: %s (%.0f puan, normalin %.1f katı) %s",
+                             iz.kanal.anahtar, s.puan, s.kat, s.kelimeler)
+                    self.sayac["patlama"] += 1
+                    asyncio.create_task(self._kes(iz, s))
+
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001  — bir yayının kontrolü sessizce ölmesin
+                log.exception("%s kontrolünde hata (devam ediliyor)", iz.kanal.anahtar)
 
     def _saatlik_butce(self) -> int:
         # yayınlar günde ~12 saat yoğun: günlük hedefi saatlere böl
-        return max(2, round(int(self.cfg.get("hedef_gunluk_klip", 40)) / 12))
+        return max(3, round(int(self.cfg.get("hedef_gunluk_klip", 60)) / 12))
 
     async def hiz_ayari(self) -> None:
         """Her 20 dk: çok klip çıkıyorsa eşiği yükselt, hiç çıkmıyorsa düşür (günde ~hedef kadar klip)."""
@@ -408,6 +416,18 @@ class Uygulama:
             if self.dinamik_kat != eski:
                 log.info("klip eşiği ayarlandı: normalin %.2f → %.2f katı (son 1 saatte %d patlama, hedef ~%d)",
                          eski, self.dinamik_kat, n, butce)
+
+    async def _kayit_yenile(self, iz: Izleyici) -> None:
+        """Kopan kaydı, son dakikaları silmeden yeniden başlat (program donmasın diye ayrı iş parçacığında)."""
+        neden = iz.kayit.son_hata()
+        if neden:
+            log.info("%s kaydı koptu: %s", iz.kanal.anahtar, neden)
+        if iz.kanal.platform == "kick":   # imzalı yayın linki yenilenmeli
+            b = await asyncio.to_thread(kesif.kick_bilgi, iz.kanal.ad)
+            if b and b.get("playback_url"):
+                iz.kayit.url = "hls://" + b["playback_url"]
+        await asyncio.to_thread(iz.kayit.yeniden_baslat)
+        iz.son_yenileme = time.time()
 
     def _tampon_kok(self) -> Path:
         """Yayınların son dakikaları burada tutulur. OneDrive/Masaüstü dışında (Windows geçici klasörü):
@@ -462,6 +482,7 @@ class Uygulama:
             self.sayac["kesilemedi"] += 1
             self.son_sorun = f"{iz.kanal.gorunen}: kayıtta o an eksik"
             return
+        self._kabul_gecmisi.append(time.time())   # kota sadece gerçekten kesilen klipten düşer
         chat = [(t - bas, k, m) for t, k, m in list(iz.chat_log) if bas <= t <= bit]
         esik = int(self.cfg.get("yuz_icin_en_az_izleyici", 2000))
         buyuk = (not iz.oto) or iz.kanal.izleyici >= esik   # senin eklediklerin büyük sayılır

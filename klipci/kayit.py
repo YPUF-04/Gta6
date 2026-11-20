@@ -40,37 +40,49 @@ class Kaydedici:
         self._sl: subprocess.Popen | None = None
         self._ff: subprocess.Popen | None = None
 
-    def baslat(self) -> None:
+    def baslat(self, ilk: bool = True) -> None:
+        """ilk=True: temiz başla. ilk=False (yeniden başlatma): eldeki kaydı SİLME, devam et."""
         self.klasor.mkdir(parents=True, exist_ok=True)
-        kilitli = False
-        for eski in self.klasor.glob("*.ts"):
-            try:
-                eski.unlink(missing_ok=True)
-            except OSError:   # başka bir (artık kalmış) işlem kullanıyor
-                kilitli = True
-        if kilitli:   # o klasörü bırak, temiz bir klasörde başla
-            self.klasor = self.klasor.with_name(f"{self.klasor.name}_{int(time.time())}")
-            self.klasor.mkdir(parents=True, exist_ok=True)
-            log.info("eski kayıt dosyaları kilitli, yeni klasör kullanılıyor")
+        if ilk:
+            kilitli = False
+            for eski in self.klasor.glob("*.ts"):
+                try:
+                    eski.unlink(missing_ok=True)
+                except OSError:   # başka bir (artık kalmış) işlem kullanıyor
+                    kilitli = True
+            if kilitli:   # o klasörü bırak, temiz bir klasörde başla
+                self.klasor = self.klasor.with_name(f"{self.klasor.name}_{int(time.time())}")
+                self.klasor.mkdir(parents=True, exist_ok=True)
+                log.info("eski kayıt dosyaları kilitli, yeni klasör kullanılıyor")
         sl_cmd = [sys.executable, "-m", "streamlink", "--stdout", "--loglevel", "error",
-                  "--twitch-disable-ads", "--hls-live-edge", "2", "--stream-segment-threads", "2",
+                  "--twitch-disable-ads", "--hls-live-edge", "3", "--stream-segment-threads", "2",
+                  "--stream-segment-attempts", "5", "--stream-timeout", "90", "--hls-playlist-reload-attempts", "6",
                   self.url, self.kalite]
         ff_cmd = [arac("ffmpeg"), "-hide_banner", "-loglevel", "error", "-i", "pipe:0",
                   "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
                   "-f", "segment", "-segment_time", str(PARCA_SN), "-reset_timestamps", "1",
                   "-strftime", "1", str(self.klasor / f"{_FMT}.ts")]
-        self._sl = subprocess.Popen(sl_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                    creationflags=_PENCERESIZ)
-        self._ff = subprocess.Popen(ff_cmd, stdin=self._sl.stdout, stderr=subprocess.DEVNULL,
-                                    creationflags=_PENCERESIZ)
+        # streamlink'in hata mesajı dosyaya: kayıt neden koptu görülebilsin
+        self._hata_yolu = self.klasor.with_name(self.klasor.name + "_hata.txt")
+        hata = open(self._hata_yolu, "ab")
+        self._sl = subprocess.Popen(sl_cmd, stdout=subprocess.PIPE, stderr=hata, creationflags=_PENCERESIZ)
+        self._ff = subprocess.Popen(ff_cmd, stdin=self._sl.stdout, stderr=hata, creationflags=_PENCERESIZ)
+        hata.close()
         self._sl.stdout.close()  # type: ignore[union-attr]
         gorunen = self.url.split("?")[0] if "token=" in self.url else self.url
-        log.info("kayıt başladı: %s", gorunen[:90])
+        log.info("kayıt %s: %s", "başladı" if ilk else "devam ediyor", gorunen[:90])
+
+    def son_hata(self) -> str:
+        try:
+            satirlar = self._hata_yolu.read_text(encoding="utf-8", errors="ignore").strip().splitlines()
+            return satirlar[-1][:200] if satirlar else ""
+        except (OSError, AttributeError):
+            return ""
 
     def calisiyor_mu(self) -> bool:
         return bool(self._sl and self._ff and self._sl.poll() is None and self._ff.poll() is None)
 
-    def durdur(self) -> None:
+    def _islemleri_kapat(self) -> None:
         for p in (self._sl, self._ff):
             if p and p.poll() is None:
                 p.terminate()
@@ -78,7 +90,19 @@ class Kaydedici:
                     p.wait(5)
                 except subprocess.TimeoutExpired:
                     p.kill()
+
+    def yeniden_baslat(self) -> None:
+        """Kopan kaydı yeniden başlat; son dakikaların kaydı korunur (klip kesilebilsin)."""
+        self._islemleri_kapat()
+        self.baslat(ilk=False)
+
+    def durdur(self) -> None:
+        self._islemleri_kapat()
         shutil.rmtree(self.klasor, ignore_errors=True)
+        try:
+            self._hata_yolu.unlink(missing_ok=True)
+        except (OSError, AttributeError):
+            pass
 
     def temizle(self) -> None:
         if not self.klasor.exists():

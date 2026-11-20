@@ -129,3 +129,20 @@ def test_kilitli_tampon_yeni_klasor(tmp_path, monkeypatch):
     monkeypatch.setattr(kayit.subprocess, "Popen", lambda *a, **kw: Sahte())
     k.baslat()   # hata vermemeli
     assert k.klasor.name.startswith("twitch_zarbex_") and k.klasor.exists()
+
+
+def test_yeniden_baslatinca_kayit_silinmez(tmp_path, monkeypatch):
+    from klipci import kayit
+
+    class Sahte:
+        stdout = type("S", (), {"close": lambda self: None})()
+
+        def poll(self):
+            return 0
+    monkeypatch.setattr(kayit.subprocess, "Popen", lambda *a, **kw: Sahte())
+    k = kayit.Kaydedici("x", tmp_path / "twitch_kai", "best", 9999)
+    k.baslat()
+    (k.klasor / "20261120_120000.ts").write_bytes(b"x")
+    assert not k.calisiyor_mu()
+    k.yeniden_baslat()
+    assert (k.klasor / "20261120_120000.ts").exists()

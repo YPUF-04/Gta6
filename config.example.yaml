@@ -71,7 +71,7 @@ izin_verilen_diller: []
 dil_yonlendirme: true
 
 # Günde yaklaşık kaç klip çıksın (eşik buna göre kendiliğinden ayarlanır)
-hedef_gunluk_klip: 40
+hedef_gunluk_klip: 60
 
 # Aynı anda kaç klip kurgulansın (2 yeter; güçlü bilgisayar = 3-4)
 ayni_anda_kurgu: 2
