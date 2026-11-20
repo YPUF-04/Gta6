@@ -162,6 +162,7 @@ class Kaydedici:
             log.warning("klip atlandı: %s", self.son_neden)
             return None
         yeni_bas, yeni_bit = max(bas, aday[0]), min(bit, aday[1])
+        en_az_sn = min(en_az_sn, (bit - bas) * 0.7)   # kısa klip istendiyse (TEST) ona göre
         if yeni_bit - yeni_bas < en_az_sn:
             self.son_neden = (f"patlama çevresindeki kesintisiz kayıt çok kısa ({yeni_bit - yeni_bas:.0f} sn; "
                               f"istenen {bit - bas:.0f}) — Twitch reklamı ya da kopma")
