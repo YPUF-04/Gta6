@@ -60,7 +60,7 @@ class Kaydedici:
             kalite = "720p60,720p,best"
         sl_cmd = [sys.executable, "-m", "streamlink", "--stdout", "--loglevel", "info",
                   "--ffmpeg-ffmpeg", arac("ffmpeg"),
-                  "--twitch-disable-ads", "--hls-live-edge", "3", "--stream-segment-threads", "2",
+                  "--hls-live-edge", "3", "--stream-segment-threads", "2",
                   "--stream-segment-attempts", "5", "--stream-timeout", "90", "--hls-playlist-reload-attempts", "6",
                   self.url, kalite]
         # Parçalara bölme BİLGİSAYAR SAATİNE göre: Twitch reklamı atlanınca videonun kendi zaman damgaları
@@ -87,19 +87,20 @@ class Kaydedici:
             satirlar = self._hata_yolu.read_text(encoding="utf-8", errors="ignore").strip().splitlines()
         except (OSError, AttributeError):
             return ""
-        onemli = [x for x in satirlar if any(k in x.lower() for k in ("error", "advertisement", "pre-roll", "ads",
-                                                                         "failed", "unable", "invalid"))]
+        reklam_kelime = ("advertisement", "pre-roll", "preroll", "midroll", "ad break")
+        onemli = [x for x in satirlar if "has been disabled" not in x and any(
+            k in x.lower() for k in ("error", "failed", "unable", "invalid") + reklam_kelime)]
         if not onemli:
             return ""
         son = onemli[-1]
-        if "advertisement" in son.lower() or "pre-roll" in son.lower() or "ads" in son.lower():
+        if any(k in son.lower() for k in reklam_kelime):
             return "Twitch reklamı: " + son.split("]")[-1].strip()[:150]
         return son[:200]
 
     def reklam_sayisi(self) -> int:
         try:
             metin = self._hata_yolu.read_text(encoding="utf-8", errors="ignore").lower()
-            return metin.count("advertisement") + metin.count("pre-roll")
+            return metin.count("advertisement") + metin.count("pre-roll") + metin.count("ad break")
         except (OSError, AttributeError):
             return 0
 

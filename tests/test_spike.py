@@ -187,3 +187,14 @@ def test_dosya_saati_utc_ise_duzeltilir(tmp_path):
     p = k.parcalar()
     assert len(p) == 11
     assert abs(p[-1][1] - simdi) < 10
+
+
+def test_son_hata_uyariyi_reklam_sanmaz(tmp_path):
+    from klipci.kayit import Kaydedici
+    k = Kaydedici("x", tmp_path / "a", "best", 240)
+    k._hata_yolu = tmp_path / "h.txt"
+    k._hata_yolu.write_text("[cli][warning] The --twitch-disable-ads plugin argument has been disabled and will be removed\\n"
+                            "[stream.hls][info] loads threads\\n")
+    assert k.son_hata() == "" and k.reklam_sayisi() == 0
+    k._hata_yolu.write_text("[plugins.twitch][info] Detected advertisement break of 30 seconds\\n")
+    assert k.son_hata().startswith("Twitch reklamı") and k.reklam_sayisi() == 1
