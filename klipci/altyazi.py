@@ -22,6 +22,7 @@ class Cozum:
     segmentler: list[tuple[float, float, str]]
     kelimeler: list[Kelime]
     guven: float = 0.0   # dilden ne kadar emin
+    asil_dil: str = ""   # yayıncının gerçekte konuştuğu dil (çevrildiyse farklıdır)
 
     @property
     def metin(self) -> str:
@@ -120,7 +121,7 @@ class Yaziya:
             log.warning("altyazı modeli şimdilik hazırlanamadı (%r) — sonra tekrar denenecek", e)
             return False
 
-    def coz(self, wav: Path, dil: str = "") -> Cozum | None:
+    def coz(self, wav: Path, dil: str = "", cevir: bool = True) -> Cozum | None:
         """dil: yayının dili biliniyorsa ("tr"/"en") verilir — oyun sesi varken dili tahmin etmek zor."""
         try:
             m = self._yukle()
@@ -134,6 +135,14 @@ class Yaziya:
         segs, info = m.transcribe(str(wav), **ayar)
         if dil in ("tr", "en") and getattr(info, "language_probability", 1.0) < 0.6 and info.language != dil:
             segs, info = m.transcribe(str(wav), language=dil, **ayar)
+        kaynak = info.language
+        # Türkçe/İngilizce değilse (Arapça, Almanca...): konuşmayı doğrudan İngilizceye ÇEVİR (ücretsiz, Whisper yapar)
+        if cevir and info.language not in ("tr", "en") and getattr(info, "language_probability", 0.0) >= 0.5:
+            log.info("yayıncı %s konuşuyor: altyazı İngilizceye çevriliyor", info.language)
+            segs, info = m.transcribe(str(wav), task="translate", language=kaynak, **ayar)
+            kaynak_cevrildi = True
+        else:
+            kaynak_cevrildi = False
         segler, kelimeler = [], []
         for s in segs:
             if not gercek_konusma_mi(s.text, getattr(s, "no_speech_prob", 0.0), getattr(s, "avg_logprob", 0.0)):
@@ -141,7 +150,10 @@ class Yaziya:
             segler.append((s.start, s.end, s.text.strip()))
             for w in (s.words or []):
                 kelimeler.append(Kelime(w.start, w.end, w.word.strip()))
-        return Cozum(info.language, segler, kelimeler, float(getattr(info, "language_probability", 0.0)))
+        c = Cozum("en" if kaynak_cevrildi else info.language, segler, kelimeler,
+                  float(getattr(info, "language_probability", 0.0)))
+        c.asil_dil = kaynak
+        return c
 
 
 # Whisper müzik/oyun sesinde bazen olmayan cümleler uydurur; bunlar altyazıya girmesin

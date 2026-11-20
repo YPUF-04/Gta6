@@ -249,3 +249,9 @@ def test_kare_kaybinda_klip_atilmaz(tmp_path):
     _, ofset, bas, bit = sonuc
     assert 25 <= bit - bas <= 35          # 60 sn zaman → ~30 sn görüntü
     assert abs((simdi - 30 - bas) - 20) < 3   # patlama: 40. sn'nin yarısı ≈ 20. sn
+
+
+def test_yabanci_gulme():
+    for m in ("هههههههه", "kkkkkkk", "jajajaja", "ахахах", "wwwww"):
+        assert mesaj_puani(m)[0] > 1, m
+    assert mesaj_puani("www.site.com")[0] == 1.0

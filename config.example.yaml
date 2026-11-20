@@ -72,6 +72,10 @@ izin_verilen_diller: []
 # Türkçe yayın -> Türkçe hesap, İngilizce yayın -> İngilizce hesap (diğer diller -> İngilizce)
 dil_yonlendirme: true
 
+# Başka dilde (Arapça, Almanca...) konuşan yayıncı: konuşması İngilizceye çevrilip altyazı yapılır, İngilizce hesaba gider.
+# false yaparsan bu yayınlar hiç alınmaz.
+yabanci_dil_cevir: true
+
 # Günde yaklaşık kaç klip çıksın (eşik buna göre kendiliğinden ayarlanır)
 hedef_gunluk_klip: 60
 

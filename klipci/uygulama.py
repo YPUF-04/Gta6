@@ -229,6 +229,10 @@ class Uygulama:
         self.son_bulunan, self.son_tarama = out, time.time()
         return out
 
+    def _yabanci_cevir(self) -> bool:
+        """Başka dilde konuşan yayıncılar: altyazıyı İngilizceye çevirip kullan (True) ya da hiç alma (False)."""
+        return bool(self.cfg.get("yabanci_dil_cevir", True))
+
     def _izinli_diller(self) -> set[str]:
         return {str(d).lower() for d in (self.cfg.get("izin_verilen_diller") or [h["dil"] for h in self._hesaplar()])}
 
@@ -442,7 +446,8 @@ class Uygulama:
                     except Exception as e:  # noqa: BLE001
                         log.warning("kayıt yeniden başlatılamadı (%s): %r", iz.kanal.anahtar, e)
                 # yayın gerçekte başka dilde mi? (ör. dilini "İngilizce" seçmiş Arapça yayın) — chat'ten anla
-                if iz.oto and int(time.time()) % 60 == 0 and len(iz.chat_log) >= 40:
+                if (not self._yabanci_cevir() and iz.oto and int(time.time()) % 60 == 0
+                        and len(iz.chat_log) >= 40):
                     yd = yazi_dili([m for _, _, m in list(iz.chat_log)[-150:]])
                     if yd and yd not in self._izinli_diller():
                         log.info("%s aslında %s konuşulan bir yayın (chat'e göre), bırakılıyor", iz.kanal.anahtar, yd)
@@ -461,7 +466,7 @@ class Uygulama:
                         log.info("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
                                  butce, iz.kanal.anahtar)
                         continue
-                    if iz.oto:
+                    if iz.oto and not self._yabanci_cevir():
                         yd = yazi_dili([m for _, _, m in list(iz.chat_log)[-200:]])
                         if yd and yd not in self._izinli_diller():
                             log.info("%s chat'i %s, bırakılıyor", iz.kanal.anahtar, yd)
@@ -777,7 +782,10 @@ class Uygulama:
         elif cozum is not None and not segler:
             alt_not.append("yayıncının konuşması duyulmadı")
         # yayıncı aslında hesaplarının dilinde konuşmuyorsa (ör. Arapça) klip yapma
-        if (cozum and cozum.guven >= 0.75 and len(segler) >= 2 and cozum.dil not in self._izinli_diller()):
+        if cozum and cozum.asil_dil and cozum.asil_dil != cozum.dil:
+            alt_not.append(f"yayıncı {cozum.asil_dil} konuşuyor, İngilizceye çevrildi")
+        if (not self._yabanci_cevir() and cozum and cozum.guven >= 0.75 and len(segler) >= 2
+                and (cozum.asil_dil or cozum.dil) not in self._izinli_diller()):
             log.info("klip elendi: yayıncı %s konuşuyor (hesapların: %s) — %s", cozum.dil,
                      ",".join(sorted(self._izinli_diller())), kid)
             self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1

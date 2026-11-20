@@ -45,6 +45,10 @@ def mesaj_puani(text: str) -> tuple[float, str | None]:
         if (len(tok) >= 6 and sum(c in _EV_SIRASI for c in tok) / len(tok) >= 0.85
                 and len(set(tok) & set("jkdsfgh")) >= 2):
             return 1.5, "asdf"   # klavyeye rastgele basma = Türk chat'inde gülme
+    # başka dillerin gülmesi: Arapça "هههه", Rusça "ахаха", Portekizce "kkkk", İspanyolca "jajaja", Tay "555"
+    if ("ههه" in t or "خخخ" in t or "хаха" in t or "ахах" in t or "kkkk" in t or "jaja" in t
+            or "5555" in t or (t.startswith("www") and "." not in t) or "ㅋㅋㅋ" in t or "笑" in t or "草" in t):
+        return 1.5, "gülme"
     if "yok art" in t or "yok arti" in t:
         return 1.5, "yok artık"
     if "clip" in t or "klip" in t:
