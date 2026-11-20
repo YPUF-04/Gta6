@@ -40,6 +40,8 @@ Rules:
 - Never use: "wait for it", "sonuna kadar izle", "inanılmaz an", "çıldırdı", "epic", "insane", "follow",
   "takip et", "beğenmeyi unutma", "link in bio", em dashes.
 - Write like a native young speaker of the target language would type it on their phone (casual, natural slang).
+- If screenshots are attached, LOOK at them: they are frames from the clip around the moment chat exploded.
+  Just walking, driving normally, menus, loading screens, a calm cutscene or a calm streamer = boring (1-3).
 - puan: honest 1-10 for how funny/surprising the moment really is for a {oyun} audience. Be strict:
   most moments are 3-6. Give 7+ only if a stranger scrolling would stop and laugh/gasp.
   Give 1-3 if nothing really happens on screen or in what the streamer says (just driving/menus/talking
@@ -49,6 +51,19 @@ Rules:
   text-to-speech donation messages. In-game dialogue sounds scripted/acted; the streamer reacts,
   talks to chat, swears, laughs, comments on what happens.
 The examples above are from GTA 6; apply the same style to {oyun}."""
+
+def _icerik(metin: str, kareler: list[bytes] | None):
+    """Metin + (varsa) klipten birkaç kare: yapay zekâ anın gerçekten ilginç olup olmadığını görsün."""
+    if not kareler:
+        return metin
+    import base64
+    parca = [{"type": "text", "text": "Frames from the clip (in order, around the moment chat exploded):"}]
+    for k in kareler[:5]:
+        parca.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                   "data": base64.b64encode(k).decode()}})
+    parca.append({"type": "text", "text": metin})
+    return parca
+
 
 SEMA = {
     "type": "object",
@@ -94,15 +109,15 @@ class Yazar:
                 log.warning("anthropic yüklenemedi: %s", e)
 
     def yaz(self, dil: str, yayinci: str, platform: str, segmentler: list[tuple[float, float, str]],
-            kaynak_dil: str, chat: list[str], kelimeler: list[str]) -> dict:
+            kaynak_dil: str, chat: list[str], kelimeler: list[str], kareler: list[bytes] | None = None) -> dict:
         if self.client:
             try:
-                return self._claude(dil, yayinci, platform, segmentler, kaynak_dil, chat, kelimeler)
+                return self._claude(dil, yayinci, platform, segmentler, kaynak_dil, chat, kelimeler, kareler)
             except Exception as e:  # noqa: BLE001
                 log.warning("Claude başarısız, şablon kullanılıyor: %s", e)
         return self._sablon(dil, segmentler, kaynak_dil, yayinci)
 
-    def _claude(self, dil, yayinci, platform, segmentler, kaynak_dil, chat, kelimeler) -> dict:
+    def _claude(self, dil, yayinci, platform, segmentler, kaynak_dil, chat, kelimeler, kareler=None) -> dict:
         hedef = DIL_ADI.get(dil, dil)
         transkript = "\n".join(f"{i}. [{b:.1f}-{e:.1f}s] {t}" for i, (b, e, t) in enumerate(segmentler)) or "(no speech)"
         istek = (
@@ -125,7 +140,7 @@ class Yazar:
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": SEMA}},
             system=STIL_SABLON.format(oyun=OYUN.kisa, etiket=OYUN.etiket) + (f"\n\nFresh research on what is trending right now (use it as a style hint only):\n{self.trend}"
                            if self.trend else ""),
-            messages=[{"role": "user", "content": istek}],
+            messages=[{"role": "user", "content": _icerik(istek, kareler)}],
         )
         if r.stop_reason == "refusal":
             raise RuntimeError("model reddetti")

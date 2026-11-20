@@ -503,6 +503,23 @@ class Uygulama:
         kok = Path(tempfile.gettempdir()) / "klipci_tampon"
         return kok if "onedrive" not in str(kok).lower() else Path("C:/klipci_tampon")
 
+    @staticmethod
+    def _kareler(is_: "Is") -> list[bytes]:
+        """Patlama anının çevresinden 4 küçük kare (yapay zekâ neye bakıldığını görsün)."""
+        an = is_.an if is_.an is not None else is_.sure * 0.6
+        out = []
+        for d in (-9, -4, 0, 3):
+            t = max(0.0, min(is_.sure - 0.5, an + d))
+            try:
+                r = subprocess.run([arac("ffmpeg"), "-v", "error", "-ss", f"{is_.ofset + t:.2f}", "-i", str(is_.kaynak),
+                                    "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "5", "-f", "image2pipe",
+                                    "-c:v", "mjpeg", "-"], capture_output=True, timeout=30, creationflags=_PENCERESIZ)
+                if r.stdout:
+                    out.append(r.stdout)
+            except Exception:  # noqa: BLE001
+                pass
+        return out
+
     def _secicilik(self) -> int:
         """Patlamaların yüzde kaçı video olsun (en iyileri). 100 = hepsi."""
         d = self._durum_oku()
@@ -671,12 +688,13 @@ class Uygulama:
                     if ce.get("acik", True) else [])
         en_dusuk = float(self.cfg.get("en_dusuk_puan", 0))
 
+        kareler = await asyncio.to_thread(self._kareler, is_) if self.yazar.client else []
         for h in self._hedef_hesaplar(kaynak_dil or is_.kanal.dil):
             dil, ad = h.get("dil", "tr"), h.get("ad", "TR")
             hid = f"{kid}_{ad}"
             self._asama(is_.takip, f"✍️ yazılar hazırlanıyor ({ad})")
             veri = await asyncio.to_thread(self.yazar.yaz, dil, is_.kanal.gorunen, is_.kanal.platform, segler,
-                                           kaynak_dil, is_.spike.ornek_mesajlar, is_.spike.kelimeler)
+                                           kaynak_dil, is_.spike.ornek_mesajlar, is_.spike.kelimeler, kareler)
             # sadece YAYINCININ konuşması altyazı olur (oyundaki karakterler, ara sahneler, radyo değil)
             sec = veri.get("yayinci_konusmasi")
             secili = ({i for i in sec if isinstance(i, int) and 0 <= i < len(segler)}

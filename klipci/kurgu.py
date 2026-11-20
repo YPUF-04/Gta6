@@ -176,7 +176,10 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
         # konuşma yoksa başlık ilk 3 sn ortadaki çizgide görünsün
         satirlar.append(f"Dialogue: 5,0:00:00.00,0:00:03.00,Baslik,,0,0,0,,{{\\pos({ax},{ay})\\fad(120,200)}}"
                         f"{_ass_metin(baslik)}")
-    if kredi:
+    if kredi and duzen == "yuz":
+        satirlar.append(f"Dialogue: 1,0:00:00.00,{son},Kredi,,0,0,0,,{{\\an7\\pos(28,24)\\fs28\\alpha&H30&}}"
+                        f"{_ass_metin(kredi)}")
+    elif kredi:
         satirlar.append(f"Dialogue: 1,0:00:00.00,{son},Kredi,,0,0,0,,{_ass_metin(kredi)}")
     if imza and duzen == "yuz":
         # kullanıcı adın: üstteki küçük (yüz) ekranın alt ortasında, altyazının hemen üstünde
