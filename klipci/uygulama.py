@@ -624,31 +624,37 @@ class Uygulama:
         shutil.rmtree(self.klasor / "bekleyen" / kid, ignore_errors=True)
 
     YARDIM = (
-        "📋 Komutlar\n\n"
+        "📋 TÜM KOMUTLAR  (bu listeyi her zaman /info ile açabilirsin)\n\n"
+        "📊 DURUM\n"
         "/durum — neler izleniyor, kaç klip çıktı\n"
+        "/plan — bugünün paylaşım saatleri\n"
+        "/stok — hesaplarda kaç video hazır\n"
+        "/istatistik — neyi sevdiğini ne kadar öğrendim\n\n"
+        "🎮 YAYINCILAR\n"
+        "/yayinlar — şu an açık yayınlar, dokunarak seç ⭐ / ⛔\n"
         "/twitch kaicenat — Twitch yayıncısı ekle (birden çok: /twitch kaicenat xqc)\n"
         "/kick adinross — Kick yayıncısı ekle\n"
         "/youtube @IShowSpeed — YouTube kanalı ekle\n"
-        "   ya da direkt linki at: https://twitch.tv/kaicenat\n"
+        "   (ya da direkt yayının linkini at)\n"
         "/cikar twitch xqc — listeden çıkar\n"
         "/yasakla xqc — bu yayıncıyı asla klipleme\n"
         "/yasak_kaldir xqc — yasağı kaldır\n"
         "/liste — eklediklerin ve yasaklılar\n"
-        f"/yayinlar — şu an açık {OYUN.kisa} yayınları, dokunarak seç ⭐ / ⛔\n"
-        "/platform — Twitch / Kick / YouTube aç-kapat, otomatik bulma aç-kapat\n"
-        "/istatistik — neyi sevdiğini ne kadar öğrendim\n"
-        "/sinir 25 — aynı anda kaç yayın izlensin\n"
-        "/meme — şimdi meme videosu yap (her gün 10:00'da kendisi de yapar)\n"
+        "/platform — Twitch / Kick / YouTube aç-kapat\n"
+        "/sinir 25 — aynı anda kaç yayın izlensin\n\n"
+        "🎬 VİDEOLAR\n"
         "/gunluk 10 — her hesap için günde kaç paylaşım\n"
-        "/ad, /ustyazi — tweet tarzı videoların üstündeki sayfa adı ve başlık\n"
+        "/meme — şimdi meme videosu yap (her gün 10:00'da kendisi de yapar)\n"
+        "/isim @kullaniciadin — videoların altındaki isim\n"
+        "/ad Adın — tweet tarzı videolarda görünen ad\n"
+        "/ustyazi BAŞLIK — tweet tarzı videoların büyük başlığı\n"
         "📷 Profil fotoğrafı: bota fotoğraf at, açıklamasına /profil yaz\n"
-        "/guncelle — programın yeni sürümü varsa indirip kur (uzaktan)\n"
-        "/plan — bugünün paylaşım saatleri\n"
-        "/stok — hesaplarda kaç video hazır\n"
-        "/isim @hesapadin — videonun altındaki isim\n"
-        "/hesap — TR / EN hesaplarını aç-kapat\n"
+        "/hesap — TR / EN hesaplarını aç-kapat\n\n"
+        "⚙️ PROGRAM\n"
+        "/guncelle — yeni sürüm varsa indirip kur\n"
         "/duraklat — kliplemeyi durdur\n"
-        "/devam — tekrar başlat")
+        "/devam — tekrar başlat\n"
+        "/info — bu liste")
 
     async def _komut(self, metin: str) -> str:
         parca = metin.strip().split(maxsplit=1)
@@ -656,6 +662,8 @@ class Uygulama:
         arg = parca[1] if len(parca) > 1 else ""
         if not komut:   # komutsuz mesaj: içinde yayın linki varsa ekle
             return await self._ekle(metin) if kesif.kanal_coz(metin) and "." in metin else ""
+        if komut in ("/info", "/komutlar", "/yardim", "/yardım", "/help"):
+            return self.YARDIM
         if komut == "/durum":
             satir = []
             for k, iz in self.izleyiciler.items():

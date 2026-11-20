@@ -68,7 +68,7 @@ class Bot:
 
     async def komut_menusu(self) -> None:
         """Telegram'da / yazınca çıkan komut listesi."""
-        komutlar = [("durum", "Neler izleniyor, kaç klip çıktı"), ("yayinlar", "Şu an açık yayınlar — dokun, seç"),
+        komutlar = [("info", "📋 Tüm komutların listesi"), ("durum", "Neler izleniyor, kaç klip çıktı"), ("yayinlar", "Şu an açık yayınlar — dokun, seç"),
                     ("platform", "Twitch / Kick / YouTube aç-kapat"), ("istatistik", "Neyi sevdiğimi öğrendin?"),
                     ("sinir", "Aynı anda kaç yayın izlensin: /sinir 25"), ("meme", "Şimdi meme videosu yap"), ("gunluk", "Günde kaç paylaşım: /gunluk 10"),
                     ("ad", "Tweet tarzı: sayfa adı"), ("ustyazi", "Tweet tarzı: büyük başlık"), ("guncelle", "Programı güncelle (uzaktan)"), ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
@@ -78,7 +78,7 @@ class Bot:
                     ("youtube", "YouTube kanalı ekle: /youtube @IShowSpeed"),
                     ("cikar", "Yayıncıyı listeden çıkar"), ("yasakla", "Bu yayıncıyı asla klipleme"),
                     ("liste", "Eklediklerim ve yasaklılar"), ("duraklat", "Kliplemeyi durdur"),
-                    ("devam", "Tekrar başlat"), ("yardim", "Tüm komutlar")]
+                    ("devam", "Tekrar başlat")]
         await self._api("setMyCommands", data={"commands": json.dumps(
             [{"command": k, "description": a} for k, a in komutlar], ensure_ascii=False)})
 
@@ -120,7 +120,7 @@ class Bot:
                     self._kaydet(cid)
                 if cid == self.chat_id:
                     await self.mesaj("👋 Hazırım! Chat patlayan anları buraya yollayacağım.\n"
-                                     "Yardım için /yardim yaz.")
+                                     "Tüm komutlar için /info yaz.")
                 return
             if cid != self.chat_id:
                 return  # yabancılara cevap verme

@@ -180,3 +180,11 @@ def test_klip_suresi(tmp_path, monkeypatch):
     u.cfg["klip"] = {"hedef_sure_sn": 30}
     bas, bit = u._klip_araligi(s)
     assert abs((bit - bas) - 44) < 0.01   # varsayılan 22 + 10 + 12 zaten 30'dan uzun
+
+
+def test_info(tmp_path, monkeypatch):
+    u = _app(tmp_path, monkeypatch)
+    m = asyncio.run(u._komut("/info"))
+    for k in ("/durum", "/twitch", "/kick", "/youtube", "/guncelle", "/isim", "/gunluk", "/info"):
+        assert k in m
+    assert len(m) < 4000   # Telegram mesaj sınırı
