@@ -401,11 +401,35 @@ class Uygulama:
                 log.info("klip eşiği ayarlandı: normalin %.2f → %.2f katı (son 1 saatte %d patlama, hedef ~%d)",
                          eski, self.dinamik_kat, n, butce)
 
-    async def _kes(self, iz: Izleyici, s: Spike) -> None:
+    def _klip_araligi(self, s: Spike) -> tuple[float, float]:
+        """Klibin başı ve sonu: patlamadan önce olayın başlaması + sonrasında tepki. En az hedef_sure_sn."""
         kl = self.cfg.get("klip") or {}
         once, sonra = float(kl.get("once_sn", 22)), float(kl.get("sonra_sn", 12))
+        hedef = float(kl.get("hedef_sure_sn", 50))
         bas, bit = s.zaman - once, s.tetik + sonra
-        await asyncio.sleep(max(0.0, bit - time.time()) + PARCA_SN * 2 + 1)
+        eksik = hedef - (bit - bas)
+        if eksik > 0:   # kısa kaldıysa: biraz daha öncesi (olayın girişi) + biraz daha sonrası (tepkiler)
+            bas -= eksik * 0.4
+            bit += eksik * 0.6
+        return bas, bit
+
+    @staticmethod
+    def _chat_sicak_mi(iz: Izleyici) -> bool:
+        simdi = time.time()
+        try:
+            return iz.algila._pencere_puani(simdi) >= max(iz.algila.en_az * 0.6, iz.algila.taban(simdi) * 1.6)
+        except Exception:  # noqa: BLE001
+            return False
+
+    async def _kes(self, iz: Izleyici, s: Spike) -> None:
+        bas, bit = self._klip_araligi(s)
+        en_uzun = float((self.cfg.get("klip") or {}).get("en_uzun_sn", 60))
+        await asyncio.sleep(max(0.0, bit - time.time()))
+        # chat hâlâ coşuyorsa klibi uzat (5'er sn, en fazla en_uzun_sn)
+        while bit - bas + 5 <= en_uzun and self._chat_sicak_mi(iz):
+            bit += 5
+            await asyncio.sleep(max(0.0, bit - time.time()))
+        await asyncio.sleep(PARCA_SN * 2 + 1)
         kid = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + iz.kanal.ad
         hedef = self.klasor / "_is" / f"{kid}.ts"
         try:

@@ -8,26 +8,27 @@ from pathlib import Path
 from .kayit import _PENCERESIZ, arac
 
 W, H = 1080, 1920
-CHAT_Y, CHAT_ARALIK = 600, 66   # chat baloncukları oyun görüntüsünün sol üstüne düşer
+CHAT_Y, CHAT_ARALIK = 600, 52   # chat: oyun görüntüsünün sol alt köşesinde, küçük ve sade
 
 
-def chat_sec(mesajlar: list[tuple[float, str, str]], sure: float, satir: int = 3,
-             gorunme_sn: float = 2.2, en_sik_sn: float = 0.45) -> list[tuple[float, float, int, str, str]]:
+def chat_sec(mesajlar: list[tuple[float, str, str]], sure: float, satir: int = 2,
+             gorunme_sn: float = 2.0, en_sik_sn: float = 0.9) -> list[tuple[float, float, int, str, str]]:
     """Klip boyunca ekrana düşecek chat mesajlarını seç.
 
     mesajlar: (klibe göre saniye, kullanıcı, mesaj). Kısa ve tepki içeren mesajlar öncelikli,
     aynı anda en fazla `satir` mesaj görünür; yenisi gelince en eskisinin yerine geçer."""
     from .spike import mesaj_puani
+    satir = max(1, min(int(satir), 2))   # en fazla 2 satır: ekranı kaplamasın
     secilen, son_t, sira = [], -99.0, 0
     for t, kim, msg in sorted(mesajlar):
         msg = " ".join(msg.split())
-        if not (0 <= t < sure - 0.5) or not msg or "http" in msg or len(msg) > 40:
+        if not (0 <= t < sure - 0.5) or not msg or "http" in msg or len(msg) > 28:
             continue
         puan, _ = mesaj_puani(msg)
         if t - son_t < (en_sik_sn if puan > 1 else en_sik_sn * 3):
             continue
         son_t = t
-        secilen.append((t, min(t + gorunme_sn, sure), sira % satir, kim[:16], msg[:32]))
+        secilen.append((t, min(t + gorunme_sn, sure), sira % satir, kim[:12], msg[:24]))
         sira += 1
     # aynı satıra yeni mesaj gelince eskisi o an kaybolsun (üst üste binmesin)
     for i, (b, e, sl, k, m) in enumerate(secilen):
@@ -53,8 +54,8 @@ def _zaman(t: float) -> str:
 #  "tek"  : ortada oyun, arkası bulanık
 #  "tweet": beyaz zemin, üstte tweet gibi sayfa profili + büyük harfli başlık, ortada kare oyun videosu
 DUZEN = {
-    "yuz": {"kam_h": 680, "alt_pos": (540, 680), "chat_y": 1180, "kredi_mv": 70, "imza_mv": 30},
-    "tek": {"kam_h": 0, "baslik": (540, 300), "alt_pos": (540, 1400), "chat_y": 600, "kredi_mv": 230, "imza_mv": 170},
+    "yuz": {"kam_h": 680, "alt_pos": (540, 680), "chat_y": 1420, "kredi_mv": 70, "imza_mv": 30},
+    "tek": {"kam_h": 0, "baslik": (540, 300), "alt_pos": (540, 1400), "chat_y": 1236, "kredi_mv": 230, "imza_mv": 170},
     "tweet": {"video_y": 400, "video_h": 1080, "alt_pos": (540, 1390), "baslik": (540, 560)},
 }
 MOR = "&H00E43F7B&"   # söylenen kelimenin arkasındaki mor kutu (BGR)
@@ -98,7 +99,7 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
         # Altyazı: beyaz kalın + siyah kenar (söylenen kelime mor kutuda)
         f"Style: Alt,{alt_font},{alt_boy},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,5,40,40,0,1",
         f"Style: Baslik,Arial,{rnd.choice([54, 58, 62])},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,5,60,60,0,1",
-        "Style: Chat,Arial,38,&H00FFFFFF,&H00FFFFFF,&H50000000,&H50000000,-1,0,0,0,100,100,0,0,3,10,0,7,0,0,0,1",
+        "Style: Chat,Arial,31,&H00FFFFFF,&H00FFFFFF,&H78000000,&H78000000,-1,0,0,0,100,100,0,0,3,7,0,7,0,0,0,1",
         f"Style: Kredi,Arial,36,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,{d.get('kredi_mv', 60)},1",
         "Style: ImzaYuz,Arial,34,&H30FFFFFF,&H30FFFFFF,&H90000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,40,40,0,1",
         f"Style: Imza,Arial,32,&H80FFFFFF,&H80FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,40,40,{d.get('imza_mv', 30)},1",
@@ -225,7 +226,7 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
     cmd = [arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
            "-ss", f"{baslangic:.2f}", "-t", f"{sure:.2f}", "-i", str(Path(kaynak).resolve()),
            "-filter_complex", filtre, "-map", son, "-map", "0:a:0?",
-           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-maxrate", "10M", "-bufsize", "20M",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-maxrate", "5M", "-bufsize", "10M",
            "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
            "-af", "asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11", "-t", f"{sure:.2f}",
            "-movflags", "+faststart", str(Path(cikti).resolve())]
@@ -253,7 +254,7 @@ def tweet_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
     filtre += f";{son}format=yuv420p,ass={ass.name}[v]"
     cmd = [arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", *girdiler,
            "-filter_complex", filtre, "-map", "[v]", "-map", "0:a:0?",
-           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-maxrate", "10M", "-bufsize", "20M",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-maxrate", "5M", "-bufsize", "10M",
            "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
            "-af", "asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11", "-t", f"{sure:.2f}",
            "-movflags", "+faststart", str(Path(cikti).resolve())]

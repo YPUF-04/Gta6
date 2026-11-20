@@ -87,6 +87,8 @@ algilama:
 klip:
   once_sn: 22               # patlamadan kaç saniye önce başlasın (chat geç tepki verir)
   sonra_sn: 12              # patlamadan sonra kaç saniye devam etsin
+  hedef_sure_sn: 50         # klip en az bu kadar (sn); kısa kalırsa öncesi/sonrası eklenir
+  en_uzun_sn: 60            # chat coşmaya devam ederse klip bu kadara kadar uzar
   tampon_sn: 240            # bilgisayarda her yayının son kaç saniyesi tutulsun
   kalite: "1080p60,1080p,936p60,900p60,720p60,720p,best"   # yüksek kalite: yayıncının yüzü net çıksın
   zoom: 1.3                 # oyun görüntüsünü ortadan ne kadar yakınlaştır (1.0 = hiç)
