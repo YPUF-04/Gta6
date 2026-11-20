@@ -109,6 +109,13 @@ def paketleri_kur() -> None:
         print("  paketler kontrol ediliyor...", flush=True)
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--disable-pip-version-check",
                         "-r", str(gerek)], check=False)
+    # altyazı paketi (konuşmayı yazıya çevirir) eksikse kur
+    alt = KOK / "requirements-altyazi.txt"
+    if alt.exists() and subprocess.run([sys.executable, "-c", "import faster_whisper"],
+                                       capture_output=True).returncode != 0:
+        print("  altyazı paketi kuruluyor (birkaç dakika sürebilir)...", flush=True)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--disable-pip-version-check",
+                        "-r", str(alt)], check=False)
 
 
 def main() -> None:

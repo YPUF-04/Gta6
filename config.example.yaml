@@ -105,7 +105,7 @@ chat_ekrani:
 # ---------- ALTYAZI ----------
 altyazi:
   acik: true
-  whisper_model: "small"    # tiny / base / small / medium  (büyüdükçe daha iyi ama yavaş)
+  whisper_model: "auto"     # auto = ekran kartı varsa büyük model (çok doğru), yoksa small
   cihaz: "auto"             # auto / cpu / cuda (NVIDIA ekran kartın varsa cuda çok hızlı)
 
 # ---------- HESAPLAR ----------

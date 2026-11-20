@@ -72,3 +72,11 @@ def test_isim_yoksa_ekranda_isim_yok(tmp_path):
     assert ",TAd," not in m and ",TAvatar," not in m and ",TKul," not in m and "BAŞLIK" in m
     ass_yaz(tmp_path / "b.ass", 10, "", "🎥 x", "", [], [], "yuz")
     assert "ImzaYuz" not in (tmp_path / "b.ass").read_text(encoding="utf-8").split("[Events]")[1]
+
+
+def test_uydurma_altyazi_elenir():
+    from klipci.altyazi import gercek_konusma_mi
+    assert gercek_konusma_mi("bro what is he doing", 0.1, -0.3)
+    assert not gercek_konusma_mi(" Thank you for watching!", 0.1, -0.3)
+    assert not gercek_konusma_mi("Altyazı M.K.", 0.2, -0.5)
+    assert not gercek_konusma_mi("you", 0.9, -1.2)

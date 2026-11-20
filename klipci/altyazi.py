@@ -80,6 +80,17 @@ class Yaziya:
                 cihaz = "cpu"
         log.info("altyazı modeli yükleniyor (%s, %s) — ilk sefer ~500 MB indirir", self.model_adi, cihaz)
         if cihaz == "cuda":
+            # ekran kartı varsa daha iyi model: Türkçeyi çok daha doğru yazar, yine de hızlı
+            if self.model_adi in ("auto", "small", "base", "tiny"):
+                eski, self.model_adi = self.model_adi, "large-v3-turbo"
+                try:
+                    self._model = self._dene("cuda")
+                    self.durum = "hazır (ekran kartı, büyük model)"
+                    log.info("altyazı modeli hazır (ekran kartı, large-v3-turbo)")
+                    return self._model
+                except Exception as e:  # noqa: BLE001
+                    log.warning("büyük model olmadı (%r), %s deneniyor", e, eski)
+                    self.model_adi = "small" if eski == "auto" else eski
             try:
                 self._model = self._dene("cuda")
                 self.durum = "hazır (ekran kartı)"
@@ -87,6 +98,8 @@ class Yaziya:
                 return self._model
             except Exception as e:  # noqa: BLE001
                 log.warning("ekran kartıyla olmadı (%r), işlemciyle devam", e)
+        if self.model_adi == "auto":
+            self.model_adi = "small"
         self._model = self._dene("cpu")
         self.durum = "hazır (işlemci)"
         log.info("altyazı modeli hazır (işlemci ile)")
@@ -102,19 +115,41 @@ class Yaziya:
             log.warning("altyazı modeli şimdilik hazırlanamadı (%r) — sonra tekrar denenecek", e)
             return False
 
-    def coz(self, wav: Path) -> Cozum | None:
+    def coz(self, wav: Path, dil: str = "") -> Cozum | None:
+        """dil: yayının dili biliniyorsa ("tr"/"en") verilir — oyun sesi varken dili tahmin etmek zor."""
         try:
             m = self._yukle()
         except Exception as e:  # noqa: BLE001
             log.warning("altyazı modeli kullanılamıyor: %r", e)
             return None
-        segs, info = m.transcribe(str(wav), word_timestamps=True, vad_filter=True)
+        segs, info = m.transcribe(
+            str(wav), word_timestamps=True, language=dil if dil in ("tr", "en") else None,
+            beam_size=5, condition_on_previous_text=False,
+            vad_filter=True, vad_parameters={"threshold": 0.35, "min_silence_duration_ms": 400})
         segler, kelimeler = [], []
         for s in segs:
+            if not gercek_konusma_mi(s.text, getattr(s, "no_speech_prob", 0.0), getattr(s, "avg_logprob", 0.0)):
+                continue
             segler.append((s.start, s.end, s.text.strip()))
             for w in (s.words or []):
                 kelimeler.append(Kelime(w.start, w.end, w.word.strip()))
         return Cozum(info.language, segler, kelimeler)
+
+
+# Whisper müzik/oyun sesinde bazen olmayan cümleler uydurur; bunlar altyazıya girmesin
+_UYDURMA = ("thank you for watching", "thanks for watching", "subscribe", "altyazı m.k", "altyazı:",
+            "izlediğiniz için teşekkür", "abone ol", "www.", ".com", "♪")
+
+
+def gercek_konusma_mi(metin: str, sessizlik: float, guven: float) -> bool:
+    t = (metin or "").strip().lower()
+    if not t:
+        return False
+    if any(u in t for u in _UYDURMA):
+        return False
+    if sessizlik > 0.6 and guven < -0.8:   # büyük ihtimalle konuşma yok, sadece ses
+        return False
+    return True
 
 
 def tr_buyuk(s: str) -> str:

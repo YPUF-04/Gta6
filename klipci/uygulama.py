@@ -616,7 +616,7 @@ class Uygulama:
             wav = is_.kaynak.with_suffix(".wav")
             try:
                 await asyncio.to_thread(ses_cikar, is_.kaynak, is_.ofset, is_.sure, wav)
-                return await asyncio.wait_for(asyncio.to_thread(self.yaziya.coz, wav), 300)
+                return await asyncio.wait_for(asyncio.to_thread(self.yaziya.coz, wav, is_.kanal.dil), 300)
             except Exception as e:  # noqa: BLE001
                 log.warning("altyazı çıkarılamadı (klip altyazısız yapılacak): %r", e)
                 return None
@@ -656,7 +656,8 @@ class Uygulama:
                                            kaynak_dil, is_.spike.ornek_mesajlar, is_.spike.kelimeler)
             if veri.get("altyazi") and len(veri["altyazi"]) == len(segler) and kaynak_dil != dil:
                 alt = segment_parcala([(b, e, t) for (b, e, _), t in zip(segler, veri["altyazi"])])
-            elif cozum and kaynak_dil == dil:
+            elif cozum and (kaynak_dil == dil or not veri.get("altyazi")):
+                # aynı dil ya da çeviri yok: konuşma kendi dilinde, kelime kelime yazılır
                 alt = kelime_parcala(cozum.kelimeler)
             else:
                 alt = segment_parcala([(b, e, t) for (b, e, _), t in zip(segler, veri.get("altyazi", []))])
@@ -1353,7 +1354,16 @@ class Uygulama:
     async def _hazirlik(self) -> None:
         """Arka planda: yüz modeli + altyazı modeli hazırla (ilk klip beklemesin). İnternet yoksa tekrar dener."""
         await asyncio.to_thread(yuz.model_indir)
+        uyardi = False
         while self.yaziya and not await asyncio.to_thread(self.yaziya.onyukle):
+            if not uyardi:
+                uyardi = True
+                ek = ("\nAltyazı paketi kurulu değil: programı kapatıp GUNCELLE.bat'a çift tıkla."
+                      if "faster_whisper" in self.yaziya.durum else "")
+                try:
+                    await self.bot.mesaj("⚠️ Konuşma altyazısı şu an hazır değil, videolar altyazısız çıkabilir." + ek)
+                except Exception:  # noqa: BLE001
+                    pass
             await asyncio.sleep(300)
 
     # ---------- çalıştır ----------
