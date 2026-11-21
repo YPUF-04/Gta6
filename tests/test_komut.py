@@ -238,12 +238,24 @@ def test_kalite_suzgeci(tmp_path, monkeypatch):
     u = _app(tmp_path, monkeypatch)
     run = lambda m: asyncio.run(u._komut(m))
     assert "yapay zekâ" in u._kalite_eler(9.0, 2)
-    for p in range(1, 11):          # ilk kliplerde süzgeç yok
-        assert u._kalite_eler(float(p), None) == ""
-    assert u._kalite_eler(2.0, None) != ""      # zayıf yarı elenir
-    assert u._kalite_eler(9.5, 8) == ""
-    assert "100" in run("/kalite 100") and u._kalite_eler(1.0, None) == ""
-    assert "%" in run("/kalite")
+    assert u._kalite_eler(6.5, None) != "" and u._kalite_eler(7.4, None) == ""   # varsayılan en az 7
+    assert "8" in run("/kalite 8") and u._kalite_eler(7.4, None) != ""
+    assert "1 ile 10" in run("/kalite 50")
+    assert "8" in run("/kalite")
+
+
+def test_kalite_puani():
+    from klipci import kesif
+    from klipci.spike import Spike
+    from klipci.uygulama import Is, Uygulama
+    komik = [(20 + i * 0.3, "u", "KEKW" if i % 4 else "clip it") for i in range(40)]
+    s = Spike(0, 0, 80, 10)
+    iyi = Is(kesif.Kanal("twitch", "x"), s, None, 0, 30, komik, True, 20.0, "x")
+    p, neden = Uygulama.kalite_puani(iyi, 12.0, 2.8, False, 0.0, True)
+    assert p >= 7.5 and "gülüyor" in neden
+    sakin = Is(kesif.Kanal("twitch", "x"), s, None, 0, 30, [(20 + i, "u", "selam") for i in range(20)], True,
+               20.0, "x")
+    assert Uygulama.kalite_puani(sakin, 3.0, 1.0, False, 0.0, True)[0] < 4
 
 
 def test_durum_kanal_listesi(tmp_path, monkeypatch):

@@ -255,3 +255,13 @@ def test_yabanci_gulme():
     for m in ("هههههههه", "kkkkkkk", "jajajaja", "ахахах", "wwwww"):
         assert mesaj_puani(m)[0] > 1, m
     assert mesaj_puani("www.site.com")[0] == 1.0
+
+
+def test_herkes_ayni_seyi_yaziyor():
+    from klipci.spike import tekrar_bul
+    d = SpikeDetector(isinma_sn=60)
+    _besle(d, 0, 300, 2, "selam")
+    _besle(d, 300, 312, 4, "ARABAYI ÇAL")      # 2 kat hız (eşik 3 kat) ama herkes aynı şeyi yazıyor
+    s = next((x for x in (d.kontrol(t) for t in range(300, 313)) if x), None)
+    assert s is not None and s.neden == "tekrar" and "araba" in s.tekrar
+    assert tekrar_bul(["KEKWWWW", "kekw", "Kekw kekw", "lol"])[1] == 0.75

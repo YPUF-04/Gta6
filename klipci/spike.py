@@ -73,6 +73,22 @@ _SIK_KELIME = {
 }
 
 
+def _sade(m: str) -> str:
+    """'KEKWWWW', 'kekw kekw' ve 'Kekw' aynı sayılsın."""
+    t = re.sub(r"(.)\1+", r"\1", m.lower().strip())
+    kel = t.split()
+    return " ".join(dict.fromkeys(kel))[:40] if kel else ""
+
+
+def tekrar_bul(mesajlar: list[str]) -> tuple[str, float]:
+    """Chat'te herkes aynı şeyi mi yazıyor? (en çok tekrar eden mesaj, oranı)"""
+    sade = [x for x in (_sade(m) for m in mesajlar) if x]
+    if not sade:
+        return "", 0.0
+    m, n = Counter(sade).most_common(1)[0]
+    return m, n / len(sade)
+
+
 def yazi_dili(mesajlar: list[str], oran: float = 0.35) -> str:
     """Chat mesajlarının önemli kısmı Latin olmayan bir alfabeyle mi yazılmış? (Arapça, Rusça...) Değilse ""."""
     if not mesajlar:
@@ -109,6 +125,9 @@ class Spike:
     taban: float          # normal pencere puanı
     kelimeler: list[str] = field(default_factory=list)
     ornek_mesajlar: list[str] = field(default_factory=list)
+    neden: str = "chat"        # chat (hızlandı) / tekrar (herkes aynı şeyi yazıyor) / ses (yayıncı bağırdı)
+    tekrar: str = ""           # en çok tekrarlanan mesaj
+    tekrar_oran: float = 0.0
 
     @property
     def kat(self) -> float:
@@ -175,13 +194,20 @@ class SpikeDetector:
         puan = self._pencere_puani(simdi)
         taban = self.taban(simdi)
         esik = max(self.en_az, taban * self.kat)
-        if puan < esik:
-            return None
-        self._son_spike = simdi
         baslangic = simdi - self.pencere
         pencere_msg = [(t, m, k) for t, m, k in self._mesajlar if t > baslangic]
+        tekrar, tekrar_oran = tekrar_bul([m for _, m, _ in pencere_msg])
+        neden = "chat"
+        if puan < esik:
+            # chat çok hızlanmasa da: herkes aynı şeyi yazıyorsa (yayıncı "ne yapalım chat?" dedi, chat cevaplıyor;
+            # ya da aynı tepkiyi yağdırıyor) bu da bir an
+            if not (len(pencere_msg) >= max(12, self.en_az * 0.5) and tekrar_oran >= 0.4
+                    and puan >= max(self.en_az * 0.5, taban * 1.5)):
+                return None
+            neden = "tekrar"
+        self._son_spike = simdi
         sayac = Counter(k for _, _, k in pencere_msg if k)
         ornek = [m for _, m, _ in pencere_msg][-25:]
         return Spike(zaman=baslangic, tetik=simdi, puan=puan, taban=taban,
                      kelimeler=[k for k, _ in sayac.most_common(5)],
-                     ornek_mesajlar=ornek)
+                     ornek_mesajlar=ornek, neden=neden, tekrar=tekrar, tekrar_oran=tekrar_oran)

@@ -73,3 +73,37 @@ def test_paylasim_durumu_komutu(tmp_path, monkeypatch):
     u = _app(tmp_path, monkeypatch)
     m = asyncio.run(u._komut("/paylasim"))
     assert "[TR]" in m and "bağlı değil" in m and "TikTok" in m
+
+
+def test_youtube_cihaz_kodu(tmp_path):
+    istemci = tmp_path / "c.json"
+    istemci.write_text(json.dumps({"installed": {"client_id": "cid", "client_secret": "sec"}}))
+    cevaplar = iter([{"error": "authorization_pending"}, {"refresh_token": "R1", "access_token": "A"}])
+
+    def isle(req):
+        if req.url.path == "/device/code":
+            return httpx.Response(200, json={"device_code": "D", "user_code": "ABCD-EFGH",
+                                             "verification_url": "https://www.google.com/device", "interval": 1,
+                                             "expires_in": 60})
+        return httpx.Response(200, json=next(cevaplar))
+    h = httpx.Client(transport=httpx.MockTransport(isle))
+    c = paylas.youtube_cihaz_baslat(istemci, h)
+    assert c["user_code"] == "ABCD-EFGH"
+    jeton = tmp_path / "TR.json"
+    assert paylas.youtube_cihaz_bekle(istemci, c, jeton, h, uyku=lambda s: None) == "bağlandı"
+    assert json.loads(jeton.read_text())["refresh_token"] == "R1"
+
+
+def test_bagla_komutlari(tmp_path, monkeypatch):
+    import asyncio
+    from tests.test_komut import _app
+    u = _app(tmp_path, monkeypatch)
+    run = lambda m: asyncio.run(u._komut(m))
+    assert "INSTAGRAM" in run("/bagla")
+    monkeypatch.setattr(paylas.Instagram, "hesap", lambda self: {"id": "1", "kullanici": "gta6tr"})
+    assert "@gta6tr" in run("/bagla instagram TR IGTOKEN123")
+    assert next(h for h in u._hesaplar() if h["ad"] == "TR")["instagram_token"] == "IGTOKEN123"
+    assert "JSON" in run("/bagla youtube TR")
+    js = json.dumps({"installed": {"client_id": "c", "client_secret": "s"}}).encode()
+    assert "kaydedildi" in asyncio.run(u._belge(js, "client_secret.json", ""))
+    assert "tanımadım" in asyncio.run(u._belge(b"\xff", "x.bin", ""))

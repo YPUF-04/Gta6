@@ -143,9 +143,10 @@ yakinlasma: true            # chat'in patladığı an ani yakınlaşma (editörl
 ilerleme_cubugu: false      # altta sarı ilerleme çubuğu
 
 # ---------- PUAN / PAYLAŞIM PLANI ----------
-kalite_yuzde: 50            # chat patlamalarının sadece en iyi %50'si video olur (Telegram: /kalite 30)
+hedef_puan: 7               # sadece 0-10 arası bu puan ve üstü anlar video olur (Telegram: /kalite 8)
+ses_tetik: true             # chat'e bakmadan da: yayıncı aniden bağırırsa an incelenir
 en_dusuk_puan: 0            # bunun altındaki klipler Telegram'a gelmez (0 = hepsi gelir)
-gunluk_paylasim: 10         # her hesap için günde kaç video (2 hesap = 20). Telegram: /gunluk 12
+gunluk_paylasim: 25         # her hesap için günde kaç video (TR 25 + EN 25). Telegram: /gunluk 25
 hedef_stok: 20              # her hesapta hazır bekleyen video hedefi
 gunluk_meme: 2              # her hesap için günde kaç meme videosu (her gün 10:00'da hazırlanır)
 stok_rapor_saati: "21:30"   # her akşam bu saatte yarının stok durumu gelir

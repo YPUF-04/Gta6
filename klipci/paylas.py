@@ -207,3 +207,45 @@ class YouTube:
         j = _json(self.http.put(adres, content=veri, headers={"Authorization": f"Bearer {erisim}",
                                                               "Content-Type": "video/mp4"}))
         return f"https://youtube.com/shorts/{j['id']}"
+
+
+# ---- Telegram'dan bağlama: Google "cihaz kodu" yöntemi (telefonda google.com/device'a kodu yazarsın) ----
+YT_CIHAZ = "https://oauth2.googleapis.com/device/code"
+YT_CIHAZ_KAPSAM = "https://www.googleapis.com/auth/youtube"   # cihaz yönteminde izinli YouTube izni
+
+
+def youtube_cihaz_baslat(istemci_json: Path, http: httpx.Client | None = None) -> dict:
+    cid, _ = _istemci(istemci_json)
+    h = http or httpx.Client(timeout=30)
+    r = h.post(YT_CIHAZ, data={"client_id": cid, "scope": YT_CIHAZ_KAPSAM})
+    if r.status_code >= 400:
+        hata = r.json().get("error", "") if r.headers.get("content-type", "").startswith("application/json") else ""
+        if hata in ("invalid_client", "unauthorized_client"):
+            raise PaylasimHatasi("Bu Google anahtar dosyası 'TV ve Sınırlı Giriş Cihazları' türünde değil. "
+                                 "Google Cloud'da o türde yeni bir OAuth istemcisi oluşturup JSON'unu gönder.")
+        _json(r)
+    return r.json()
+
+
+def youtube_cihaz_bekle(istemci_json: Path, cihaz: dict, jeton_yolu: Path, http: httpx.Client | None = None,
+                        uyku=time.sleep) -> str:
+    """Kullanıcı telefonda kodu girip izin verene kadar bekler (en fazla kodun süresi kadar)."""
+    cid, sec = _istemci(istemci_json)
+    h = http or httpx.Client(timeout=30)
+    aralik = int(cihaz.get("interval", 5))
+    bitis = time.time() + int(cihaz.get("expires_in", 1800))
+    while time.time() < bitis:
+        uyku(aralik)
+        r = h.post(YT_JETON, data={"client_id": cid, "client_secret": sec, "device_code": cihaz["device_code"],
+                                   "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
+        j = r.json()
+        if j.get("refresh_token"):
+            jeton_yolu.parent.mkdir(parents=True, exist_ok=True)
+            jeton_yolu.write_text(json.dumps({"refresh_token": j["refresh_token"]}), encoding="utf-8")
+            return "bağlandı"
+        hata = j.get("error")
+        if hata == "slow_down":
+            aralik += 5
+        elif hata not in ("authorization_pending", None):
+            raise PaylasimHatasi(f"izin verilmedi: {hata}")
+    raise PaylasimHatasi("kod süresi doldu, /bagla youtube ile tekrar dene")

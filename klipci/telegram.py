@@ -29,6 +29,7 @@ class Bot:
         # buton: data -> (kısa cevap, yeni mesaj metni | None, yeni butonlar | None)
         self.on_buton: Callable[[str], Awaitable[tuple]] | None = None
         self.on_foto: Callable[[bytes], Awaitable[str]] | None = None
+        self.on_belge: Callable[[bytes, str, str], Awaitable[str]] | None = None   # (içerik, dosya adı, açıklama)
         self._arka_gorevler: set = set()
 
     async def _api(self, metod: str, **kw) -> dict:
@@ -71,7 +72,7 @@ class Bot:
         """Telegram'da / yazınca çıkan komut listesi."""
         komutlar = [("info", "📋 Tüm komutların listesi"), ("durum", "Neler izleniyor, kaç klip çıktı"), ("sira", "Hazırlanan klipler, hangi aşamada"), ("kayit", "Her yayının kayıt durumu"), ("yayinlar", "Şu an açık yayınlar — dokun, seç"),
                     ("platform", "Twitch / Kick / YouTube aç-kapat"), ("istatistik", "Neyi sevdiğimi öğrendin?"),
-                    ("sinir", "Aynı anda kaç yayın izlensin: /sinir 12"), ("kalite", "Patlamaların en iyi yüzde kaçı video olsun"), ("bildirim", "Bilgi mesajları aç/kapat (varsayılan kapalı)"), ("paylasim", "Otomatik paylaşım bağlı mı?"), ("meme", "Şimdi meme videosu yap"), ("gunluk", "Günde kaç paylaşım: /gunluk 10"),
+                    ("sinir", "Aynı anda kaç yayın izlensin: /sinir 12"), ("kalite", "Video için en düşük puan: /kalite 7"), ("bildirim", "Bilgi mesajları aç/kapat (varsayılan kapalı)"), ("paylasim", "Otomatik paylaşım bağlı mı?"), ("bagla", "Instagram / YouTube hesabı bağla"), ("meme", "Şimdi meme videosu yap"), ("gunluk", "Günde kaç paylaşım: /gunluk 10"),
                     ("ad", "Tweet tarzı: sayfa adı"), ("ustyazi", "Tweet tarzı: büyük başlık"), ("guncelle", "Programı güncelle (uzaktan)"), ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
                     ("isim", "Videonun altındaki kullanıcı adı: /isim @hesap"),
                     ("hesap", "TR / EN hesaplarını aç-kapat"),
@@ -115,6 +116,15 @@ class Bot:
                 else:
                     await self.mesaj("Profil fotoğrafı yapmak için fotoğrafın açıklamasına /profil yaz.")
                 return
+            if m.get("document") and cid == self.chat_id and self.on_belge:
+                try:
+                    dosya = await self._api("getFile", data={"file_id": m["document"]["file_id"]})
+                    r = await self.http.get(f"https://api.telegram.org/file/bot{self.token}/{dosya['file_path']}")
+                    r.raise_for_status()
+                    await self.mesaj(await self.on_belge(r.content, m["document"].get("file_name", ""), metin))
+                except Exception as e:  # noqa: BLE001
+                    await self.mesaj(f"Dosya işlenemedi: {e}"[:300])
+                return
             if metin.startswith("/start"):
                 if not self.chat_id:
                     self.chat_id = cid
@@ -132,6 +142,11 @@ class Bot:
                     cevap = f"Hata: {e}"
                 if cevap:
                     await self.mesaj(cevap)
+                if metin.lower().startswith(("/bagla instagram", "/bağla instagram")):
+                    try:   # anahtar sohbette durmasın
+                        await self._api("deleteMessage", data={"chat_id": self.chat_id, "message_id": m["message_id"]})
+                    except Exception:  # noqa: BLE001
+                        pass
         elif "callback_query" in u:
             q = u["callback_query"]
             if str(q["message"]["chat"]["id"]) != self.chat_id:

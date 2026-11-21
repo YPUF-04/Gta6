@@ -30,6 +30,7 @@ from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, tweet_video, video
 from .spike import Spike, SpikeDetector, mesaj_puani, yazi_dili
 from .ceviri import cevir as ceviri_yap
 from .yazar import pov_yazisi
+from .oyunsesi import bagirma_mi, parca_sesi
 from .oyunsesi import hareketsiz_oran, oyun_altyazi_anlari, oyun_konusmasi_mi, yuz_tepkisi
 from .telegram import Bot
 from .yazar import Yazar, paylasim_metni, platform_metinleri, trend_arastir
@@ -63,6 +64,8 @@ class Izleyici:
     son_yenileme: float = 0.0
     chat_log: deque = field(default_factory=lambda: deque(maxlen=20000))
     bos_baslama: int = 0   # üst üste kaç kez kayıt başladı ama hiç görüntü gelmedi
+    ses_gecmis: deque = field(default_factory=lambda: deque(maxlen=600))   # son ~5 dk ses şiddeti (yarım sn)
+    son_ses_parca: str = ""
 
 
 def _ad_anahtar(k: kesif.Kanal) -> str:
@@ -82,6 +85,8 @@ class Uygulama:
         self.bot.on_onay, self.bot.on_sil, self.bot.on_komut = self._onay, self._sil, self._komut
         self.bot.on_buton = self._buton
         self.bot.on_foto = self._profil_kaydet
+        self.bot.on_belge = self._belge
+        self._arka: set = set()
         self.yazar = Yazar(cfg.get("anthropic_api_key", ""), cfg.get("claude_model", "claude-opus-5-5"))
         a = cfg.get("altyazi") or {}
         self.yaziya = Yaziya(a.get("whisper_model", "small"), a.get("cihaz", "auto")) if a.get("acik", True) else None
@@ -166,7 +171,9 @@ class Uygulama:
             ad = str(h.get("ad", "")).upper()
             if ad and ad not in tanim:
                 tanim[ad] = {"ad": ad, "dil": h.get("dil", "tr" if ad == "TR" else "en"), "imza": h.get("imza", ""),
-                             "instagram_token": str(h.get("instagram_token") or "").strip(),
+                             # Telegram'dan /bagla ile girilen anahtar önce gelir
+                             "instagram_token": str((self._durum_oku().get("ig_token") or {}).get(ad, ""))
+                             or str(h.get("instagram_token") or "").strip(),
                              "youtube": bool(h.get("youtube", True))}
         d = self._durum_oku()
         kapali = set(d.get("hesap_kapali") or [])
@@ -477,6 +484,9 @@ class Uygulama:
                         return
                 iz.algila.kat = self.dinamik_kat
                 s = iz.algila.kontrol(time.time())
+                # chat'e bakmadan da: yayıncı aniden bağırdıysa/çığlık attıysa (en yeni bitmiş kayıt parçasına bak)
+                if not s and self.cfg.get("ses_tetik", True) and int(time.time()) % 4 == 0:
+                    s = await self._ses_patlamasi(iz)
                 if s:
                     self._spike_gecmisi.append(time.time())
                     butce = self._saatlik_butce()
@@ -500,7 +510,10 @@ class Uygulama:
                     tepki_o = sum(1 for m in son if mesaj_puani(m)[0] > 1
                                   and mesaj_puani(m)[1] not in ("w", "gg", "?", "??", "???")) / max(1, len(son))
                     klip_n = sum(1 for m in son if mesaj_puani(m)[1] == "clip")
-                    if tepki_o < 0.15 and klip_n < 2:
+                    if s.neden == "tekrar" and (s.tekrar in ("w", "gg", "f", "1", "2", "l") or s.tekrar.startswith("!")):
+                        self.sayac["zayif"] = self.sayac.get("zayif", 0) + 1
+                        continue   # herkes "W" / bot komutu yazıyor: an değil
+                    if s.neden == "chat" and tepki_o < 0.15 and klip_n < 2:
                         # chat hızlandı ama gülen/şaşıran yok (abone yağmuru, spam, oylama): klip yapma
                         self.sayac["zayif"] = self.sayac.get("zayif", 0) + 1
                         log.info("chat hızlandı ama tepki yok (%s, gülme %%%d), atlandı", iz.kanal.anahtar, int(tepki_o * 100))
@@ -519,6 +532,30 @@ class Uygulama:
                 raise
             except Exception:  # noqa: BLE001  — bir yayının kontrolü sessizce ölmesin
                 log.exception("%s kontrolünde hata (devam ediliyor)", iz.kanal.anahtar)
+
+    async def _ses_patlamasi(self, iz: Izleyici) -> Spike | None:
+        try:
+            parcalar = iz.kayit.parcalar()
+        except Exception:  # noqa: BLE001
+            return None
+        if len(parcalar) < 2:
+            return None
+        parca, zaman = parcalar[-2]   # sonuncusu hâlâ yazılıyor
+        if str(parca) == iz.son_ses_parca:
+            return None
+        iz.son_ses_parca = str(parca)
+        yeni = await asyncio.to_thread(parca_sesi, parca)
+        bagirdi = bagirma_mi(list(iz.ses_gecmis), yeni)
+        iz.ses_gecmis.extend(yeni)
+        simdi = time.time()
+        if not bagirdi or simdi - iz.algila._son_spike < iz.algila.bekleme:
+            return None
+        iz.algila._son_spike = simdi
+        log.info("🔊 %s: yayıncı/oyun aniden çok yükseldi, an inceleniyor", iz.kanal.anahtar)
+        # ses görüntüyle aynı saatte; chat saatine çevir ki gecikme hesabı doğru çalışsın
+        g = self._gecikme(iz.kanal)
+        return Spike(zaman=zaman - g, tetik=simdi - g, puan=0, taban=1, kelimeler=["ses"], neden="ses",
+                     ornek_mesajlar=[m for _, _, m in list(iz.chat_log)[-25:]])
 
     def _saatlik_butce(self) -> int:
         # yayınlar günde ~12 saat yoğun: günlük hedefi saatlere böl
@@ -594,10 +631,52 @@ class Uygulama:
                 pass
         return out
 
-    def _secicilik(self) -> int:
-        """Patlamaların yüzde kaçı video olsun (en iyileri). 100 = hepsi."""
-        d = self._durum_oku()
-        return int(d.get("kalite", self.cfg.get("kalite_yuzde", 50)))
+    def _hedef_puan(self) -> float:
+        """Video olması için gereken en düşük kalite puanı (0-10). Varsayılan 7."""
+        v = self._durum_oku().get("kalite", self.cfg.get("hedef_puan", 7))
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            v = 7.0
+        return v if 1 <= v <= 10 else 7.0   # eski /kalite 50 (yüzde) ayarı → 7
+
+    def _secicilik(self) -> float:   # eski ad (durum ekranı için)
+        return self._hedef_puan()
+
+    @staticmethod
+    def kalite_puani(is_: "Is", ses_tepki: float, yuz_t: float, oyun_ani: bool, duran: float,
+                     konustu: bool) -> tuple[float, str]:
+        """Ücretsiz kalite puanı 0-10 ve kısa açıklama. Net komik/şok anlar ~7-9 alır."""
+        from .spike import mesaj_puani
+        yakin = [m for t, _, m in is_.chat if is_.an - 3 <= t <= is_.an + 12]
+        sade = {"w", "gg", "?", "??", "???", "help"}
+        gulme = sum(1 for m in yakin if mesaj_puani(m)[0] > 1 and mesaj_puani(m)[1] not in sade) / max(1, len(yakin))
+        klip = sum(1 for m in yakin if mesaj_puani(m)[1] == "clip")
+        p, neden = 0.0, []
+        p += 3.5 * min(1.0, gulme / 0.7)
+        if gulme >= 0.3:
+            neden.append(f"chat %{int(gulme * 100)} gülüyor")
+        p += 1.0 * min(1.0, klip / 4)
+        if klip:
+            neden.append(f"{klip} kişi 'clip' dedi")
+        if is_.spike.neden == "tekrar":
+            p += 1.5 * min(1.0, is_.spike.tekrar_oran / 0.6)
+            neden.append(f"chat hep '{is_.spike.tekrar[:20]}' yazıyor")
+        p += 2.0 * min(1.0, max(0.0, ses_tepki - 3) / 10)
+        if ses_tepki >= 8:
+            neden.append("yayıncı bağırdı")
+        p += 1.5 * min(1.0, max(0.0, yuz_t - 1) / 2)
+        if yuz_t >= 2:
+            neden.append("kamerada coştu")
+        if oyun_ani:
+            p += 1.5
+            neden.append("oyun karakteri anı")
+        if is_.spike.neden == "chat":
+            p += 1.0 * min(1.0, max(0.0, is_.spike.kat - 2) / 8)
+        if konustu:
+            p += 0.5
+        p -= 2.0 * duran
+        return round(max(0.0, min(10.0, p)), 1), ", ".join(neden)
 
     @staticmethod
     def _akilli_aralik(is_: "Is", segler: list, giris_sn: float = 11.0) -> tuple[float, float]:
@@ -648,7 +727,10 @@ class Uygulama:
         # en az bir güçlü işaret lazım: chat gerçekten gülüyor / "clip" diyor / yayıncı bağırıyor ya da kamerada coşuyor
         # 1) chat gerçekten gülüyor/şaşırıyor ya da "clip" diyor  VE  2) yayıncı da tepki veriyor (bağırma / kamerada coşma)
         #    — chat çok güçlüyse (yarısından fazlası gülüyor) yayıncı sakin kalsa da olur
-        chat_guclu = gulme >= 0.3 or klip >= 3
+        # chat güçlü: gülüyor / "clip" diyor / herkes aynı şeyi yazıyor (yayıncı chat'e bir şey sordu vs.)
+        chat_guclu = gulme >= 0.3 or klip >= 3 or (is_.spike.neden == "tekrar" and is_.spike.tekrar_oran >= 0.4)
+        if is_.spike.neden == "ses":   # yayıncı bağırdı: chat'in biraz da olsa tepki vermesi yeter
+            chat_guclu = chat_guclu or gulme >= 0.15
         yayinci_tepki = ses_tepki >= 6 or yuz_t >= 2.0 or gulme >= 0.5
         # ya da komik olan oyundaki karakter (bağıran/çıldıran NPC): yayıncı sakin kalsa da olur
         guclu = chat_guclu and (yayinci_tepki or oyun_ani)
@@ -665,12 +747,12 @@ class Uygulama:
         self._son_puanlar.append(skor)
         if yz is not None and yz <= 3:
             return f"yapay zekâ 'boş an' dedi ({yz}/10)"
-        yuzde = self._secicilik()
-        # 2 saattir hiç klip geçmediyse süzgeci gevşet (stok boş kalmasın)
-        if yuzde < 100 and len(onceki) >= 8 and time.time() - self._son_gecen < 7200:
-            esik = onceki[min(len(onceki) - 1, int(len(onceki) * (100 - yuzde) / 100))]
-            if skor < esik:
-                return f"son kliplerin zayıf kısmında ({skor:.1f} < {esik:.1f})"
+        esik = self._hedef_puan()
+        # 3 saattir hiç klip geçmediyse biraz gevşet (stok tamamen boş kalmasın), ama 6'nın altına inme
+        if time.time() - self._son_gecen > 3 * 3600:
+            esik = max(6.0, esik - 1)
+        if skor < esik:
+            return f"puan {skor:.1f} < {esik:.1f}"
         self._son_gecen = time.time()
         return ""
 
@@ -859,6 +941,7 @@ class Uygulama:
         yuz_t = await asyncio.to_thread(yuz_tepkisi, is_.kaynak, is_.ofset, is_.sure, analiz.facecam, is_.an)
         # komik olan oyundaki karakter mi, yayıncı mı? (yayıncı coşmuyorsa ve oyunda biri bağırıyorsa: oyun anı)
         oyun_ani = self._oyun_ani_mi(is_, ses_tepki, oyun_anlari) and yuz_t < 2.0
+        kalite, kalite_neden = self.kalite_puani(is_, ses_tepki, yuz_t, oyun_ani, duran, bool(segler))
         if duran >= 0.5:   # harita / menü / ayarlar: kimse izlemez
             log.info("klip elendi: oyun ekranı zamanın %%%d'inde duruyor (menü/harita) — %s", int(duran * 100), kid)
             self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
@@ -935,9 +1018,12 @@ class Uygulama:
             oz = puan.ozellik_cikar(is_.spike.kat, is_.chat, is_.sure, ses, analiz.aksiyon,
                                     sum(len(t.split()) for _, _, t in segler), bool(facecam),
                                     veri.get("puan") if self.yazar.client else None)
-            skor, neden = self.ogrenci.puanla(hid, is_.kanal.gorunen.lower(), oz)
+            skor_ogr, neden = self.ogrenci.puanla(hid, is_.kanal.gorunen.lower(), oz)
+            # ücretsiz kalite puanı (anın kendisi) + senin ✅/🗑 kararlarından öğrenilen zevk
+            skor = kalite if not self.ogrenci.w else round(0.65 * kalite + 0.35 * skor_ogr, 1)
+            neden = " · ".join(x for x in (kalite_neden, neden) if x)
             if oyun_ani:   # oyundaki karakterin şaşkınlığı/çıldırması: bu klipler öne çıksın
-                skor = min(10.0, round(skor + 1.5, 1))
+                skor = min(10.0, round(skor + 0.5, 1))
                 neden = ("🎭 oyun karakteri anı · " + neden) if neden else "🎭 oyun karakteri anı"
             hedef_kok = "bekleyen" if skor >= en_dusuk else "dusuk_puan"
             # sadece iyi anlar video olur: yapay zekâ "boş an" dediyse ya da son kliplerin zayıf yarısındaysa atla
@@ -1104,8 +1190,9 @@ class Uygulama:
         "/liste — eklediklerin ve yasaklılar\n"
         "/platform — Twitch / Kick / YouTube aç-kapat\n"
         "/sinir 25 — aynı anda kaç yayın izlensin\n"
-        "/kalite 50 — chat patlamalarının en iyi yüzde kaçı video olsun (100 = hepsi)\n"
+        "/kalite 7 — video olması için gereken en düşük puan (0-10)\n"
         "/paylasim — Instagram / YouTube otomatik paylaşım bağlı mı?\n"
+        "/bagla — Instagram / YouTube hesabını Telegram'dan bağla (adım adım)\n"
         "/bildirim — bilgi mesajları (varsayılan kapalı: sadece videolar gelir) · /bildirim ac\n\n"
         "🎬 VİDEOLAR\n"
         "/gunluk 10 — her hesap için günde kaç paylaşım\n"
@@ -1163,7 +1250,7 @@ class Uygulama:
                     f"⏱ {int((time.time() - self.basladi) / 60)} dakikadır açık\n"
                     f"💥 Chat patlaması: {self.sayac['patlama']} (kota dolu diye atlanan: {self.sayac['kotada']})\n"
                     f"🎬 Yapılan klip: {self.sayac['klip']} · zayıf diye elenen: {self.sayac['elenen']} "
-                    f"(en iyi %{self._secicilik()} video oluyor, /kalite) · şu an hazırlanan: "
+                    f"(en az {self._hedef_puan():g}/10 puan gerekiyor, /kalite) · şu an hazırlanan: "
                     f"{self.sayac['isleniyor'] + self.kuyruk.qsize()}\n"
                     f"⚠️ Kesilemeyen: {self.sayac['kesilemedi']} · hata: {self.sayac['hata']}\n"
                     f"✅ Onayladığın: {self.sayac['onay']}\n"
@@ -1181,6 +1268,8 @@ class Uygulama:
         if komut == "/platform":
             await self.bot.butonlu(*self._platform_menusu())
             return ""
+        if komut in ("/bagla", "/bağla"):
+            return await self._bagla(arg)
         if komut in ("/paylasim", "/paylaşım", "/otomatik"):
             return await asyncio.to_thread(self._paylasim_durumu)
         if komut in ("/bildirim", "/bildirimler"):
@@ -1199,18 +1288,18 @@ class Uygulama:
                     "/bildirim ac — aç · /bildirim kapat — kapat")
         if komut == "/kalite":
             if not arg.strip():
-                return (f"Şu an chat patlamalarının en iyi %{self._secicilik()} kadarı video oluyor.\n"
-                        f"Daha seçici: /kalite 30 · Daha çok video: /kalite 80 · Hepsi: /kalite 100")
+                return (f"Şu an sadece {self._hedef_puan():g}/10 ve üstü puan alan anlar video oluyor.\n"
+                        f"Daha seçici: /kalite 8 · Daha çok video: /kalite 6")
             try:
-                n = int(arg.strip().lstrip("%"))
+                n = float(arg.strip().replace(",", "."))
             except ValueError:
-                return "Sayı yaz: /kalite 50"
-            if not 10 <= n <= 100:
-                return "10 ile 100 arası bir sayı yaz."
+                return "Sayı yaz: /kalite 7"
+            if not 1 <= n <= 10:
+                return "1 ile 10 arası bir puan yaz (önerilen 7)."
             d = self._durum_oku()
             d["kalite"] = n
             self._durum_yaz(d)
-            return f"✅ Artık en iyi %{n} video olacak." + (" (hepsi)" if n == 100 else "")
+            return f"✅ Artık sadece {n:g}/10 ve üstü anlar video olacak."
         if komut in ("/sinir", "/sınır"):
             if not arg.strip():
                 return (f"Üst sınır: {self._ust_sinir()} yayın. Şu an {self._sinir()} yayına izin var "
@@ -1629,6 +1718,82 @@ class Uygulama:
         d["kullanilan_meme"] = sorted(kullanilan)[-200:]
         self._durum_yaz(d)
         return yapilan
+
+    BAGLA_YARDIM = (
+        "🔗 HESAP BAĞLAMA (ücretsiz)\n\n"
+        "📸 INSTAGRAM\n"
+        "1) Instagram → Ayarlar → Hesap türü → Profesyonel hesaba geç (İçerik üreticisi)\n"
+        "2) developers.facebook.com → Uygulama oluştur → 'Instagram'da içeriği yönet'\n"
+        "3) Uygulama rolleri → Instagram Test Kullanıcısı ekle → Instagram'da daveti kabul et\n"
+        "4) Instagram → 'Instagram girişi ile API kurulumu' → Erişim anahtarı oluştur → kopyala\n"
+        "5) Buraya yaz:  /bagla instagram TR anahtar   (mesajın hemen silinir)\n\n"
+        "▶️ YOUTUBE\n"
+        "1) console.cloud.google.com → Yeni proje → 'YouTube Data API v3' etkinleştir\n"
+        "2) OAuth izin ekranı → Harici → Uygulamayı yayınla\n"
+        "3) Kimlik bilgileri → OAuth istemci kimliği → 'TV ve Sınırlı Giriş Cihazları' → JSON indir\n"
+        "4) O JSON dosyasını buraya gönder (dosya olarak)\n"
+        "5) /bagla youtube TR yaz → sana bir kod gelir → telefonda google.com/device'a gir, kodu yaz, izin ver\n\n"
+        "Durum: /paylasim")
+
+    async def _bagla(self, arg: str) -> str:
+        from . import paylas
+        p = arg.split()
+        if len(p) < 2:
+            return self.BAGLA_YARDIM
+        plat, hesap = p[0].lower(), p[1].upper()
+        if hesap not in {h["ad"] for h in self._hesaplar(hepsi=True)}:
+            return f"Hesap adı TR ya da EN olmalı (yazdığın: {hesap})"
+        if plat == "instagram":
+            if len(p) < 3:
+                return "Anahtarı da yaz:  /bagla instagram TR anahtar"
+            token = p[2].strip()
+            try:
+                k = await asyncio.to_thread(
+                    lambda: paylas.Instagram(token, self.kok / "instagram" / f"{hesap}.json").hesap())
+            except Exception as e:  # noqa: BLE001
+                return f"⚠️ Bu anahtar çalışmadı: {e}"[:300]
+            d = self._durum_oku()
+            d.setdefault("ig_token", {})[hesap] = token
+            self._durum_yaz(d)
+            return f"✅ {hesap} hesabı Instagram'a bağlandı: @{k['kullanici']}\nReels'ler paylaşım saatinde kendiliğinden paylaşılacak."
+        if plat == "youtube":
+            istemci = self._yt_istemci(hesap)
+            if not istemci.exists():
+                return "Önce Google'dan indirdiğin JSON dosyasını buraya gönder (/bagla yaz, adımlar orada)."
+            try:
+                cihaz = await asyncio.to_thread(paylas.youtube_cihaz_baslat, istemci)
+            except Exception as e:  # noqa: BLE001
+                return f"⚠️ {e}"[:400]
+
+            async def bekle():
+                try:
+                    await asyncio.to_thread(paylas.youtube_cihaz_bekle, istemci, cihaz,
+                                            self.kok / "youtube" / f"{hesap}.json")
+                    await self.bot.mesaj(f"✅ {hesap} hesabının YouTube kanalı bağlandı. Shorts'lar kendiliğinden yüklenecek.")
+                except Exception as e:  # noqa: BLE001
+                    await self.bot.mesaj(f"⚠️ YouTube bağlanamadı: {e}"[:300])
+            g = asyncio.create_task(bekle())
+            self._arka.add(g)
+            g.add_done_callback(self._arka.discard)
+            return (f"▶️ {hesap} için YouTube bağlama:\n1) Telefonda aç: {cihaz.get('verification_url')}\n"
+                    f"2) Bu kodu yaz: {cihaz.get('user_code')}\n3) Kanalını seç → İzin ver\n"
+                    "Bitince buraya ✅ mesajı gelecek.")
+        return self.BAGLA_YARDIM
+
+    async def _belge(self, icerik: bytes, ad: str, aciklama: str) -> str:
+        """Telegram'dan gönderilen dosya: Google'ın YouTube anahtar dosyası (client_secret JSON)."""
+        try:
+            j = json.loads(icerik.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            return "Bu dosyayı tanımadım. YouTube için Google'dan indirdiğin .json dosyasını gönder."
+        if not (j.get("installed") or j.get("web")):
+            return "Bu JSON Google OAuth dosyası değil (içinde 'installed' yok)."
+        hesap = next((h["ad"] for h in self._hesaplar(hepsi=True) if h["ad"] in (aciklama or "").upper().split()), "")
+        hedef = self.kok / "youtube" / (f"client_secret_{hesap}.json" if hesap else "client_secret.json")
+        hedef.parent.mkdir(parents=True, exist_ok=True)
+        hedef.write_bytes(icerik)
+        return (f"✅ Google anahtar dosyası kaydedildi{' (' + hesap + ')' if hesap else ''}.\n"
+                "Şimdi yaz:  /bagla youtube TR   (EN için /bagla youtube EN)")
 
     def _paylasim_durumu(self) -> str:
         from . import paylas

@@ -104,3 +104,25 @@ def yuz_tepkisi(video: Path, ofset: float, sure: float, facecam, an: float) -> f
     except Exception as e:  # noqa: BLE001
         log.debug("yüz tepkisi ölçülemedi: %r", e)
         return 0.0
+
+
+def parca_sesi(parca: Path) -> list[float]:
+    """Bir kayıt parçasının (4 sn) yarım saniyelik ses şiddetleri (dB). Okunamazsa []."""
+    try:
+        import numpy as np
+        ham = subprocess.run([arac("ffmpeg"), "-v", "error", "-i", str(parca), "-vn", "-ac", "1", "-ar", "8000",
+                              "-f", "s16le", "-"], capture_output=True, timeout=20, creationflags=_PENCERESIZ).stdout
+        x = np.frombuffer(ham, np.int16).astype(np.float32) / 32768.0
+        d = 4000
+        return [float(20 * np.log10(np.sqrt(np.mean(x[i:i + d] ** 2)) + 1e-10)) for i in range(0, len(x) - d + 1, d)]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def bagirma_mi(gecmis: list[float], yeni: list[float], fark_db: float = 13.0) -> bool:
+    """Yeni parçada ses, yayının son dakikalarının normaline göre aniden çok yükseldi mi? (bağırma/çığlık)"""
+    if len(gecmis) < 120 or not yeni:   # en az 1 dk'lık normal öğrenilmeli
+        return False
+    normal = sorted(gecmis)[len(gecmis) // 2]
+    yuksek = sorted(yeni)[-2] if len(yeni) >= 2 else yeni[0]   # tek bir patlama sesi değil, en az 1 sn
+    return yuksek >= normal + fark_db and yuksek >= -22

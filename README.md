@@ -125,6 +125,7 @@ Yayınlar yayıncılara aittir. İzinsiz kesip yüklemek telif ihlali (YouTube'd
 ## 🤖 OTOMATİK PAYLAŞIM (ücretsiz)
 
 Onayladığın (✅) klipler paylaşım saatinde **kendiliğinden** yüklenir. Telegram'da `/paylasim` yazınca neyin bağlı olduğunu görürsün.
+**En kolayı:** Telegram'da `/bagla` yaz — bot adım adım anlatır, hesapları bilgisayara dokunmadan bağlarsın.
 
 | Platform | Durum |
 |---|---|
