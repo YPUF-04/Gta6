@@ -126,3 +126,31 @@ def bagirma_mi(gecmis: list[float], yeni: list[float], fark_db: float = 13.0) ->
     normal = sorted(gecmis)[len(gecmis) // 2]
     yuksek = sorted(yeni)[-2] if len(yeni) >= 2 else yeni[0]   # tek bir patlama sesi değil, en az 1 sn
     return yuksek >= normal + fark_db and yuksek >= -22
+
+
+def oyun_aksiyonu(video: Path, ofset: float, sure: float, facecam, an: float) -> float:
+    """Patlama anı çevresinde oyun görüntüsü ne kadar sert değişiyor? (kaza, patlama, kovalamaca, ani kamera)
+    Klibin normal hareketine göre kat olarak döner; ~1 = sıradan, 2+ = aksiyon."""
+    try:
+        import numpy as np
+        w, h = 160, 90
+        ham = subprocess.run(
+            [arac("ffmpeg"), "-v", "error", "-ss", f"{ofset:.2f}", "-t", f"{sure:.2f}", "-i", str(video),
+             "-vf", f"fps=4,scale={w}:{h},format=gray", "-f", "rawvideo", "-"],
+            capture_output=True, timeout=120, creationflags=_PENCERESIZ).stdout
+        n = len(ham) // (w * h)
+        if n < 12:
+            return 0.0
+        k = np.frombuffer(ham[:n * w * h], np.uint8).reshape(n, h, w).astype(np.float32)
+        maske = np.ones((h, w), bool)
+        if facecam:
+            fx, fy, fw, fh = facecam
+            maske[max(0, int(fy * h) - 2):int((fy + fh) * h) + 2, max(0, int(fx * w) - 2):int((fx + fw) * w) + 2] = False
+        d = np.array([float(np.mean(np.abs(k[i] - k[i - 1])[maske])) for i in range(1, n)])
+        a, b = max(0, int((an - 8) * 4)), min(len(d), int((an + 3) * 4))
+        if b - a < 4:
+            return 0.0
+        return float(np.percentile(d[a:b], 90)) / (float(np.median(d)) + 1.0)
+    except Exception as e:  # noqa: BLE001
+        log.debug("aksiyon ölçülemedi: %r", e)
+        return 0.0

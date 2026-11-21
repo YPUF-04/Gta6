@@ -107,7 +107,7 @@ def test_kolay_komutlar_ve_dil_yonlendirme(tmp_path, monkeypatch):
     assert "Örnek" in run("/youtube")
     assert [h["ad"] for h in u._hedef_hesaplar("tr")] == ["TR"]
     assert [h["ad"] for h in u._hedef_hesaplar("en")] == ["EN"]
-    assert [h["ad"] for h in u._hedef_hesaplar("es")] == ["TR", "EN"]   # yabancı: iki hesaba da, çevrilerek
+    assert [h["ad"] for h in u._hedef_hesaplar("es")] == ["EN"]   # yabancı: İngilizce hesaba, İngilizceye çevrilerek
     asyncio.run(u._buton("hs:EN"))
     assert [h["ad"] for h in u._hedef_hesaplar("en")] == ["TR"]   # tek hesap açıksa her şey ona
 
@@ -151,12 +151,16 @@ def test_dil_filtresi(tmp_path, monkeypatch):
     from klipci.kesif import Kanal
     u = _app(tmp_path, monkeypatch)
     bulunan = [(Kanal("kick", "coringa", dil="pt"), 40000), (Kanal("kick", "xqc", dil="en"), 17000),
-               (Kanal("kick", "tepki", dil="tr"), 6500), (Kanal("youtube", "abc", dil=""), 9000)]
+               (Kanal("kick", "tepki", dil="tr"), 6500), (Kanal("youtube", "abc", dil=""), 9000),
+               (Kanal("kick", "3mr", dil="ar"), 30000)]
 
     async def tara(adet):
         return bulunan
     u._tara = tara
-    assert sorted(k.ad for k, _ in asyncio.run(u._adaylar_oto(20))) == ["abc", "tepki", "xqc"]
+    # Arapça hiç alınmaz; diğer diller alınır (İngilizce hesaba, İngilizceye çevrilerek)
+    assert sorted(k.ad for k, _ in asyncio.run(u._adaylar_oto(20))) == ["abc", "coringa", "tepki", "xqc"]
+    u._yabanciya_ekle("kick:coringa")
+    assert "coringa" not in [k.ad for k, _ in asyncio.run(u._adaylar_oto(20))]
 
 
 def test_sayfa_ayarlari(tmp_path, monkeypatch):

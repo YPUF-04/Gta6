@@ -74,3 +74,14 @@ def test_akilli_aralik_bos_kuyrugu_keser(tmp_path):
     # yayıncı tam bitişte konuşuyorsa cümlesini bitirsin
     bas2, son2 = Uygulama._akilli_aralik(is_, [(18.0, 23.0, "abi bu ne ya")])
     assert abs(son2 - 23.3) < 0.01
+
+
+def test_aksiyon_puani_yukseltir():
+    from klipci import kesif
+    from klipci.spike import Spike
+    from klipci.uygulama import Is, Uygulama
+    chat = [(20 + i * 0.3, "u", "KEKW" if i % 2 else "ok") for i in range(30)]
+    is_ = Is(kesif.Kanal("twitch", "x"), Spike(0, 0, 50, 10), None, 0, 30, chat, True, 20.0, "x")
+    sakin, _ = Uygulama.kalite_puani(is_, 5.0, 1.0, False, 0.0, True, aksiyon=1.0)
+    kaza, neden = Uygulama.kalite_puani(is_, 5.0, 1.0, False, 0.0, True, aksiyon=3.0)
+    assert kaza - sakin >= 1.9 and "aksiyon" in neden

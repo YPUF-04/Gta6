@@ -30,7 +30,7 @@ from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, tweet_video, video
 from .spike import Spike, SpikeDetector, mesaj_puani, yazi_dili
 from .ceviri import cevir as ceviri_yap
 from .yazar import pov_yazisi
-from .oyunsesi import bagirma_mi, parca_sesi
+from .oyunsesi import bagirma_mi, oyun_aksiyonu, parca_sesi
 from .oyunsesi import hareketsiz_oran, oyun_altyazi_anlari, oyun_konusmasi_mi, yuz_tepkisi
 from .telegram import Bot
 from .yazar import Yazar, paylasim_metni, platform_metinleri, trend_arastir
@@ -131,7 +131,8 @@ class Uygulama:
         self._spike_gecmisi: list[float] = []
         self._kabul_gecmisi: list[float] = []   # tüm kontrolleri geçip video olan klipler (saatlik kota)
         self._kesim_gecmisi: list[float] = []   # kesilen (incelemeye giren) klipler
-        self._yabanci: set[str] = set()   # chat'ine göre başka dilde olduğu anlaşılan yayınlar (bu oturum)
+        # dilini atladığımız (ör. Arapça) yayınlar — kalıcı
+        self._yabanci: set[str] = set(self._durum_oku().get("atlanan_kanallar") or [])
         self._kapali: dict[str, float] = {}   # yakın zamanda kapalı bulunan kanallar
 
     # ---------- durum ----------
@@ -186,8 +187,8 @@ class Uygulama:
         return out
 
     def _hedef_hesaplar(self, kaynak_dil: str) -> list[dict]:
-        """Türkçe yayın -> Türkçe hesap, İngilizce yayın -> İngilizce hesap.
-        Başka dil (Arapça, Almanca...) -> HER hesap (her biri kendi diline çevrilmiş altyazıyla)."""
+        """Türkçe yayın -> Türkçe hesap (Türkçe altyazı). Diğer HER yayın -> İngilizce hesap (İngilizce altyazı;
+        yayıncı İngilizce konuşmuyorsa konuşması İngilizceye çevrilir)."""
         hesaplar = self._hesaplar()
         if not self.cfg.get("dil_yonlendirme", True) or len(hesaplar) <= 1:
             return hesaplar
@@ -195,8 +196,6 @@ class Uygulama:
         uyan = [h for h in hesaplar if h["dil"] == kaynak_dil]
         if uyan:
             return uyan
-        if kaynak_dil and self._yabanci_cevir():
-            return hesaplar
         en = [h for h in hesaplar if h["dil"] == "en"]
         return en or hesaplar[:1]
 
@@ -219,7 +218,8 @@ class Uygulama:
         self.durum_yolu.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
 
     def _adaylar_elle(self) -> list[kesif.Kanal]:
-        return [kesif.Kanal(p, a) for p in ("twitch", "kick") if self._platform_acik_mi(p) for a in self._liste(p)]
+        return [k for k in (kesif.Kanal(p, a) for p in ("twitch", "kick") if self._platform_acik_mi(p)
+                            for a in self._liste(p)) if k.anahtar not in self._yabanci]
 
     def _oto_acik_mi(self) -> bool:
         return bool(self._durum_oku().get("oto", self.oto_acik))
@@ -260,6 +260,23 @@ class Uygulama:
         """Başka dilde konuşan yayıncılar: altyazıyı İngilizceye çevirip kullan (True) ya da hiç alma (False)."""
         return bool(self.cfg.get("yabanci_dil_cevir", True))
 
+    def _atlanan_diller(self) -> set[str]:
+        """Hiç izlenmeyecek diller (varsayılan: Arapça)."""
+        return {str(d).lower() for d in (self.cfg.get("atlanan_diller") or ["ar"])}
+
+    def _dil_atla(self, dil: str) -> bool:
+        dil = (dil or "").lower()[:2]
+        if not dil:
+            return False
+        return dil in self._atlanan_diller() or (not self._yabanci_cevir() and dil not in self._izinli_diller())
+
+    def _yabanciya_ekle(self, anahtar: str) -> None:
+        """Bir daha izleme (program kapanıp açılsa da)."""
+        self._yabanci.add(anahtar)
+        d = self._durum_oku()
+        d["atlanan_kanallar"] = sorted(set(d.get("atlanan_kanallar") or []) | {anahtar})[-500:]
+        self._durum_yaz(d)
+
     def _izinli_diller(self) -> set[str]:
         return {str(d).lower() for d in (self.cfg.get("izin_verilen_diller") or [h["dil"] for h in self._hesaplar()])}
 
@@ -269,7 +286,8 @@ class Uygulama:
             return []
         # sadece hesap açtığın dillerdeki yayınlar (dili bilinmeyenler de alınır)
         diller = self._izinli_diller()
-        bulunan = [x for x in bulunan if (not x[0].dil or x[0].dil in diller) and x[0].anahtar not in self._yabanci]
+        bulunan = [x for x in bulunan if (not x[0].dil or x[0].dil in diller or not self._dil_atla(x[0].dil))
+                   and x[0].dil not in self._atlanan_diller() and x[0].anahtar not in self._yabanci]
         uygun = [x for x in bulunan if x[1] >= self.en_az_izleyici]
         # dil kotası: ör. {tr: 8} -> en az 8 Türkçe yayın listenin başına (Türkçe hesap için malzeme)
         kota = {str(k).lower(): int(v) for k, v in (self.cfg.get("dil_kotasi") or {"tr": 8}).items()}
@@ -473,12 +491,11 @@ class Uygulama:
                     except Exception as e:  # noqa: BLE001
                         log.warning("kayıt yeniden başlatılamadı (%s): %r", iz.kanal.anahtar, e)
                 # yayın gerçekte başka dilde mi? (ör. dilini "İngilizce" seçmiş Arapça yayın) — chat'ten anla
-                if (not self._yabanci_cevir() and iz.oto and int(time.time()) % 60 == 0
-                        and len(iz.chat_log) >= 40):
+                if int(time.time()) % 60 == 0 and len(iz.chat_log) >= 40:
                     yd = yazi_dili([m for _, _, m in list(iz.chat_log)[-150:]])
-                    if yd and yd not in self._izinli_diller():
+                    if yd and self._dil_atla(yd):
                         log.info("%s aslında %s konuşulan bir yayın (chat'e göre), bırakılıyor", iz.kanal.anahtar, yd)
-                        self._yabanci.add(iz.kanal.anahtar)
+                        self._yabanciya_ekle(iz.kanal.anahtar)
                         # ayrı görev: _birak bu döngünün kendi görevini de iptal eder
                         asyncio.create_task(self._birak(iz.kanal.anahtar))
                         return
@@ -499,11 +516,11 @@ class Uygulama:
                         log.info("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
                                  butce, iz.kanal.anahtar)
                         continue
-                    if iz.oto and not self._yabanci_cevir():
+                    if True:
                         yd = yazi_dili([m for _, _, m in list(iz.chat_log)[-200:]])
-                        if yd and yd not in self._izinli_diller():
+                        if yd and self._dil_atla(yd):
                             log.info("%s chat'i %s, bırakılıyor", iz.kanal.anahtar, yd)
-                            self._yabanci.add(iz.kanal.anahtar)
+                            self._yabanciya_ekle(iz.kanal.anahtar)
                             asyncio.create_task(self._birak(iz.kanal.anahtar))
                             return
                     son = [m for t, _, m in list(iz.chat_log) if t >= time.time() - 12]
@@ -645,7 +662,7 @@ class Uygulama:
 
     @staticmethod
     def kalite_puani(is_: "Is", ses_tepki: float, yuz_t: float, oyun_ani: bool, duran: float,
-                     konustu: bool) -> tuple[float, str]:
+                     konustu: bool, aksiyon: float = 0.0) -> tuple[float, str]:
         """Ücretsiz kalite puanı 0-10 ve kısa açıklama. Net komik/şok anlar ~7-9 alır."""
         from .spike import mesaj_puani
         yakin = [m for t, _, m in is_.chat if is_.an - 3 <= t <= is_.an + 12]
@@ -675,6 +692,10 @@ class Uygulama:
             p += 1.0 * min(1.0, max(0.0, is_.spike.kat - 2) / 8)
         if konustu:
             p += 0.5
+        # aksiyon öne çıksın: kaza, patlama, kovalamaca (görüntü birden sertleşiyor)
+        p += 2.0 * min(1.0, max(0.0, aksiyon - 1.3) / 1.7)
+        if aksiyon >= 2.0:
+            neden.append("aksiyon")
         p -= 2.0 * duran
         return round(max(0.0, min(10.0, p)), 1), ", ".join(neden)
 
@@ -715,7 +736,7 @@ class Uygulama:
 
     @staticmethod
     def _bos_an_mi(is_: "Is", ses_tepki: float, oyun_anlari: list, yuz_t: float = 0.0,
-                   oyun_ani: bool = False) -> str:
+                   oyun_ani: bool = False, aksiyon: float = 0.0) -> str:
         """Yapay zekâsız (ücretsiz) 'boş an' kontrolü. Boş string = iyi an."""
         from .spike import mesaj_puani
         yakin = [m for t, _, m in is_.chat if is_.an - 3 <= t <= is_.an + 12]
@@ -733,7 +754,7 @@ class Uygulama:
             chat_guclu = chat_guclu or gulme >= 0.15
         yayinci_tepki = ses_tepki >= 6 or yuz_t >= 2.0 or gulme >= 0.5
         # ya da komik olan oyundaki karakter (bağıran/çıldıran NPC): yayıncı sakin kalsa da olur
-        guclu = chat_guclu and (yayinci_tepki or oyun_ani)
+        guclu = chat_guclu and (yayinci_tepki or oyun_ani or aksiyon >= 2.0)
         if not guclu:
             return (f"güzel an işareti yok (chat gülme %{int(gulme * 100)}, 'clip' {klip}, "
                     f"ses +{ses_tepki:.0f} dB, yüz {yuz_t:.1f}x)")
@@ -925,13 +946,13 @@ class Uygulama:
         elif cozum is not None and not segler:
             alt_not.append("yayıncının konuşması duyulmadı")
         # yayıncı aslında hesaplarının dilinde konuşmuyorsa (ör. Arapça) klip yapma
-        if (not self._yabanci_cevir() and cozum and cozum.guven >= 0.75 and len(segler) >= 2
-                and (cozum.asil_dil or cozum.dil) not in self._izinli_diller()):
+        if (cozum and cozum.guven >= 0.75 and len(segler) >= 2
+                and self._dil_atla(cozum.asil_dil or cozum.dil)):
             log.info("klip elendi: yayıncı %s konuşuyor (hesapların: %s) — %s", cozum.dil,
                      ",".join(sorted(self._izinli_diller())), kid)
             self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
             if is_.kanal.platform != "youtube":
-                self._yabanci.add(is_.kanal.anahtar)
+                self._yabanciya_ekle(is_.kanal.anahtar)
             return
         kaynak_dil = cozum.dil if cozum else ""
         zoom = float((self.cfg.get("klip") or {}).get("zoom", 1.3))
@@ -941,7 +962,8 @@ class Uygulama:
         yuz_t = await asyncio.to_thread(yuz_tepkisi, is_.kaynak, is_.ofset, is_.sure, analiz.facecam, is_.an)
         # komik olan oyundaki karakter mi, yayıncı mı? (yayıncı coşmuyorsa ve oyunda biri bağırıyorsa: oyun anı)
         oyun_ani = self._oyun_ani_mi(is_, ses_tepki, oyun_anlari) and yuz_t < 2.0
-        kalite, kalite_neden = self.kalite_puani(is_, ses_tepki, yuz_t, oyun_ani, duran, bool(segler))
+        aksiyon = await asyncio.to_thread(oyun_aksiyonu, is_.kaynak, is_.ofset, is_.sure, analiz.facecam, is_.an)
+        kalite, kalite_neden = self.kalite_puani(is_, ses_tepki, yuz_t, oyun_ani, duran, bool(segler), aksiyon)
         if duran >= 0.5:   # harita / menü / ayarlar: kimse izlemez
             log.info("klip elendi: oyun ekranı zamanın %%%d'inde duruyor (menü/harita) — %s", int(duran * 100), kid)
             self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
@@ -1029,7 +1051,7 @@ class Uygulama:
             # sadece iyi anlar video olur: yapay zekâ "boş an" dediyse ya da son kliplerin zayıf yarısındaysa atla
             yz = veri.get("puan") if self.yazar.client else None
             elendi = self._kalite_eler(skor, yz) or (
-                "" if yz is not None else self._bos_an_mi(is_, ses_tepki, oyun_anlari, yuz_t, oyun_ani))
+                "" if yz is not None else self._bos_an_mi(is_, ses_tepki, oyun_anlari, yuz_t, oyun_ani, aksiyon))
             if elendi:
                 log.info("klip elendi (%s): %s — puan %.1f", elendi, hid, skor)
                 self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
