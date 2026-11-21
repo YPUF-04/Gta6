@@ -85,3 +85,12 @@ def test_aksiyon_puani_yukseltir():
     sakin, _ = Uygulama.kalite_puani(is_, 5.0, 1.0, False, 0.0, True, aksiyon=1.0)
     kaza, neden = Uygulama.kalite_puani(is_, 5.0, 1.0, False, 0.0, True, aksiyon=3.0)
     assert kaza - sakin >= 1.9 and "aksiyon" in neden
+
+
+def test_ara_sahne_oyun_ani_sayilmaz(tmp_path):
+    from klipci import kesif
+    from klipci.spike import Spike
+    from klipci.uygulama import Is, Uygulama
+    is_ = Is(kesif.Kanal("kick", "maddyson"), Spike(0, 0, 1, 1), tmp_path / "a.ts", 0, 40, [], True, 20.0, "x")
+    ara_sahne = [(t / 2, True) for t in range(80)]          # baştan sona oyun altyazısı = ara sahne/diyalog
+    assert not Uygulama._oyun_ani_mi(is_, 8.0, ara_sahne)

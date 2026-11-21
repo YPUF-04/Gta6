@@ -732,7 +732,9 @@ class Uygulama:
     def _oyun_ani_mi(is_: "Is", ses_tepki: float, oyun_anlari: list) -> bool:
         """Komik olan oyundaki karakter mi? (patlama anında oyunda biri konuşuyor/bağırıyor + ses yükseliyor)"""
         yakin = [v for t, v in oyun_anlari if is_.an - 8 <= t <= is_.an + 4]
-        return bool(yakin) and sum(yakin) / len(yakin) >= 0.3 and ses_tepki >= 5
+        # ara sahne değil: klibin çoğunda oyun altyazısı varsa bu sıradan bir ara sahne/diyalogdur
+        genel = sum(v for _, v in oyun_anlari) / len(oyun_anlari) if oyun_anlari else 1.0
+        return bool(yakin) and sum(yakin) / len(yakin) >= 0.3 and ses_tepki >= 5 and genel < 0.5
 
     @staticmethod
     def _bos_an_mi(is_: "Is", ses_tepki: float, oyun_anlari: list, yuz_t: float = 0.0,
@@ -1068,11 +1070,12 @@ class Uygulama:
             duzen = (str(self.cfg.get("yuzlu_duzen", "pip")) if facecam
                      else str(self.cfg.get("yuzsuz_duzen", "tweet")))
             tepki = None   # "chat koptu" gibi ekrana yazı ASLA basılmaz (kullanıcı istemedi)
-            if oyun_ani and self.cfg.get("pov_duzeni", True):
-                # karakter anı: GTA 6 yazısı, ortada oyun, pembe POV yazısı; altyazı oyunun kendi altyazısı
+            if oyun_ani and not facecam and self.cfg.get("pov_duzeni", True):
+                # karakter anı (kamerası olmayan yayın): oyun tam ekran, üstte GTA VI + pembe POV yazısı,
+                # yayıncı konuştuysa altyazısı yine altta
                 duzen = "pov"
                 veri["baslik"] = pov_yazisi(dil, hid)
-                alt, tepki = [], None
+                tepki = None
             mp4 = klasor / f"{hid}.mp4"
             try:
                 self._asama(is_.takip, f"🎞 video kurgulanıyor ({ad})")

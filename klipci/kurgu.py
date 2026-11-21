@@ -65,7 +65,8 @@ DUZEN = {
     # "pip": oyun tam ekran, yayıncının kamerası sol üstte yuvarlak köşeli küçük kutu (en çok izlenen GTA klip tarzı)
     "pip": {"kam_h": 0, "kutu": (24, 24, 600, 450), "alt_pos": (540, 1640), "chat_y": 1236, "kredi_mv": 0},
     # "pov": yüzsüz oyun anı (bağıran NPC vs.): üstte GTA 6 yazısı, ortada oyun, altında pembe "POV:" yazısı
-    "pov": {"oyun_y": 230, "zoom": 1.15, "alt_pos": (540, 1500), "chat_y": 1236, "kredi_mv": 60},
+    # oyun TAM EKRAN (boş yer yok), üstte GTA VI + pembe POV yazısı, altta yayıncının altyazısı
+    "pov": {"alt_pos": (540, 1580), "chat_y": 1236, "kredi_mv": 0},
     "tweet": {"video_y": 400, "video_h": 1080, "alt_pos": (540, 1390), "baslik": (540, 560)},
 }
 MOR = "&H00E43F7B&"   # söylenen kelimenin arkasındaki mor kutu (BGR)
@@ -178,17 +179,16 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
         return
 
     if duzen == "pov":
-        oh = int(round(W * 9 * d["zoom"] / 16 / 2)) * 2
-        satirlar.append(f"Dialogue: 2,0:00:00.00,{son},Baslik,,0,0,0,,{{\\pos(540,125)\\fs110\\fnArial Black"
+        satirlar.append(f"Dialogue: 2,0:00:00.00,{son},Baslik,,0,0,0,,{{\\pos(540,120)\\fs96\\fnArial Black"
                         f"\\bord7\\3c&H00702A9C&\\shad0}}GTA {{\\c&H00B45AF0&}}VI")
-        if baslik:   # pembe POV yazısı, oyunun hemen altında, video boyunca
-            satirlar.append(f"Dialogue: 5,0:00:00.00,{son},Baslik,,0,0,0,,{{\\pos(540,{d['oyun_y'] + oh + 62})"
-                            f"\\fnArial Black\\fs54\\c&H009A40E8&\\bord4\\3c&H00000000&}}{_ass_metin(baslik)}")
+        if baslik:   # pembe POV yazısı, oyunun üstünde, video boyunca
+            satirlar.append(f"Dialogue: 5,0:00:00.00,{son},Baslik,,0,0,0,,{{\\pos(540,250)"
+                            f"\\fnArial Black\\fs54\\c&H009A40E8&\\bord5\\3c&H00000000&}}{_ass_metin(baslik)}")
         if kredi:
-            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},Kredi,,0,0,0,,{{\\fs28\\alpha&H50&}}{_ass_metin(kredi)}")
+            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},Kredi,,0,0,0,,{{\\an9\\pos({W - 28},30)\\fs26\\alpha&H40&}}"
+                            f"{_ass_metin(kredi)}")
         if imza:
-            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},ImzaYuz,,0,0,0,,{{\\pos(540,{d['oyun_y'] + oh + 140})}}"
-                            f"{_ass_metin(imza)}")
+            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},ImzaYuz,,0,0,0,,{{\\pos(540,325)\\fs30}}{_ass_metin(imza)}")
         satirlar += _altyazi_olaylari(altyazilar, sure, ax, ay)
         yol.write_text("\n".join(satirlar) + "\n", encoding="utf-8")
         return
@@ -250,7 +250,11 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
                 an: float | None = None, cubuk: bool = False, duzen: str = "yuz") -> Path:
     """facecam (0-1 arası x,y,w,h) verilirse: üstte yayıncının kamerası, altta oyun.
     an: klipte chat'in patladığı saniye (o anda kısa yakınlaşma). cubuk: altta ilerleme çubuğu."""
-    if facecam and duzen == "pip":
+    if duzen == "pov":   # oyun tam ekran, kamera yok
+        filtre = (f"[0:v]setpts=PTS-STARTPTS,crop=min(iw\\,ih*{W}/{H}):ih:(iw-min(iw\\,ih*{W}/{H}))/2:0,"
+                  f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps=30"
+                  f"{_yakinlas(W, H, an)},format=yuv420p[v0]")
+    elif facecam and duzen == "pip":
         fx, fy, fw, fh = facecam
         kx, ky, kw, kh = DUZEN["pip"]["kutu"]
         r = 28   # köşe yuvarlaklığı
@@ -281,8 +285,6 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
             f"[kam][oyun]vstack=inputs=2,fps=30,format=yuv420p[v0]"
         )
     else:
-        if duzen == "pov":
-            zoom = DUZEN["pov"]["zoom"]
         zoom = max(1.0, zoom)
         fh = int(round(W * 9 * zoom / 16 / 2)) * 2   # 16:9 kaynak varsayımı
         fg = f"crop=iw/{zoom}:ih:(iw-iw/{zoom})/2:0,scale={W}:{fh},setsar=1,fps=30{_yakinlas(W, fh, an)}"
@@ -291,8 +293,7 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
             f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
             f"boxblur=25:2,eq=brightness=-0.12:saturation=1.2[bg];"
             f"[b]{fg}[fg];"
-            f"[bg][fg]overlay=(W-w)/2:{DUZEN['pov']['oyun_y'] if duzen == 'pov' else '(H-h)/2'},"
-            f"fps=30,format=yuv420p[v0]"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,fps=30,format=yuv420p[v0]"
         )
     if cubuk:   # altta ilerleme çubuğu (isteğe bağlı; çoğu insan editör kullanmıyor)
         renk, kalin = ("0xE8283C", 8) if duzen == "pip" else ("0xFFD400", 10)
