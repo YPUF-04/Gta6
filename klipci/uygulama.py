@@ -165,7 +165,9 @@ class Uygulama:
         for h in (self.cfg.get("hesaplar") or []) + [{"ad": "TR", "dil": "tr"}, {"ad": "EN", "dil": "en"}]:
             ad = str(h.get("ad", "")).upper()
             if ad and ad not in tanim:
-                tanim[ad] = {"ad": ad, "dil": h.get("dil", "tr" if ad == "TR" else "en"), "imza": h.get("imza", "")}
+                tanim[ad] = {"ad": ad, "dil": h.get("dil", "tr" if ad == "TR" else "en"), "imza": h.get("imza", ""),
+                             "instagram_token": str(h.get("instagram_token") or "").strip(),
+                             "youtube": bool(h.get("youtube", True))}
         d = self._durum_oku()
         kapali = set(d.get("hesap_kapali") or [])
         imza = d.get("imza") or {}
@@ -1103,6 +1105,7 @@ class Uygulama:
         "/platform — Twitch / Kick / YouTube aç-kapat\n"
         "/sinir 25 — aynı anda kaç yayın izlensin\n"
         "/kalite 50 — chat patlamalarının en iyi yüzde kaçı video olsun (100 = hepsi)\n"
+        "/paylasim — Instagram / YouTube otomatik paylaşım bağlı mı?\n"
         "/bildirim — bilgi mesajları (varsayılan kapalı: sadece videolar gelir) · /bildirim ac\n\n"
         "🎬 VİDEOLAR\n"
         "/gunluk 10 — her hesap için günde kaç paylaşım\n"
@@ -1178,6 +1181,8 @@ class Uygulama:
         if komut == "/platform":
             await self.bot.butonlu(*self._platform_menusu())
             return ""
+        if komut in ("/paylasim", "/paylaşım", "/otomatik"):
+            return await asyncio.to_thread(self._paylasim_durumu)
         if komut in ("/bildirim", "/bildirimler"):
             a = arg.strip().lower()
             if a in ("ac", "aç", "on", "acik", "açık"):
@@ -1625,6 +1630,68 @@ class Uygulama:
         self._durum_yaz(d)
         return yapilan
 
+    def _paylasim_durumu(self) -> str:
+        from . import paylas
+        satir = ["🤖 OTOMATİK PAYLAŞIM\n"]
+        for h in self._hesaplar(hepsi=True):
+            ad = h["ad"]
+            if h.get("instagram_token"):
+                try:
+                    k = paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{ad}.json").hesap()
+                    ig = f"✅ bağlı (@{k['kullanici']})"
+                except Exception as e:  # noqa: BLE001
+                    ig = f"⚠️ anahtar çalışmıyor: {e}"[:150]
+            else:
+                ig = "❌ bağlı değil (config.yaml → hesaplar → instagram_token)"
+            yt = paylas.YouTube(self._yt_istemci(ad), self.kok / "youtube" / f"{ad}.json")
+            ytd = ("✅ bağlı" if yt.bagli_mi() else
+                   "❌ bağlı değil (YOUTUBE_BAGLA.bat)" if self._yt_istemci(ad).exists() else
+                   "❌ bağlı değil (önce youtube/client_secret.json)")
+            satir.append(f"[{ad}]\n📸 Instagram: {ig}\n▶️ YouTube: {ytd}\n🎵 TikTok: elle (Telegram'dan gelir)\n")
+        satir.append("Bağlı olanlara paylaşım saatinde kendisi yükler. Kurulum: README → OTOMATİK PAYLAŞIM")
+        return "\n".join(satir)
+
+    def _yt_istemci(self, hesap: str = "") -> Path:
+        """Hesaba özel (client_secret_TR.json) varsa o — her Google projesinin günlük ~6 yükleme hakkı ayrı."""
+        ozel = self.kok / "youtube" / f"client_secret_{hesap}.json"
+        return ozel if hesap and ozel.exists() else self.kok / "youtube" / "client_secret.json"
+
+    def _otomatik_paylas(self, hesap: str, mp4: Path, pm: dict) -> dict:
+        """Instagram + YouTube'a otomatik yükle (bağlıysa). {platform: link ya da 'HATA: ...'}"""
+        from . import paylas
+        h = next((x for x in self._hesaplar(hepsi=True) if x["ad"] == hesap), {})
+        sonuc: dict = {}
+        if h.get("instagram_token"):
+            try:
+                ig = paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{hesap}.json")
+                sonuc["instagram"] = ig.reels(mp4, pm.get("instagram", "")) or "paylaşıldı"
+                log.info("📸 Instagram'a paylaşıldı (%s): %s", hesap, sonuc["instagram"])
+            except Exception as e:  # noqa: BLE001
+                log.warning("Instagram paylaşımı olmadı (%s): %r", hesap, e)
+                sonuc["instagram"] = f"HATA: {e}"[:200]
+        yt = paylas.YouTube(self._yt_istemci(hesap), self.kok / "youtube" / f"{hesap}.json")
+        if h.get("youtube", True) and yt.bagli_mi():
+            d = self._durum_oku()
+            sayac = d.get("yt_sayac") or {}
+            anahtar = f"{tarih.today().isoformat()}_{hesap}"
+            if sayac.get(anahtar, 0) >= int(self.cfg.get("youtube_gunluk", 6)):
+                sonuc["youtube"] = "HATA: bugünkü YouTube yükleme hakkı doldu (Google sınırı), elle yükle"
+            else:
+                try:
+                    etiket = [t for t in pm.get("youtube_aciklama", "").split() if t.startswith("#")]
+                    sonuc["youtube"] = yt.yukle(mp4, pm.get("youtube_baslik", ""), pm.get("youtube_aciklama", ""),
+                                                etiket)
+                    sayac = {k: v for k, v in sayac.items() if k.startswith(tarih.today().isoformat())}
+                    sayac[anahtar] = sayac.get(anahtar, 0) + 1
+                    d = self._durum_oku()
+                    d["yt_sayac"] = sayac
+                    self._durum_yaz(d)
+                    log.info("▶️ YouTube'a yüklendi (%s): %s", hesap, sonuc["youtube"])
+                except Exception as e:  # noqa: BLE001
+                    log.warning("YouTube yüklemesi olmadı (%s): %r", hesap, e)
+                    sonuc["youtube"] = f"HATA: {e}"[:200]
+        return sonuc
+
     async def _paylasim_hatirlat(self, hesap: str, it: dict) -> bool:
         k = self.klasor / "hazir" / hesap / it["hid"]
         mp4 = next(iter(k.glob("*.mp4")), None) if k.exists() else None
@@ -1635,15 +1702,27 @@ class Uygulama:
             pm = json.loads((k / "aciklama.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pm = {}
+        oto = await asyncio.to_thread(self._otomatik_paylas, hesap, mp4, pm)
+        durum_satir = []
+        for ad_, ikon in (("instagram", "📸 Instagram"), ("youtube", "▶️ YouTube")):
+            if ad_ in oto:
+                durum_satir.append(f"{ikon}: " + ("⚠️ " + oto[ad_][6:] if oto[ad_].startswith("HATA") else
+                                                  "✅ paylaşıldı " + oto[ad_]))
+        elle = [p for p in ("instagram", "tiktok", "youtube") if p == "tiktok" or not oto.get(p)
+                or str(oto.get(p, "")).startswith("HATA")]
         try:
             await self.bot.video_gonder(mp4, f"⏰ PAYLAŞIM ZAMANI — {hesap} hesabı ({it['saat']})\n"
-                                             f"Videoyu kaydet → Instagram, TikTok, YouTube'a yükle.", it["hid"],
+                                             + ("\n".join(durum_satir) + "\n" if durum_satir else "")
+                                             + "Elle yükle: " + ", ".join(
+                                                 {"instagram": "Instagram", "tiktok": "TikTok",
+                                                  "youtube": "YouTube"}[p] for p in elle), it["hid"],
                                         butonlar=[[{"text": "✅ Paylaştım", "callback_data": f"pd:{it['hid']}"[:64]},
                                                    {"text": "⏭ Atla", "callback_data": f"pa:{it['hid']}"[:64]}]])
             parca = [f"<b>⏰ {escape(hesap)} — {it['saat']}</b>  (metne dokun → kopyalanır)"]
-            for baslik, anahtar in (("📸 Instagram", "instagram"), ("🎵 TikTok", "tiktok"),
-                                    ("▶️ YouTube başlık", "youtube_baslik"), ("▶️ YouTube açıklama", "youtube_aciklama")):
-                if pm.get(anahtar):
+            for baslik, anahtar, plat in (("📸 Instagram", "instagram", "instagram"), ("🎵 TikTok", "tiktok", "tiktok"),
+                                          ("▶️ YouTube başlık", "youtube_baslik", "youtube"),
+                                          ("▶️ YouTube açıklama", "youtube_aciklama", "youtube")):
+                if pm.get(anahtar) and plat in elle:
                     parca.append(f"{baslik}:\n<code>{escape(pm[anahtar])}</code>")
             await self.bot.html("\n\n".join(parca))
             return True

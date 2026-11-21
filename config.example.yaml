@@ -115,11 +115,17 @@ altyazi:
 # ---------- HESAPLAR ----------
 # Her açık hesap için ayrı dilde video + Instagram/TikTok/YouTube açıklaması üretilir.
 # Telegram'dan /hesap ile aç-kapat, /isim @kullaniciadi ile videonun altındaki ismi değiştir.
+# OTOMATİK PAYLAŞIM (ücretsiz): instagram_token girersen o hesaba Reels kendiliğinden paylaşılır.
+# YouTube: youtube/client_secret.json koy + YOUTUBE_BAGLA.bat. Kurulum adımları README'de.
 hesaplar:
   - ad: "TR"
     dil: "tr"
+    instagram_token: ""
   - ad: "EN"
     dil: "en"
+    instagram_token: ""
+
+youtube_gunluk: 6           # hesap başına günde en fazla kaç YouTube yüklemesi (Google'ın ücretsiz sınırı ~6)
 
 # ---------- YÜZ KAMERASI ----------
 # Yayıncının kamerası bulunursa: üstte yüzü, altta oyun (en çok izlenen klip düzeni)
