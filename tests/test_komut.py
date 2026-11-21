@@ -321,3 +321,29 @@ def test_hemen_paylas_begendim_ve_ozet(tmp_path, monkeypatch):
     assert "kai [TR]" in ozet and "🎵✅" in ozet
     assert u._aralik() == 3 and u._gunluk() == 5
     assert "BotFather" in asyncio.run(u._komut("/ikinci_bot"))
+
+
+
+def test_once_sira_sonra_hemen_paylas(tmp_path, monkeypatch):
+    import json
+    u = _app(tmp_path, monkeypatch)
+
+    async def video(*a, **k):
+        pass
+
+    async def html(*a, **k):
+        pass
+    u.bot.video_gonder, u.bot.html = video, html
+    kid = "20261121_110000_kai_EN"
+    k = u.klasor / "bekleyen" / kid
+    k.mkdir(parents=True)
+    (k / "a.mp4").write_bytes(b"x")
+    (k / "aciklama.json").write_text(json.dumps({"instagram": "x"}))
+    assert "Sıraya eklendi" in asyncio.run(u._onay(kid))        # önce ✅ sıraya
+    cevap, _, _ = asyncio.run(u._buton(f"hp:{kid}"))              # sonra 📤 hemen paylaş: bulmalı
+    assert "Paylaşılıyor" in cevap
+    try:
+        asyncio.run(u._onay("20261121_000000_yok_EN"))
+        assert False
+    except RuntimeError as e:
+        assert "artık yok" in str(e)

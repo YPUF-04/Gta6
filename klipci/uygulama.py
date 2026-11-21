@@ -1259,15 +1259,29 @@ class Uygulama:
                         break
 
     # ---------- telegram geri bildirim ----------
+    def _klip_yeri(self, kid: str) -> tuple[str, Path] | None:
+        """Klibin şu an nerede olduğu: bekleyen / hazir / paylasildi / dusuk_puan."""
+        hesap = kid.rsplit("_", 1)[-1]
+        for yer, yol in (("bekleyen", self.klasor / "bekleyen" / kid),
+                         ("hazir", self.klasor / "hazir" / hesap / kid),
+                         ("paylasildi", self.klasor / "paylasildi" / hesap / kid),
+                         ("dusuk_puan", self.klasor / "dusuk_puan" / kid)):
+            if yol.exists() and list(yol.glob("*.mp4")):
+                return yer, yol
+        return None
+
     async def _onay(self, kid: str) -> str:
         await asyncio.to_thread(self.ogrenci.karar, kid, "onay")
-        kaynak = self.klasor / "bekleyen" / kid
-        if not kaynak.exists():
-            raise RuntimeError("klip bulunamadı")
+        yer = self._klip_yeri(kid)
+        if not yer:
+            raise RuntimeError("bu klibin dosyası artık yok (silinmiş ya da çok eski) — yeni gelen kliplerde dene")
         hesap = kid.rsplit("_", 1)[-1]
         hedef = self.klasor / "hazir" / hesap / kid
-        hedef.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(kaynak), str(hedef))
+        if yer[0] == "paylasildi":
+            return "Bu klip zaten paylaşılmış ✅"
+        if yer[0] != "hazir":   # zaten sıradaysa taşımaya gerek yok
+            hedef.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(yer[1]), str(hedef))
         self.sayac["onay"] += 1
         n = len(self.plan.stok(hesap))
         return f"✅ Sıraya eklendi ({hesap}). Sırada {n} video var, {self._aralik():g} saatte bir paylaşılıyor."
@@ -1706,6 +1720,8 @@ class Uygulama:
                       {"text": "✅ Sıraya ekle", "callback_data": f"ok:{kalan}"[:64]}],
                      [{"text": "👍 Beğendin", "callback_data": "x:"}]])
         if tur == "hp":   # 📤 hemen paylaş
+            if (self._klip_yeri(kalan) or ("",))[0] == "paylasildi":
+                return ("Bu klip zaten paylaşılmış ✅", None, [[{"text": "✅ Paylaşıldı", "callback_data": "x:"}]])
             await self._onay(kalan)
             sonuc = await self._hemen_paylas(kalan)
             return (sonuc, None, [[{"text": "📤 Paylaşıldı — paylaşım kanalına bak", "callback_data": "x:"}]])
