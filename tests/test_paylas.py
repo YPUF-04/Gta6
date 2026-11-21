@@ -101,8 +101,11 @@ def test_bagla_komutlari(tmp_path, monkeypatch):
     run = lambda m: asyncio.run(u._komut(m))
     assert "INSTAGRAM" in run("/bagla")
     monkeypatch.setattr(paylas.Instagram, "hesap", lambda self: {"id": "1", "kullanici": "gta6tr"})
-    assert "@gta6tr" in run("/bagla instagram TR IGTOKEN123")
-    assert next(h for h in u._hesaplar() if h["ad"] == "TR")["instagram_token"] == "IGTOKEN123"
+    tok = "IGAA" + "x" * 150
+    assert "yarım" in run("/bagla instagram TR IGAAxxxx...")
+    assert "benzemiyor" in run("/bagla instagram TR anahtar")
+    assert "@gta6tr" in run(f"/bagla instagram TR {tok}")
+    assert next(h for h in u._hesaplar() if h["ad"] == "TR")["instagram_token"] == tok
     assert "JSON" in run("/bagla youtube TR")
     js = json.dumps({"installed": {"client_id": "c", "client_secret": "s"}}).encode()
     assert "kaydedildi" in asyncio.run(u._belge(js, "client_secret.json", ""))

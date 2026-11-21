@@ -1772,7 +1772,14 @@ class Uygulama:
         if plat == "instagram":
             if len(p) < 3:
                 return "Anahtarı da yaz:  /bagla instagram TR anahtar"
-            token = p[2].strip() + (f"|{p[3].strip()}" if len(p) > 3 else "")
+            ham = p[2].strip().strip('"\'<>`')
+            if "…" in ham or "..." in ham:
+                return ("⚠️ Anahtar yarım kopyalanmış (içinde '...' var). Meta'da 'Generate token' penceresindeki "
+                        "KOPYALA butonunu kullan, yazıyı elle seçme.")
+            if not re.fullmatch(r"[A-Za-z0-9_\-]{60,}", ham):
+                return (f"⚠️ Bu bir anahtara benzemiyor ({len(ham)} karakter). Anahtar IGAA ya da EAA ile başlayan, "
+                        "boşluksuz, 150+ karakterlik bir yazıdır. 'Generate token' penceresindeki kopyala butonunu kullan.")
+            token = ham + (f"|{p[3].strip()}" if len(p) > 3 else "")
             try:
                 k = await asyncio.to_thread(
                     lambda: paylas.Instagram(token, self.kok / "instagram" / f"{hesap}.json").hesap())
