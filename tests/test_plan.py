@@ -39,3 +39,28 @@ def test_plan_en_iyileri_secer(tmp_path):
     pl.paylasildi("TR", secilen[0])
     assert (tmp_path / "paylasildi" / "TR" / secilen[0]).exists()
     assert len(pl.zamani_gelenler(datetime(2026, 11, 20, 23, 59))) == 3
+
+
+def test_tam_otomatik_en_iyiyi_secer(tmp_path, monkeypatch):
+    import json
+    from datetime import date, datetime
+    from tests.test_komut import _app
+    u = _app(tmp_path, monkeypatch)
+
+    def klip(yer, ad, puan):
+        k = (u.klasor / yer / ad) if yer == "bekleyen" else (u.klasor / "hazir" / "EN" / ad)
+        k.mkdir(parents=True)
+        (k / "a.mp4").write_bytes(b"x")
+        (k / "bilgi.json").write_text(json.dumps({"puan": puan}))
+    klip("bekleyen", "20261122_100000_kai_EN", 9.1)      # onaylanmamış ama çok iyi
+    klip("hazir", "20261122_100100_xqc_EN", 8.0)         # senin ✅ bastığın (+0.5 = 8.5)
+    klip("bekleyen", "20261122_100200_abc_EN", 6.0)      # 7'nin altı: asla
+    assert u._en_iyi_aday("EN") == "20261122_100000_kai_EN"
+    u._hazira_al("20261122_100000_kai_EN")
+    assert (u.klasor / "hazir" / "EN" / "20261122_100000_kai_EN").exists()
+    # saatler boş açılır, klip saati gelince seçilir
+    g = u.plan.plan_yap(date(2026, 11, 22), ["EN"], 5, datetime(2026, 11, 22, 8, 0), 3, otomatik=True)
+    assert len(g["EN"]) == 5 and all(it["hid"] == "" for it in g["EN"])
+    u.plan.ata("2026-11-22", "EN", g["EN"][0]["saat"], "20261122_100000_kai_EN")
+    assert u.plan.planli_mi("20261122_100000_kai_EN")
+    assert u._en_iyi_aday("EN") == "20261122_100100_xqc_EN"   # planlanan tekrar seçilmez

@@ -392,6 +392,45 @@ class Uygulama:
         except (TypeError, ValueError):
             return 3.0
 
+    def _tam_otomatik(self) -> bool:
+        """Saat gelince senin onayını beklemeden en iyi klibi kendisi paylaşsın mı? (varsayılan: evet)"""
+        return bool(self._durum_oku().get("tam_otomatik", self.cfg.get("tam_otomatik", True)))
+
+    def _en_iyi_aday(self, hesap: str) -> str:
+        """Şu an bu hesap için paylaşılabilecek en iyi (puanı 10'a en yakın) klip. Senin ✅ / 👍 bastıkların +0.5.
+        En az 'oto_en_dusuk_puan' (varsayılan 7) olmalı."""
+        en_az = float(self.cfg.get("oto_en_dusuk_puan", 7))
+        adaylar: list[tuple[float, str]] = []
+        yerler = [(k, True) for k in (self.klasor / "hazir" / hesap).glob("*")]
+        yerler += [(k, False) for k in (self.klasor / "bekleyen").glob(f"*_{hesap}")]
+        for k, onayli in yerler:
+            if not k.is_dir() or not list(k.glob("*.mp4")) or self.plan.planli_mi(k.name):
+                continue
+            try:
+                b = json.loads((k / "bilgi.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if time.time() - k.stat().st_mtime > 3 * 86400:   # 3 günden eski anlar bayatlar
+                continue
+            p = float(b.get("puan", 0))
+            if p < en_az:
+                continue
+            karar = (self.ogrenci.kayitlar.get(k.name) or {}).get("karar")
+            if karar == "sil":
+                continue
+            p += 0.5 if (onayli or karar == "onay") else 0.0
+            p *= self.performans.yayinci_carpani(planmod.yayinci_adi(k.name))
+            adaylar.append((p, k.name))
+        return max(adaylar)[1] if adaylar else ""
+
+    def _hazira_al(self, kid: str) -> None:
+        """Onay beklemeden seçilen klibi paylaşılacaklar klasörüne taşı."""
+        yer = self._klip_yeri(kid)
+        if yer and yer[0] == "bekleyen":
+            hedef = self.klasor / "hazir" / kid.rsplit("_", 1)[-1] / kid
+            hedef.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(yer[1]), str(hedef))
+
     def _gunluk(self) -> int:
         """Her hesap için günde kaç paylaşım (Telegram /gunluk ile değişir)."""
         if self._aralik():
@@ -1316,6 +1355,7 @@ class Uygulama:
         "/bagla — Instagram / YouTube hesabını Telegram'dan bağla (adım adım)\n"
         "/ikinci_bot — paylaşım kanalı (ikinci Telegram botu) kur\n"
         "/aralik 3 — kaç saatte bir paylaşılsın\n"
+        "/tamotomatik — onayımı beklemeden en iyi klibi kendin paylaş (aç/kapat)\n"
         "/bugun — bugün paylaşılanlar\n"
         "/bildirim — bilgi mesajları (varsayılan kapalı: sadece videolar gelir) · /bildirim ac\n\n"
         "🎬 VİDEOLAR\n"
@@ -1405,6 +1445,16 @@ class Uygulama:
             g = asyncio.create_task(self.bot2.dinle())
             self._arka.add(g)
             return "✅ Paylaşım botu kuruldu. Şimdi YENİ bota gidip /start yaz."
+        if komut in ("/tamotomatik", "/tam_otomatik"):
+            a = arg.strip().lower()
+            if a in ("ac", "aç", "on", "kapat", "off"):
+                d = self._durum_oku()
+                d["tam_otomatik"] = a in ("ac", "aç", "on")
+                self._durum_yaz(d)
+            return ("🤖 Tam otomatik: " + ("AÇIK — her paylaşım saatinde en iyi klibi kendim seçip paylaşıyorum "
+                                          "(senin ✅ bastıkların öncelikli)" if self._tam_otomatik()
+                                          else "KAPALI — sadece senin ✅ bastıkların paylaşılır")
+                    + "\n/tamotomatik ac · /tamotomatik kapat")
         if komut == "/aralik" or komut == "/aralık":
             try:
                 n = float(arg.strip().replace(",", "."))
@@ -1720,7 +1770,9 @@ class Uygulama:
                       {"text": "✅ Sıraya ekle", "callback_data": f"ok:{kalan}"[:64]}],
                      [{"text": "👍 Beğendin", "callback_data": "x:"}]])
         if tur == "hp":   # 📤 hemen paylaş — hemen cevap ver, yükleme arka planda (bitince sonuç mesajı gelir)
-            if (self._klip_yeri(kalan) or ("",))[0] == "paylasildi":
+            planda = self.plan.bul(kalan)
+            if (self._klip_yeri(kalan) or ("",))[0] == "paylasildi" or (
+                    planda and planda[2].get("durum") in ("gonderildi", "paylasildi")):
                 return ("Bu klip zaten paylaşılmış ✅", None, [[{"text": "✅ Paylaşıldı", "callback_data": "x:"}]])
             await self._onay(kalan)
             g = asyncio.create_task(self._hemen_paylas(kalan))
@@ -1810,8 +1862,17 @@ class Uygulama:
                 simdi = zaman.now()
                 hesaplar = [h["ad"] for h in self._hesaplar()]
                 adet = self._gunluk()
-                self.plan.plan_yap(simdi.date(), hesaplar, adet, simdi, self._aralik())
+                self.plan.plan_yap(simdi.date(), hesaplar, adet, simdi, self._aralik(), self._tam_otomatik())
                 for hesap, it in self.plan.zamani_gelenler(simdi):
+                    if not it.get("hid"):   # tam otomatik: şu an elimizdeki en iyi klibi seç
+                        hid = await asyncio.to_thread(self._en_iyi_aday, hesap)
+                        if not hid:
+                            self.plan.ata(simdi.date().isoformat(), hesap, it["saat"], "-", "bos")
+                            log.info("⏰ %s %s: paylaşılacak yeterince iyi klip yok, bu saat atlandı", hesap, it["saat"])
+                            continue
+                        self._hazira_al(hid)
+                        self.plan.ata(simdi.date().isoformat(), hesap, it["saat"], hid)
+                        it = {**it, "hid": hid}
                     if await self._paylasim_hatirlat(hesap, it):
                         self.plan.isaretle(it["hid"], "gonderildi", simdi.date().isoformat())
                 if simdi.hour >= 10 and self._durum_oku().get("son_ozet") != simdi.date().isoformat():

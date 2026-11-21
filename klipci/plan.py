@@ -101,9 +101,20 @@ class Planlayici:
 
     # ---------- plan ----------
     def plan_yap(self, gun: date, hesaplar: list[str], adet: int, simdi: datetime | None = None,
-                 aralik_saat: float = 0) -> dict:
+                 aralik_saat: float = 0, otomatik: bool = False) -> dict:
         d = self._oku()
         g = d.setdefault(gun.isoformat(), {})
+        if otomatik and aralik_saat:
+            # tam otomatik: saatler şimdiden belli, HANGİ klibin gideceği saati gelince seçilir (o anki en iyisi)
+            for h in hesaplar:
+                mevcut = g.setdefault(h, [])
+                dolu = {i["saat"] for i in mevcut}
+                for s in aralikli_saatler(aralik_saat, gun, simdi, h):
+                    if s not in dolu:
+                        mevcut.append({"hid": "", "saat": s, "durum": "bekliyor"})
+                g[h] = sorted(mevcut, key=lambda i: i["saat"])
+            self._yaz(d)
+            return g
         for h in hesaplar:
             mevcut = g.get(h, [])
             eksik = adet - len(mevcut)
@@ -159,6 +170,20 @@ class Planlayici:
             lst.append({"hid": hid, "saat": saat, "durum": durum})
             lst.sort(key=lambda i: i["saat"])
             self._yaz(d)
+
+    def ata(self, gun: str, hesap: str, saat: str, hid: str, durum: str | None = None) -> None:
+        """Boş bir saate klip ata (tam otomatik modda saati gelince)."""
+        d = self._oku()
+        for it in d.get(gun, {}).get(hesap, []):
+            if it["saat"] == saat and not it.get("hid"):
+                it["hid"] = hid
+                if durum:
+                    it["durum"] = durum
+                self._yaz(d)
+                return
+
+    def planli_mi(self, hid: str) -> bool:
+        return any(it.get("hid") == hid for g in self._oku().values() for lst in g.values() for it in lst)
 
     def platform_isaretle(self, hid: str, platform: str, deger: str) -> None:
         d = self._oku()
