@@ -137,3 +137,21 @@ def test_instagram_unified_login_anahtari(tmp_path):
     # hesap numarası elle verilirse
     ig2 = paylas.Instagram("FBTOK|1784", tmp_path / "ig2.json", httpx.Client(transport=httpx.MockTransport(isle)))
     assert ig2.ig_id == "1784" and ig2.token == "FBTOK"
+
+
+def test_tek_anahtar_iki_hesap_karismaz(tmp_path):
+    def isle(req):
+        if req.url.host == "graph.instagram.com":
+            return httpx.Response(400, json={"error": {"message": "Invalid OAuth"}})
+        if req.url.path.endswith("/me/accounts"):
+            return httpx.Response(200, json={"data": [{"instagram_business_account": {"id": "1", "username": "gtatr"}},
+                                                      {"instagram_business_account": {"id": "2", "username": "gtaen"}}]})
+        return httpx.Response(400, json={"error": {"message": "yok"}})
+    h = httpx.Client(transport=httpx.MockTransport(isle))
+    assert paylas.Instagram("T|@gtaen", tmp_path / "a.json", h).hesap()["id"] == "2"
+    assert paylas.Instagram("T|gtatr", tmp_path / "b.json", h).hesap()["id"] == "1"
+    try:
+        paylas.Instagram("T", tmp_path / "c.json", h).hesap()
+        assert False
+    except paylas.PaylasimHatasi as e:
+        assert "birden fazla" in str(e)

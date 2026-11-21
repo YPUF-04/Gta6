@@ -93,7 +93,8 @@ class Instagram:
 
     def hesap(self) -> dict:
         """Anahtarın türünü anla (Instagram girişi / Unified login) ve Instagram hesap numarasını bul."""
-        if self.ig_id:   # hesap numarası verildiyse doğrudan
+        secici = self.ig_id.lstrip("@").lower()
+        if self.ig_id and self.ig_id.isdigit():   # hesap numarası verildiyse doğrudan
             for api in (FB_API, IG_API):
                 try:
                     j = _json(self.http.get(f"{api}/{self.ig_id}", params={"fields": "id,username",
@@ -113,6 +114,7 @@ class Instagram:
         denemeler = [("me/accounts", {"fields": "instagram_business_account{id,username}"}),
                      ("me/businesses", {"fields": "instagram_business_accounts{id,username},"
                                                   "owned_instagram_accounts{id,username}"})]
+        bulunan: dict[str, str] = {}
         for yol, p in denemeler:
             try:
                 j = _json(self.http.get(f"{FB_API}/{yol}", params={**p, "access_token": self.token}))
@@ -125,7 +127,21 @@ class Instagram:
                     adaylar = (v.get("data") if isinstance(v, dict) and "data" in v else [v]) if v else []
                     for ig in adaylar:
                         if ig and ig.get("id"):
-                            return {"id": str(ig["id"]), "kullanici": ig.get("username", "")}
+                            bulunan[str(ig["id"])] = ig.get("username", "")
+        if secici:   # kullanıcı adı verildiyse o hesap (TR videosu EN hesabına gitmesin)
+            for i, k in bulunan.items():
+                if k.lower() == secici:
+                    return {"id": i, "kullanici": k}
+            if bulunan:
+                raise PaylasimHatasi(f"@{secici} bu anahtarla bulunamadı. Bulunanlar: "
+                                     + ", ".join("@" + k for k in bulunan.values()))
+        elif len(bulunan) == 1:
+            i, k = next(iter(bulunan.items()))
+            return {"id": i, "kullanici": k}
+        elif len(bulunan) > 1:
+            raise PaylasimHatasi("Bu anahtar birden fazla Instagram hesabını görüyor ("
+                                 + ", ".join("@" + k for k in bulunan.values())
+                                 + "). Hangisi olduğunu yaz: /bagla instagram TR anahtar @kullaniciadi")
         raise PaylasimHatasi(f"Instagram hesabı bulunamadı ({hata}). Anahtarın yanına Instagram hesap numarasını "
                              "da yaz: /bagla instagram TR anahtar hesapno")
 
