@@ -1719,12 +1719,15 @@ class Uygulama:
                     [[{"text": "📤 Hemen paylaş", "callback_data": f"hp:{kalan}"[:64]},
                       {"text": "✅ Sıraya ekle", "callback_data": f"ok:{kalan}"[:64]}],
                      [{"text": "👍 Beğendin", "callback_data": "x:"}]])
-        if tur == "hp":   # 📤 hemen paylaş
+        if tur == "hp":   # 📤 hemen paylaş — hemen cevap ver, yükleme arka planda (bitince sonuç mesajı gelir)
             if (self._klip_yeri(kalan) or ("",))[0] == "paylasildi":
                 return ("Bu klip zaten paylaşılmış ✅", None, [[{"text": "✅ Paylaşıldı", "callback_data": "x:"}]])
             await self._onay(kalan)
-            sonuc = await self._hemen_paylas(kalan)
-            return (sonuc, None, [[{"text": "📤 Paylaşıldı — paylaşım kanalına bak", "callback_data": "x:"}]])
+            g = asyncio.create_task(self._hemen_paylas(kalan))
+            self._arka.add(g)
+            g.add_done_callback(self._arka.discard)
+            return ("⏳ Paylaşılıyor", None,
+                    [[{"text": "⏳ Yükleniyor… bitince sonuç mesajı gelecek", "callback_data": "x:"}]])
         if tur == "tt":   # paylaşım kanalında: TikTok'a da paylaştım
             await asyncio.to_thread(self.plan.platform_isaretle, kalan, "tiktok", "✅")
             return ("🎵 TikTok ✅", None, [[{"text": "🎵 TikTok'a paylaşıldı ✅", "callback_data": "x:"}]])
@@ -2048,14 +2051,24 @@ class Uygulama:
         return ozel if hesap and ozel.exists() else self.kok / "youtube" / "client_secret.json"
 
     def _otomatik_paylas(self, hesap: str, mp4: Path, pm: dict) -> dict:
-        """Instagram + YouTube'a otomatik yükle (bağlıysa). {platform: link ya da 'HATA: ...'}"""
-        from . import paylas
+        """Bağlı platformlara AYNI ANDA yükle (Instagram→Threads zinciri, Facebook, YouTube paralel).
+        {platform: link ya da 'HATA: ...'}"""
+        from concurrent.futures import ThreadPoolExecutor
         h = next((x for x in self._hesaplar(hepsi=True) if x["ad"] == hesap), {})
+        isler = [self._ig_ve_threads, self._fb_paylas, self._yt_paylas]
+        sonuc: dict = {}
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            for r in ex.map(lambda f: f(h, hesap, mp4, pm), isler):
+                sonuc.update(r)
+        return sonuc
+
+    def _ig_ve_threads(self, h: dict, hesap: str, mp4: Path, pm: dict) -> dict:
+        from . import paylas
         sonuc: dict = {}
         video_adresi = ""
         if h.get("instagram_token"):
             try:
-                ig = paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{hesap}.json")
+                ig = paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{hesap}.json", bekle=3)
                 sonuc["instagram"] = ig.reels(mp4, pm.get("instagram", "")) or "paylaşıldı"
                 video_adresi = ig.son_video_adresi
                 sonuc["_instagram_id"] = ig.son_medya_id
@@ -2063,43 +2076,51 @@ class Uygulama:
             except Exception as e:  # noqa: BLE001
                 log.warning("Instagram paylaşımı olmadı (%s): %r", hesap, e)
                 sonuc["instagram"] = f"HATA: {e}"[:200]
-        if h.get("facebook_token"):
-            try:
-                sonuc["facebook"] = paylas.Facebook(h["facebook_token"]).reels(mp4, pm.get("instagram", ""))
-                log.info("📘 Facebook'a paylaşıldı (%s): %s", hesap, sonuc["facebook"])
-            except Exception as e:  # noqa: BLE001
-                log.warning("Facebook paylaşımı olmadı (%s): %r", hesap, e)
-                sonuc["facebook"] = f"HATA: {e}"[:200]
         if h.get("threads_token"):
             try:
-                th = paylas.Threads(h["threads_token"], self.kok / "threads" / f"{hesap}.json")
+                th = paylas.Threads(h["threads_token"], self.kok / "threads" / f"{hesap}.json", bekle=3)
                 sonuc["threads"] = th.video(video_adresi, pm.get("instagram", ""))
                 log.info("🧵 Threads'e paylaşıldı (%s): %s", hesap, sonuc["threads"])
             except Exception as e:  # noqa: BLE001
                 log.warning("Threads paylaşımı olmadı (%s): %r", hesap, e)
                 sonuc["threads"] = f"HATA: {e}"[:200]
-        yt = paylas.YouTube(self._yt_istemci(hesap), self.kok / "youtube" / f"{hesap}.json")
-        if h.get("youtube", True) and yt.bagli_mi():
-            d = self._durum_oku()
-            sayac = d.get("yt_sayac") or {}
-            anahtar = f"{tarih.today().isoformat()}_{hesap}"
-            if sayac.get(anahtar, 0) >= int(self.cfg.get("youtube_gunluk", 6)):
-                sonuc["youtube"] = "HATA: bugünkü YouTube yükleme hakkı doldu (Google sınırı), elle yükle"
-            else:
-                try:
-                    etiket = [t for t in pm.get("youtube_aciklama", "").split() if t.startswith("#")]
-                    sonuc["youtube"] = yt.yukle(mp4, pm.get("youtube_baslik", ""), pm.get("youtube_aciklama", ""),
-                                                etiket)
-                    sayac = {k: v for k, v in sayac.items() if k.startswith(tarih.today().isoformat())}
-                    sayac[anahtar] = sayac.get(anahtar, 0) + 1
-                    d = self._durum_oku()
-                    d["yt_sayac"] = sayac
-                    self._durum_yaz(d)
-                    log.info("▶️ YouTube'a yüklendi (%s): %s", hesap, sonuc["youtube"])
-                except Exception as e:  # noqa: BLE001
-                    log.warning("YouTube yüklemesi olmadı (%s): %r", hesap, e)
-                    sonuc["youtube"] = f"HATA: {e}"[:200]
         return sonuc
+
+    def _fb_paylas(self, h: dict, hesap: str, mp4: Path, pm: dict) -> dict:
+        from . import paylas
+        if not h.get("facebook_token"):
+            return {}
+        try:
+            link = paylas.Facebook(h["facebook_token"]).reels(mp4, pm.get("instagram", ""))
+            log.info("📘 Facebook'a paylaşıldı (%s): %s", hesap, link)
+            return {"facebook": link}
+        except Exception as e:  # noqa: BLE001
+            log.warning("Facebook paylaşımı olmadı (%s): %r", hesap, e)
+            return {"facebook": f"HATA: {e}"[:200]}
+
+    def _yt_paylas(self, h: dict, hesap: str, mp4: Path, pm: dict) -> dict:
+        from . import paylas
+        yt = paylas.YouTube(self._yt_istemci(hesap), self.kok / "youtube" / f"{hesap}.json")
+        if not (h.get("youtube", True) and yt.bagli_mi()):
+            return {}
+        d = self._durum_oku()
+        sayac = d.get("yt_sayac") or {}
+        anahtar = f"{tarih.today().isoformat()}_{hesap}"
+        if sayac.get(anahtar, 0) >= int(self.cfg.get("youtube_gunluk", 6)):
+            return {"youtube": "HATA: bugünkü YouTube yükleme hakkı doldu (Google sınırı), elle yükle"}
+        try:
+            etiket = [t for t in pm.get("youtube_aciklama", "").split() if t.startswith("#")]
+            link = yt.yukle(mp4, pm.get("youtube_baslik", ""), pm.get("youtube_aciklama", ""), etiket)
+            d = self._durum_oku()
+            sayac = {k: v for k, v in (d.get("yt_sayac") or {}).items() if k.startswith(tarih.today().isoformat())}
+            sayac[anahtar] = sayac.get(anahtar, 0) + 1
+            d["yt_sayac"] = sayac
+            self._durum_yaz(d)
+            log.info("▶️ YouTube'a yüklendi (%s): %s", hesap, link)
+            return {"youtube": link}
+        except Exception as e:  # noqa: BLE001
+            log.warning("YouTube yüklemesi olmadı (%s): %r", hesap, e)
+            return {"youtube": f"HATA: {e}"[:200]}
 
     async def _paylasim_hatirlat(self, hesap: str, it: dict) -> bool:
         k = self.klasor / "hazir" / hesap / it["hid"]

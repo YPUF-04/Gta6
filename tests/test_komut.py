@@ -314,7 +314,11 @@ def test_hemen_paylas_begendim_ve_ozet(tmp_path, monkeypatch):
     (k / "aciklama.json").write_text(json.dumps({"instagram": "x", "tiktok": "t"}))
     cevap, _, klavye = asyncio.run(u._buton(f"bg:{kid}"))
     assert "Not aldım" in cevap and klavye[0][0]["callback_data"].startswith("hp:")
-    cevap, _, _ = asyncio.run(u._buton(f"hp:{kid}"))
+    async def hp():
+        c = await u._buton(f"hp:{kid}")
+        await asyncio.gather(*list(u._arka))   # arka plandaki yükleme bitsin
+        return c
+    cevap, _, _ = asyncio.run(hp())
     assert "Paylaşılıyor" in cevap and giden and (u.klasor / "hazir" / "TR" / kid).exists()
     asyncio.run(u._buton(f"tt:{kid}"))
     ozet = u._paylasim_ozeti(datetime.now().date(), "Bugün")
@@ -340,7 +344,11 @@ def test_once_sira_sonra_hemen_paylas(tmp_path, monkeypatch):
     (k / "a.mp4").write_bytes(b"x")
     (k / "aciklama.json").write_text(json.dumps({"instagram": "x"}))
     assert "Sıraya eklendi" in asyncio.run(u._onay(kid))        # önce ✅ sıraya
-    cevap, _, _ = asyncio.run(u._buton(f"hp:{kid}"))              # sonra 📤 hemen paylaş: bulmalı
+    async def hp():
+        c = await u._buton(f"hp:{kid}")              # sonra 📤 hemen paylaş: bulmalı
+        await asyncio.gather(*list(u._arka))
+        return c
+    cevap, _, _ = asyncio.run(hp())
     assert "Paylaşılıyor" in cevap
     try:
         asyncio.run(u._onay("20261121_000000_yok_EN"))
