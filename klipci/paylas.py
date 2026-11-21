@@ -103,12 +103,17 @@ class Instagram:
                     return {"id": str(j.get("id") or self.ig_id), "kullanici": j.get("username", "")}
                 except PaylasimHatasi:
                     continue
-        try:   # eski yöntem: Instagram girişi anahtarı
-            j = _json(self.http.get(f"{IG_API}/me", params={"fields": "user_id,username", "access_token": self.token}))
-            self.api = IG_API
-            return {"id": str(j.get("user_id") or j.get("id")), "kullanici": j.get("username", "")}
-        except PaylasimHatasi as ilk_hata:
-            hata = ilk_hata
+        hata: Exception | None = None
+        # Instagram girişi anahtarı (IGAA...): sürümlü/sürümsüz adres, parametre ya da başlıkla dene
+        for adres, baslik, ek in ((f"{IG_API}/me", {}, {"access_token": self.token}),
+                                  ("https://graph.instagram.com/me", {}, {"access_token": self.token}),
+                                  (f"{IG_API}/me", {"Authorization": f"Bearer {self.token}"}, {})):
+            try:
+                j = _json(self.http.get(adres, params={"fields": "user_id,username", **ek}, headers=baslik))
+                self.api = IG_API
+                return {"id": str(j.get("user_id") or j.get("id")), "kullanici": j.get("username", "")}
+            except PaylasimHatasi as e:
+                hata = e
         # yeni yöntem: Unified login (Facebook anahtarı) — Instagram hesabını bağlı varlıklardan bul
         self.api = FB_API
         denemeler = [("me/accounts", {"fields": "instagram_business_account{id,username}"}),
@@ -142,8 +147,8 @@ class Instagram:
             raise PaylasimHatasi("Bu anahtar birden fazla Instagram hesabını görüyor ("
                                  + ", ".join("@" + k for k in bulunan.values())
                                  + "). Hangisi olduğunu yaz: /bagla instagram TR anahtar @kullaniciadi")
-        raise PaylasimHatasi(f"Instagram hesabı bulunamadı ({hata}). Anahtarın yanına Instagram hesap numarasını "
-                             "da yaz: /bagla instagram TR anahtar hesapno")
+        raise PaylasimHatasi(f"Instagram hesabı bulunamadı ({hata}) — anahtar '{self.token[:4]}…' ile başlıyor, "
+                             f"{len(self.token)} karakter")
 
     def reels(self, mp4: Path, aciklama: str) -> str:
         """Reels paylaş, gönderinin linkini döndür."""
