@@ -67,6 +67,7 @@ class Planlayici:
     def __init__(self, klasor: Path):
         self.klasor = klasor
         self.yol = klasor / "plan.json"
+        self.carpan = None   # yayıncı -> çarpan (istatistiklere göre)
 
     # ---------- dosya ----------
     def _oku(self) -> dict:
@@ -92,6 +93,8 @@ class Planlayici:
                     p = float(json.loads((k / "bilgi.json").read_text(encoding="utf-8")).get("puan", 0))
                 except (OSError, ValueError):
                     p = 0.0
+                if self.carpan:   # çok izlenen yayıncıların klipleri öne
+                    p *= self.carpan(yayinci_adi(k.name))
                 out.append((k, p))
         out.sort(key=lambda x: -x[1])
         return out

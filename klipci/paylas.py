@@ -56,6 +56,7 @@ class Instagram:
         token, _, self.ig_id = (token or "").strip().partition("|")
         self.api = IG_API
         self.son_video_adresi = ""
+        self.son_medya_id = ""
         self.kayit = kayit
         self.http = http or httpx.Client(timeout=httpx.Timeout(120, connect=20))
         self.bekle = bekle
@@ -178,13 +179,36 @@ class Instagram:
             raise PaylasimHatasi("Instagram videoyu 10 dakikada işleyemedi")
         mid = _json(self.http.post(f"{api}/{uid}/media_publish",
                                    data={"creation_id": cid, "access_token": self.token}))["id"]
+        self.son_medya_id = str(mid)
         try:
             j = _json(self.http.get(f"{api}/{mid}", params={"fields": "permalink,media_url",
                                                              "access_token": self.token}))
             self.son_video_adresi = j.get("media_url", "")   # Threads bu adresten videoyu alır
+            self.son_medya_id = str(mid)
             return j.get("permalink", "")
         except Exception:  # noqa: BLE001
             return ""
+
+
+def ig_istatistik(ig: "Instagram", medya_id: str) -> dict:
+    """Bir Reels'in izlenme/beğeni/yorum/paylaşım/kaydetme sayıları."""
+    ig.hesap()   # anahtar türüne göre doğru adresi seç
+    for metrikler in ("views,likes,comments,shares,saved,reach", "plays,likes,comments,shares,saved,reach",
+                      "likes,comments,reach"):
+        try:
+            j = _json(ig.http.get(f"{ig.api}/{medya_id}/insights", params={"metric": metrikler,
+                                                                         "access_token": ig.token}))
+        except PaylasimHatasi:
+            continue
+        s: dict = {}
+        for m in j.get("data") or []:
+            v = (m.get("total_value") or {}).get("value")
+            if v is None and m.get("values"):
+                v = m["values"][0].get("value")
+            s[m.get("name")] = int(v or 0)
+        return {"izlenme": s.get("views") or s.get("plays") or s.get("reach", 0), "begeni": s.get("likes", 0),
+                "yorum": s.get("comments", 0), "paylasim": s.get("shares", 0), "kaydetme": s.get("saved", 0)}
+    return {}
 
 
 # ============================ FACEBOOK REELS ============================
@@ -386,6 +410,14 @@ class YouTube:
         j = _json(self.http.put(adres, content=veri, headers={"Authorization": f"Bearer {erisim}",
                                                               "Content-Type": "video/mp4"}))
         return f"https://youtube.com/shorts/{j['id']}"
+
+    def istatistik(self, video_id: str) -> dict:
+        j = _json(self.http.get("https://www.googleapis.com/youtube/v3/videos",
+                                params={"part": "statistics", "id": video_id},
+                                headers={"Authorization": f"Bearer {self._erisim()}"}))
+        st = ((j.get("items") or [{}])[0]).get("statistics") or {}
+        return {"izlenme": int(st.get("viewCount", 0)), "begeni": int(st.get("likeCount", 0)),
+                "yorum": int(st.get("commentCount", 0))}
 
 
 # ---- Telegram'dan bağlama: Google "cihaz kodu" yöntemi (telefonda google.com/device'a kodu yazarsın) ----

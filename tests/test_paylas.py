@@ -196,3 +196,33 @@ def test_threads_videosu(tmp_path):
         return httpx.Response(200, json={"permalink": "https://threads.net/@gtatr/post/x"})
     th = paylas.Threads("TT", tmp_path / "th.json", httpx.Client(transport=httpx.MockTransport(isle)), bekle=0)
     assert th.video("https://cdn.example/v.mp4", "x").startswith("https://threads.net")
+
+
+def test_performans_raporu_ve_oncelik(tmp_path):
+    import time as _t
+    from klipci.performans import Performans
+    p = Performans(tmp_path / "ist.json")
+    veriler = {"kai": [20000, 30000], "xqc": [9000, 11000], "abc": [1000, 1200]}
+    i = 0
+    for y, izl in veriler.items():
+        for v in izl:
+            i += 1
+            p.kaydet(f"20261121_10000{i}_{y}_EN", "EN", y, {"instagram": f"m{i}"})
+    sayilar = {f"m{i}": v for i, v in enumerate([x for l in veriler.values() for x in l], 1)}
+    assert p.guncelle(lambda plat, kimlik, hesap: {"izlenme": sayilar[kimlik], "begeni": sayilar[kimlik] // 10}) == 6
+    r = p.rapor()
+    assert "En çok izlenenler" in r and "1. kai" in r and "Daha çok paylaşacağız: kai" in r and "abc" in r
+    assert p.yayinci_carpani("kai") > 1.2 and p.yayinci_carpani("abc") < 0.9
+
+
+def test_ig_istatistik(tmp_path):
+    def isle(req):
+        if req.url.path.endswith("/me"):
+            return httpx.Response(200, json={"user_id": "1", "username": "x"})
+        if req.url.path.endswith("/M1/insights"):
+            return httpx.Response(200, json={"data": [{"name": "views", "values": [{"value": 1500}]},
+                                                      {"name": "likes", "values": [{"value": 90}]},
+                                                      {"name": "comments", "values": [{"value": 4}]}]})
+        return httpx.Response(404, json={"error": {"message": "yok"}})
+    ig = paylas.Instagram("T", tmp_path / "ig.json", httpx.Client(transport=httpx.MockTransport(isle)))
+    assert paylas.ig_istatistik(ig, "M1") == {"izlenme": 1500, "begeni": 90, "yorum": 4, "paylasim": 0, "kaydetme": 0}

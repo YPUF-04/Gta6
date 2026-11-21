@@ -89,6 +89,8 @@ class Uygulama:
         self._arka: set = set()
         # İkinci Telegram botu: "paylaşım kanalı" (onayladıkların, paylaşılanlar, TikTok hatırlatması, 10:00 özeti)
         self.bot2: Bot | None = None
+        from .performans import Performans
+        self.performans = Performans(self.klasor / "istatistik.json")
         self._bot2_kur(tg.get("paylasim_bot_token") or durum.get("bot2_token", ""))
         self.yazar = Yazar(cfg.get("anthropic_api_key", ""), cfg.get("claude_model", "claude-opus-5-5"))
         a = cfg.get("altyazi") or {}
@@ -116,11 +118,13 @@ class Uygulama:
         self._son_puanlar: deque[float] = deque(maxlen=40)
         self._son_gecen = time.time()
         self.son_sorun = ""
+        self._son_istatistik = 0.0
         self.basladi = time.time()
         self.son_bulunan: list[tuple[kesif.Kanal, int]] = []
         self.son_tarama = 0.0
         self.ogrenci = puan.Ogrenci(self.klasor / "puan_gecmisi.jsonl")
         self.plan = planmod.Planlayici(self.klasor)
+        self.plan.carpan = self.performans.yayinci_carpani
         try:
             self.yazar.trend = (self.klasor / "trend.txt").read_text(encoding="utf-8")
         except OSError:
@@ -166,12 +170,27 @@ class Uygulama:
         k = metin.split()[0].lower().split("@")[0] if metin.split() else ""
         if k in ("/bugun", "/bugün", "/paylasilanlar", "/paylaşılanlar"):
             return self._paylasim_ozeti(zaman.now().date(), "Bugün")
+        if k in ("/istatistik", "/performans", "/izlenme"):
+            await asyncio.to_thread(self.performans.guncelle, self._istatistik_cek)
+            return self.performans.rapor()
         if k in ("/dun", "/dün"):
             return self._paylasim_ozeti(zaman.now().date() - timedelta(days=1), "Dün")
         if k in ("/plan", "/stok", "/paylasim", "/paylaşım"):
             return await self._komut(metin)
         return ("📤 PAYLAŞIM KANALI\nBuraya paylaşılan videolar, TikTok hatırlatmaları ve her sabah 10:00'da özet gelir.\n"
-                "/bugun — bugün paylaşılanlar · /dun — dün · /plan — paylaşım saatleri · /stok")
+                "/bugun — bugün paylaşılanlar · /dun — dün · /istatistik — izlenmeler ve öneri\n"
+                "/plan — paylaşım saatleri · /stok")
+
+    def _istatistik_cek(self, plat: str, kimlik: str, hesap: str) -> dict | None:
+        from . import paylas
+        h = next((x for x in self._hesaplar(hepsi=True) if x["ad"] == hesap), {})
+        if plat == "instagram" and h.get("instagram_token"):
+            return paylas.ig_istatistik(paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{hesap}.json"),
+                                        kimlik)
+        if plat == "youtube":
+            yt = paylas.YouTube(self._yt_istemci(hesap), self.kok / "youtube" / f"{hesap}.json")
+            return yt.istatistik(kimlik) if yt.bagli_mi() else None
+        return None
 
     def _paylasim_ozeti(self, gun, baslik: str) -> str:
         g = self.plan.gun_plani(gun)
@@ -1385,6 +1404,9 @@ class Uygulama:
             return f"✅ Artık {n:g} saatte bir paylaşılacak (günde ~{self._gunluk()} video, hesap başına)."
         if komut in ("/bugun", "/bugün", "/paylasilanlar", "/paylaşılanlar"):
             return self._paylasim_ozeti(zaman.now().date(), "Bugün")
+        if komut in ("/performans", "/izlenme"):
+            await asyncio.to_thread(self.performans.guncelle, self._istatistik_cek)
+            return self.performans.rapor()
         if komut in ("/bagla", "/bağla"):
             return await self._bagla(arg)
         if komut in ("/paylasim", "/paylaşım", "/otomatik"):
@@ -1778,9 +1800,16 @@ class Uygulama:
                     d["son_ozet"] = simdi.date().isoformat()
                     self._durum_yaz(d)
                     try:
-                        await self._paylas_botu().mesaj(self._paylasim_ozeti(simdi.date() - timedelta(days=1), "Dün"))
+                        await asyncio.to_thread(self.performans.guncelle, self._istatistik_cek)
+                        await self._paylas_botu().mesaj(self._paylasim_ozeti(simdi.date() - timedelta(days=1), "Dün")
+                                                        + "\n\n" + self.performans.rapor())
                     except Exception as e:  # noqa: BLE001
                         log.warning("günlük özet gönderilemedi: %r", e)
+                if time.time() - self._son_istatistik > 6 * 3600:
+                    self._son_istatistik = time.time()
+                    n = await asyncio.to_thread(self.performans.guncelle, self._istatistik_cek)
+                    if n:
+                        log.info("📈 %d paylaşımın istatistiği güncellendi", n)
                 if simdi.hour >= 10 and son_meme != simdi.date().isoformat():
                     son_meme = simdi.date().isoformat()
                     d = self._durum_oku()
@@ -2006,6 +2035,7 @@ class Uygulama:
                 ig = paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{hesap}.json")
                 sonuc["instagram"] = ig.reels(mp4, pm.get("instagram", "")) or "paylaşıldı"
                 video_adresi = ig.son_video_adresi
+                sonuc["_instagram_id"] = ig.son_medya_id
                 log.info("📸 Instagram'a paylaşıldı (%s): %s", hesap, sonuc["instagram"])
             except Exception as e:  # noqa: BLE001
                 log.warning("Instagram paylaşımı olmadı (%s): %r", hesap, e)
@@ -2059,6 +2089,10 @@ class Uygulama:
         except (OSError, ValueError):
             pm = {}
         oto = await asyncio.to_thread(self._otomatik_paylas, hesap, mp4, pm)
+        kimlik = {"instagram": oto.pop("_instagram_id", ""),
+                  "youtube": oto["youtube"].rsplit("/", 1)[-1] if str(oto.get("youtube", "")).startswith("http") else ""}
+        if any(kimlik.values()):
+            self.performans.kaydet(it["hid"], hesap, planmod.yayinci_adi(it["hid"]), kimlik)
         for plat, v in oto.items():
             self.plan.platform_isaretle(it["hid"], plat, v)
         durum_satir = []
