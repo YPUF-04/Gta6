@@ -83,7 +83,8 @@ def test_paylasim_hatirlatma(tmp_path, monkeypatch):
     (k / "aciklama.json").write_text(json.dumps({"instagram": "Kai <3 #gta6", "tiktok": "t", "youtube_baslik": "y #shorts",
                                                  "youtube_aciklama": "d"}))
     ok = asyncio.run(u._paylasim_hatirlat("TR", {"hid": k.name, "saat": "14:37"}))
-    assert ok and giden[0][0] == "video" and "pd:" in giden[0][2][0][0]["callback_data"]
+    assert ok and giden[0][0] == "video" and "tt:" in giden[0][2][0][0]["callback_data"]
+    assert "pd:" in giden[0][2][1][0]["callback_data"]
     assert "<code>Kai &lt;3 #gta6</code>" in giden[1][1] and "YouTube" in giden[1][1]
 
 
@@ -291,3 +292,32 @@ def test_bildirimler_varsayilan_kapali(tmp_path, monkeypatch):
     asyncio.run(u._bildir("▶ açıldı"))
     assert giden == ["▶ açıldı"]
     assert "kapandı" in asyncio.run(u._komut("/bildirim kapat"))
+
+
+
+def test_hemen_paylas_begendim_ve_ozet(tmp_path, monkeypatch):
+    import json
+    from datetime import datetime
+    u = _app(tmp_path, monkeypatch)
+    giden = []
+
+    async def video(yol, aciklama, kid, butonlar=None):
+        giden.append(aciklama)
+
+    async def html(metin, butonlar=None):
+        pass
+    u.bot.video_gonder, u.bot.html = video, html
+    kid = "20261121_100000_kai_TR"
+    k = u.klasor / "bekleyen" / kid
+    k.mkdir(parents=True)
+    (k / "a.mp4").write_bytes(b"x")
+    (k / "aciklama.json").write_text(json.dumps({"instagram": "x", "tiktok": "t"}))
+    cevap, _, klavye = asyncio.run(u._buton(f"bg:{kid}"))
+    assert "Not aldım" in cevap and klavye[0][0]["callback_data"].startswith("hp:")
+    cevap, _, _ = asyncio.run(u._buton(f"hp:{kid}"))
+    assert "Paylaşılıyor" in cevap and giden and (u.klasor / "hazir" / "TR" / kid).exists()
+    asyncio.run(u._buton(f"tt:{kid}"))
+    ozet = u._paylasim_ozeti(datetime.now().date(), "Bugün")
+    assert "kai [TR]" in ozet and "🎵✅" in ozet
+    assert u._aralik() == 3 and u._gunluk() == 5
+    assert "BotFather" in asyncio.run(u._komut("/ikinci_bot"))

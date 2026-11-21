@@ -9,6 +9,7 @@
 # 2) Programı başlat, botuna /start yaz. Bot seni otomatik tanır (chat_id'yi kendisi kaydeder).
 telegram:
   bot_token: ""
+  paylasim_bot_token: ""   # (isteğe bağlı) 2. bot = paylaşım kanalı. Telegram'dan /ikinci_bot ile de kurulur
   chat_id: ""          # boş bırak, /start yazınca otomatik dolar
 
 # ---------- YAPAY ZEKA (önerilir) ----------
@@ -148,6 +149,7 @@ ilerleme_cubugu: false      # altta sarı ilerleme çubuğu
 hedef_puan: 7               # sadece 0-10 arası bu puan ve üstü anlar video olur (Telegram: /kalite 8)
 ses_tetik: true             # chat'e bakmadan da: yayıncı aniden bağırırsa an incelenir
 en_dusuk_puan: 0            # bunun altındaki klipler Telegram'a gelmez (0 = hepsi gelir)
+paylasim_araligi_saat: 3    # kaç saatte bir paylaşılsın (Telegram: /aralik 3). 0 = gunluk_paylasim kullanılır
 gunluk_paylasim: 25         # her hesap için günde kaç video (TR 25 + EN 25). Telegram: /gunluk 25
 hedef_stok: 20              # her hesapta hazır bekleyen video hedefi
 gunluk_meme: 2              # her hesap için günde kaç meme videosu (her gün 10:00'da hazırlanır)

@@ -58,10 +58,12 @@ class Bot:
     async def video_gonder(self, yol: Path, aciklama: str, klip_id: str, butonlar: list | None = None) -> None:
         if not self.chat_id:
             raise RuntimeError("Telegram chat_id yok — botuna /start yaz")
-        klavye = {"inline_keyboard": butonlar or [[
-            {"text": "✅ Stoğa ekle", "callback_data": f"ok:{klip_id}"},
-            {"text": "🗑 Sil", "callback_data": f"sil:{klip_id}"},
-        ]]}
+        klavye = {"inline_keyboard": butonlar or [
+            [{"text": "📤 Hemen paylaş", "callback_data": f"hp:{klip_id}"[:64]},
+             {"text": "✅ Sıraya ekle", "callback_data": f"ok:{klip_id}"[:64]}],
+            [{"text": "👍 Beğendim", "callback_data": f"bg:{klip_id}"[:64]},
+             {"text": "👎 Beğenmedim", "callback_data": f"sil:{klip_id}"[:64]}],
+        ]}
         with open(yol, "rb") as f:
             await self._api("sendVideo", data={
                 "chat_id": self.chat_id, "caption": aciklama[:1024], "supports_streaming": "true",
@@ -72,7 +74,7 @@ class Bot:
         """Telegram'da / yazınca çıkan komut listesi."""
         komutlar = [("info", "📋 Tüm komutların listesi"), ("durum", "Neler izleniyor, kaç klip çıktı"), ("sira", "Hazırlanan klipler, hangi aşamada"), ("kayit", "Her yayının kayıt durumu"), ("yayinlar", "Şu an açık yayınlar — dokun, seç"),
                     ("platform", "Twitch / Kick / YouTube aç-kapat"), ("istatistik", "Neyi sevdiğimi öğrendin?"),
-                    ("sinir", "Aynı anda kaç yayın izlensin: /sinir 12"), ("kalite", "Video için en düşük puan: /kalite 7"), ("bildirim", "Bilgi mesajları aç/kapat (varsayılan kapalı)"), ("paylasim", "Otomatik paylaşım bağlı mı?"), ("bagla", "Instagram / YouTube hesabı bağla"), ("meme", "Şimdi meme videosu yap"), ("gunluk", "Günde kaç paylaşım: /gunluk 10"),
+                    ("sinir", "Aynı anda kaç yayın izlensin: /sinir 12"), ("kalite", "Video için en düşük puan: /kalite 7"), ("bildirim", "Bilgi mesajları aç/kapat (varsayılan kapalı)"), ("paylasim", "Otomatik paylaşım bağlı mı?"), ("ikinci_bot", "Paylaşım kanalı (2. bot) kur"), ("aralik", "Kaç saatte bir paylaşılsın"), ("bugun", "Bugün paylaşılanlar"), ("bagla", "Instagram / YouTube hesabı bağla"), ("meme", "Şimdi meme videosu yap"), ("gunluk", "Günde kaç paylaşım: /gunluk 10"),
                     ("ad", "Tweet tarzı: sayfa adı"), ("ustyazi", "Tweet tarzı: büyük başlık"), ("guncelle", "Programı güncelle (uzaktan)"), ("plan", "Bugünün paylaşım planı"), ("stok", "Hesaplarda kaç video hazır"),
                     ("isim", "Videonun altındaki kullanıcı adı: /isim @hesap"),
                     ("hesap", "TR / EN hesaplarını aç-kapat"),
@@ -142,7 +144,7 @@ class Bot:
                     cevap = f"Hata: {e}"
                 if cevap:
                     await self.mesaj(cevap)
-                if metin.lower().startswith(("/bagla instagram", "/bağla instagram")):
+                if metin.lower().startswith(("/bagla instagram", "/bağla instagram", "/ikinci_bot ")):
                     try:   # anahtar sohbette durmasın
                         await self._api("deleteMessage", data={"chat_id": self.chat_id, "message_id": m["message_id"]})
                     except Exception:  # noqa: BLE001

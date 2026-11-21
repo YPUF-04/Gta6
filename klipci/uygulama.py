@@ -87,6 +87,9 @@ class Uygulama:
         self.bot.on_foto = self._profil_kaydet
         self.bot.on_belge = self._belge
         self._arka: set = set()
+        # İkinci Telegram botu: "paylaşım kanalı" (onayladıkların, paylaşılanlar, TikTok hatırlatması, 10:00 özeti)
+        self.bot2: Bot | None = None
+        self._bot2_kur(tg.get("paylasim_bot_token") or durum.get("bot2_token", ""))
         self.yazar = Yazar(cfg.get("anthropic_api_key", ""), cfg.get("claude_model", "claude-opus-5-5"))
         a = cfg.get("altyazi") or {}
         self.yaziya = Yaziya(a.get("whisper_model", "small"), a.get("cihaz", "auto")) if a.get("acik", True) else None
@@ -141,6 +144,55 @@ class Uygulama:
             return json.loads(self.durum_yolu.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
+
+    def _bot2_kur(self, token: str) -> None:
+        if not token:
+            return
+
+        def kaydet(cid: str) -> None:
+            d = self._durum_oku()
+            d["bot2_chat"] = cid
+            self._durum_yaz(d)
+        # sadece senin konuşmana cevap versin: ana botla aynı kişi (/start yazan ilk kişi)
+        self.bot2 = Bot(token, self._durum_oku().get("bot2_chat", ""), kaydet)
+        self.bot2.on_komut = self._komut2
+        self.bot2.on_buton = self._buton
+
+    def _paylas_botu(self) -> Bot:
+        """Paylaşımla ilgili mesajlar ikinci bota (kuruluysa), yoksa ana bota."""
+        return self.bot2 if self.bot2 and self.bot2.chat_id else self.bot
+
+    async def _komut2(self, metin: str) -> str:
+        k = metin.split()[0].lower().split("@")[0] if metin.split() else ""
+        if k in ("/bugun", "/bugün", "/paylasilanlar", "/paylaşılanlar"):
+            return self._paylasim_ozeti(zaman.now().date(), "Bugün")
+        if k in ("/dun", "/dün"):
+            return self._paylasim_ozeti(zaman.now().date() - timedelta(days=1), "Dün")
+        if k in ("/plan", "/stok", "/paylasim", "/paylaşım"):
+            return await self._komut(metin)
+        return ("📤 PAYLAŞIM KANALI\nBuraya paylaşılan videolar, TikTok hatırlatmaları ve her sabah 10:00'da özet gelir.\n"
+                "/bugun — bugün paylaşılanlar · /dun — dün · /plan — paylaşım saatleri · /stok")
+
+    def _paylasim_ozeti(self, gun, baslik: str) -> str:
+        g = self.plan.gun_plani(gun)
+        satir = [f"📊 {baslik} ({gun.strftime('%d.%m')}) paylaşılanlar"]
+        n = 0
+        for hesap, lst in sorted(g.items()):
+            for it in lst:
+                if it.get("durum") not in ("gonderildi", "paylasildi"):
+                    continue
+                n += 1
+                pf = it.get("platformlar") or {}
+
+                def ik(p: str, e: str) -> str:
+                    v = str(pf.get(p, ""))
+                    return f"{e}{'✅' if v and not v.startswith('HATA') else '⚠️' if v.startswith('HATA') else '⏳'}"
+                satir.append(f"• {it['saat']} {planmod.yayinci_adi(it['hid'])} [{hesap}]  "
+                             f"{ik('instagram', '📸')} {ik('youtube', '▶️')} {ik('tiktok', '🎵')}")
+        if not n:
+            satir.append("— henüz yok")
+        satir.append("\n📸 Instagram · ▶️ YouTube · 🎵 TikTok   ✅ paylaşıldı · ⏳ bekliyor · ⚠️ olmadı")
+        return "\n".join(satir)
 
     def _chat_id_kaydet(self, cid: str) -> None:
         d = self._durum_oku()
@@ -311,8 +363,17 @@ class Uygulama:
         sonuc = await asyncio.gather(*(asyncio.to_thread(kesif.youtube_kanal_canli, h) for h in hs))
         return [k for k in sonuc if k]
 
+    def _aralik(self) -> float:
+        """Kaç saatte bir paylaşım (varsayılan 3). 0 = eski usul günlük adet (/gunluk)."""
+        try:
+            return float(self._durum_oku().get("aralik", self.cfg.get("paylasim_araligi_saat", 3)))
+        except (TypeError, ValueError):
+            return 3.0
+
     def _gunluk(self) -> int:
         """Her hesap için günde kaç paylaşım (Telegram /gunluk ile değişir)."""
+        if self._aralik():
+            return len(planmod.aralikli_saatler(self._aralik(), tarih(2000, 1, 1)))
         return int(self._durum_oku().get("gunluk") or self.cfg.get("gunluk_paylasim", 10))
 
     def _hedef_stok(self) -> int:
@@ -1187,8 +1248,7 @@ class Uygulama:
         shutil.move(str(kaynak), str(hedef))
         self.sayac["onay"] += 1
         n = len(self.plan.stok(hesap))
-        hedef_n = self._hedef_stok()
-        return f"📦 {hesap} stok: {n}/{hedef_n}" + (" ✅ yarın için yeterli" if n >= hedef_n else "")
+        return f"✅ Sıraya eklendi ({hesap}). Sırada {n} video var, {self._aralik():g} saatte bir paylaşılıyor."
 
     async def _sil(self, kid: str) -> None:
         await asyncio.to_thread(self.ogrenci.karar, kid, "sil")
@@ -1218,6 +1278,9 @@ class Uygulama:
         "/kalite 7 — video olması için gereken en düşük puan (0-10)\n"
         "/paylasim — Instagram / YouTube otomatik paylaşım bağlı mı?\n"
         "/bagla — Instagram / YouTube hesabını Telegram'dan bağla (adım adım)\n"
+        "/ikinci_bot — paylaşım kanalı (ikinci Telegram botu) kur\n"
+        "/aralik 3 — kaç saatte bir paylaşılsın\n"
+        "/bugun — bugün paylaşılanlar\n"
         "/bildirim — bilgi mesajları (varsayılan kapalı: sadece videolar gelir) · /bildirim ac\n\n"
         "🎬 VİDEOLAR\n"
         "/gunluk 10 — her hesap için günde kaç paylaşım\n"
@@ -1293,6 +1356,32 @@ class Uygulama:
         if komut == "/platform":
             await self.bot.butonlu(*self._platform_menusu())
             return ""
+        if komut in ("/ikinci_bot", "/paylasim_botu", "/paylaşım_botu"):
+            tok = arg.strip()
+            if not re.fullmatch(r"\d{6,}:[A-Za-z0-9_\-]{30,}", tok):
+                return ("📤 PAYLAŞIM KANALI KURULUMU\n1) Telegram'da @BotFather → /newbot → bir ad ver (ör. Klipçi Paylaşım)\n"
+                        "2) Verdiği anahtarı buraya yaz:  /ikinci_bot 123456:ABC...\n3) Yeni bota /start yaz. Hepsi bu!")
+            d = self._durum_oku()
+            d["bot2_token"] = tok
+            d.pop("bot2_chat", None)
+            self._durum_yaz(d)
+            self._bot2_kur(tok)
+            g = asyncio.create_task(self.bot2.dinle())
+            self._arka.add(g)
+            return "✅ Paylaşım botu kuruldu. Şimdi YENİ bota gidip /start yaz."
+        if komut == "/aralik" or komut == "/aralık":
+            try:
+                n = float(arg.strip().replace(",", "."))
+            except ValueError:
+                return f"Şu an {self._aralik():g} saatte bir paylaşılıyor. Değiştirmek için: /aralik 3"
+            if not 0.5 <= n <= 24:
+                return "0.5 ile 24 saat arası yaz."
+            d = self._durum_oku()
+            d["aralik"] = n
+            self._durum_yaz(d)
+            return f"✅ Artık {n:g} saatte bir paylaşılacak (günde ~{self._gunluk()} video, hesap başına)."
+        if komut in ("/bugun", "/bugün", "/paylasilanlar", "/paylaşılanlar"):
+            return self._paylasim_ozeti(zaman.now().date(), "Bugün")
         if komut in ("/bagla", "/bağla"):
             return await self._bagla(arg)
         if komut in ("/paylasim", "/paylaşım", "/otomatik"):
@@ -1585,6 +1674,19 @@ class Uygulama:
             self._durum_yaz(d)
             self._uyandir.set()
             return (cevap, *self._platform_menusu())
+        if tur == "bg":   # 👍 beğendim: zevkini öğren, klip yerinde kalsın (sonra paylaşabilirsin)
+            await asyncio.to_thread(self.ogrenci.karar, kalan, "onay")
+            return ("👍 Not aldım, bu tarzı seviyorsun", None,
+                    [[{"text": "📤 Hemen paylaş", "callback_data": f"hp:{kalan}"[:64]},
+                      {"text": "✅ Sıraya ekle", "callback_data": f"ok:{kalan}"[:64]}],
+                     [{"text": "👍 Beğendin", "callback_data": "x:"}]])
+        if tur == "hp":   # 📤 hemen paylaş
+            await self._onay(kalan)
+            sonuc = await self._hemen_paylas(kalan)
+            return (sonuc, None, [[{"text": "📤 Paylaşıldı — paylaşım kanalına bak", "callback_data": "x:"}]])
+        if tur == "tt":   # paylaşım kanalında: TikTok'a da paylaştım
+            await asyncio.to_thread(self.plan.platform_isaretle, kalan, "tiktok", "✅")
+            return ("🎵 TikTok ✅", None, [[{"text": "🎵 TikTok'a paylaşıldı ✅", "callback_data": "x:"}]])
         if tur in ("pd", "pa"):
             hid = kalan
             hesap = hid.rsplit("_", 1)[-1]
@@ -1664,10 +1766,18 @@ class Uygulama:
                 simdi = zaman.now()
                 hesaplar = [h["ad"] for h in self._hesaplar()]
                 adet = self._gunluk()
-                self.plan.plan_yap(simdi.date(), hesaplar, adet, simdi)
+                self.plan.plan_yap(simdi.date(), hesaplar, adet, simdi, self._aralik())
                 for hesap, it in self.plan.zamani_gelenler(simdi):
                     if await self._paylasim_hatirlat(hesap, it):
                         self.plan.isaretle(it["hid"], "gonderildi", simdi.date().isoformat())
+                if simdi.hour >= 10 and self._durum_oku().get("son_ozet") != simdi.date().isoformat():
+                    d = self._durum_oku()
+                    d["son_ozet"] = simdi.date().isoformat()
+                    self._durum_yaz(d)
+                    try:
+                        await self._paylas_botu().mesaj(self._paylasim_ozeti(simdi.date() - timedelta(days=1), "Dün"))
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("günlük özet gönderilemedi: %r", e)
                 if simdi.hour >= 10 and son_meme != simdi.date().isoformat():
                     son_meme = simdi.date().isoformat()
                     d = self._durum_oku()
@@ -1901,6 +2011,8 @@ class Uygulama:
         except (OSError, ValueError):
             pm = {}
         oto = await asyncio.to_thread(self._otomatik_paylas, hesap, mp4, pm)
+        for plat, v in oto.items():
+            self.plan.platform_isaretle(it["hid"], plat, v)
         durum_satir = []
         for ad_, ikon in (("instagram", "📸 Instagram"), ("youtube", "▶️ YouTube")):
             if ad_ in oto:
@@ -1908,13 +2020,15 @@ class Uygulama:
                                                   "✅ paylaşıldı " + oto[ad_]))
         elle = [p for p in ("instagram", "tiktok", "youtube") if p == "tiktok" or not oto.get(p)
                 or str(oto.get(p, "")).startswith("HATA")]
+        bot = self._paylas_botu()
         try:
-            await self.bot.video_gonder(mp4, f"⏰ PAYLAŞIM ZAMANI — {hesap} hesabı ({it['saat']})\n"
+            await bot.video_gonder(mp4, f"📤 {hesap} — {it['saat']}  ({planmod.yayinci_adi(it['hid'])})\n"
                                              + ("\n".join(durum_satir) + "\n" if durum_satir else "")
                                              + "Elle yükle: " + ", ".join(
                                                  {"instagram": "Instagram", "tiktok": "TikTok",
                                                   "youtube": "YouTube"}[p] for p in elle), it["hid"],
-                                        butonlar=[[{"text": "✅ Paylaştım", "callback_data": f"pd:{it['hid']}"[:64]},
+                                        butonlar=[[{"text": "🎵 TikTok'a paylaştım", "callback_data": f"tt:{it['hid']}"[:64]}],
+                                                  [{"text": "✅ Hepsi tamam", "callback_data": f"pd:{it['hid']}"[:64]},
                                                    {"text": "⏭ Atla", "callback_data": f"pa:{it['hid']}"[:64]}]])
             parca = [f"<b>⏰ {escape(hesap)} — {it['saat']}</b>  (metne dokun → kopyalanır)"]
             for baslik, anahtar, plat in (("📸 Instagram", "instagram", "instagram"), ("🎵 TikTok", "tiktok", "tiktok"),
@@ -1922,11 +2036,20 @@ class Uygulama:
                                           ("▶️ YouTube açıklama", "youtube_aciklama", "youtube")):
                 if pm.get(anahtar) and plat in elle:
                     parca.append(f"{baslik}:\n<code>{escape(pm[anahtar])}</code>")
-            await self.bot.html("\n\n".join(parca))
+            await bot.html("\n\n".join(parca))
             return True
         except Exception as e:  # noqa: BLE001
             log.warning("paylaşım hatırlatması gönderilemedi: %r", e)
             return False
+
+    async def _hemen_paylas(self, kid: str) -> str:
+        """📤 Hemen paylaş: sırayı beklemeden şimdi Instagram/YouTube'a yükle, TikTok için paylaşım kanalına gönder."""
+        hesap = kid.rsplit("_", 1)[-1]
+        simdi = zaman.now()
+        it = {"hid": kid, "saat": simdi.strftime("%H:%M"), "durum": "gonderildi"}
+        self.plan.ekle(simdi.date(), hesap, kid, it["saat"], "gonderildi")
+        ok = await self._paylasim_hatirlat(hesap, it)
+        return "📤 Paylaşılıyor — sonucu paylaşım kanalında göreceksin" if ok else "⚠️ Paylaşılamadı, tekrar dene"
 
     def _stok_metni(self, yarin: bool = False) -> str:
         hedef_n = self._hedef_stok()
@@ -1994,6 +2117,8 @@ class Uygulama:
         await asyncio.to_thread(yetim_kayitlari_kapat, self._tampon_kok())
         n_isci = max(1, int(self.cfg.get("ayni_anda_kurgu", 2)))
         gorevler = [asyncio.create_task(self.bot.dinle()), asyncio.create_task(self.yonetici())]
+        if self.bot2:
+            gorevler.append(asyncio.create_task(self.bot2.dinle()))
         gorevler += [asyncio.create_task(self.isci()) for _ in range(n_isci)]
         gorevler.append(asyncio.create_task(self.gonderici()))
         gorevler.append(asyncio.create_task(self._hazirlik()))

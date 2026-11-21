@@ -35,6 +35,20 @@ def saatler_sec(adet: int, gun: date, simdi: datetime | None = None, tohum: str 
     return [f"{d // 60:02d}:{d % 60:02d}" for d in secilen]
 
 
+def aralikli_saatler(aralik_saat: float, gun: date, simdi: datetime | None = None, tohum: str = "",
+                     bas: int = 9, bit: int = 24) -> list[str]:
+    """Her X saatte bir (ör. 3 saat: ~09, ~12, ~15, ~18, ~21), her gün birkaç dakika kayan saatler."""
+    rnd = random.Random(f"{gun.isoformat()}-{tohum}-aralik")
+    adim = max(30, int(aralik_saat * 60))
+    secilen = []
+    for d in range(bas * 60, bit * 60, adim):
+        secilen.append(min(bit * 60 - 1, max(bas * 60, d + rnd.randint(-15, 15))))
+    if simdi and simdi.date() == gun:
+        simdi_dk = simdi.hour * 60 + simdi.minute + 5
+        secilen = [d for d in secilen if d >= simdi_dk]
+    return [f"{d // 60:02d}:{d % 60:02d}" for d in sorted(set(secilen))]
+
+
 def yayinci_adi(hid: str) -> str:
     """20261119_184652_kaicenat_TR -> kaicenat"""
     return hid.split("_", 2)[-1].rsplit("_", 1)[0]
@@ -83,7 +97,8 @@ class Planlayici:
         return out
 
     # ---------- plan ----------
-    def plan_yap(self, gun: date, hesaplar: list[str], adet: int, simdi: datetime | None = None) -> dict:
+    def plan_yap(self, gun: date, hesaplar: list[str], adet: int, simdi: datetime | None = None,
+                 aralik_saat: float = 0) -> dict:
         d = self._oku()
         g = d.setdefault(gun.isoformat(), {})
         for h in hesaplar:
@@ -91,7 +106,8 @@ class Planlayici:
             eksik = adet - len(mevcut)
             if eksik <= 0:
                 continue
-            saatler = [s for s in saatler_sec(adet, gun, simdi, h) if s not in {i["saat"] for i in mevcut}][:eksik]
+            tum = aralikli_saatler(aralik_saat, gun, simdi, h) if aralik_saat else saatler_sec(adet, gun, simdi, h)
+            saatler = [s for s in tum if s not in {i["saat"] for i in mevcut}][:eksik]
             stok = self.stok(h)
             # puana göre seç ama aynı yayıncıdan günde en fazla yarısı olsun; aynı yayıncı arka arkaya gelmesin
             sinir = max(1, (adet + 1) // 2)
@@ -131,6 +147,33 @@ class Planlayici:
                         self._yaz(d)
                         return True
         return False
+
+    def ekle(self, gun: date, hesap: str, hid: str, saat: str, durum: str) -> None:
+        """'Hemen paylaş' gibi plan dışı paylaşımlar da kayda girsin (stoktan düşsün, özete girsin)."""
+        d = self._oku()
+        lst = d.setdefault(gun.isoformat(), {}).setdefault(hesap, [])
+        if not any(i["hid"] == hid for i in lst):
+            lst.append({"hid": hid, "saat": saat, "durum": durum})
+            lst.sort(key=lambda i: i["saat"])
+            self._yaz(d)
+
+    def platform_isaretle(self, hid: str, platform: str, deger: str) -> None:
+        d = self._oku()
+        for g in d.values():
+            for lst in g.values():
+                for it in lst:
+                    if it["hid"] == hid:
+                        it.setdefault("platformlar", {})[platform] = deger
+                        self._yaz(d)
+                        return
+
+    def bul(self, hid: str) -> tuple[str, str, dict] | None:
+        for g_ad, g in self._oku().items():
+            for hesap, lst in g.items():
+                for it in lst:
+                    if it["hid"] == hid:
+                        return g_ad, hesap, it
+        return None
 
     def paylasildi(self, hesap: str, hid: str) -> None:
         self.isaretle(hid, "paylasildi")
