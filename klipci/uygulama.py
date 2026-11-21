@@ -187,11 +187,12 @@ class Uygulama:
                 def ik(p: str, e: str) -> str:
                     v = str(pf.get(p, ""))
                     return f"{e}{'✅' if v and not v.startswith('HATA') else '⚠️' if v.startswith('HATA') else '⏳'}"
+                ekler = "".join(f" {ik(p, e)}" for p, e in (("facebook", "📘"), ("threads", "🧵")) if p in pf)
                 satir.append(f"• {it['saat']} {planmod.yayinci_adi(it['hid'])} [{hesap}]  "
-                             f"{ik('instagram', '📸')} {ik('youtube', '▶️')} {ik('tiktok', '🎵')}")
+                             f"{ik('instagram', '📸')} {ik('youtube', '▶️')} {ik('tiktok', '🎵')}{ekler}")
         if not n:
             satir.append("— henüz yok")
-        satir.append("\n📸 Instagram · ▶️ YouTube · 🎵 TikTok   ✅ paylaşıldı · ⏳ bekliyor · ⚠️ olmadı")
+        satir.append("\n📸 Instagram · ▶️ YouTube · 🎵 TikTok · 📘 Facebook · 🧵 Threads\n✅ paylaşıldı · ⏳ bekliyor · ⚠️ olmadı")
         return "\n".join(satir)
 
     def _chat_id_kaydet(self, cid: str) -> None:
@@ -227,7 +228,9 @@ class Uygulama:
                              # Telegram'dan /bagla ile girilen anahtar önce gelir
                              "instagram_token": str((self._durum_oku().get("ig_token") or {}).get(ad, ""))
                              or str(h.get("instagram_token") or "").strip(),
-                             "youtube": bool(h.get("youtube", True))}
+                             "youtube": bool(h.get("youtube", True)),
+                             "facebook_token": str((self._durum_oku().get("fb_token") or {}).get(ad, "")),
+                             "threads_token": str((self._durum_oku().get("th_token") or {}).get(ad, ""))}
         d = self._durum_oku()
         kapali = set(d.get("hesap_kapali") or [])
         imza = d.get("imza") or {}
@@ -1869,6 +1872,7 @@ class Uygulama:
         "3) Kimlik bilgileri → OAuth istemci kimliği → 'TV ve Sınırlı Giriş Cihazları' → JSON indir\n"
         "4) O JSON dosyasını buraya gönder (dosya olarak)\n"
         "5) /bagla youtube TR yaz → sana bir kod gelir → telefonda google.com/device'a gir, kodu yaz, izin ver\n\n"
+        "📘 FACEBOOK REELS: /bagla facebook  ·  🧵 THREADS: /bagla threads  (adımlar için yaz)\n"
         "Durum: /paylasim")
 
     async def _bagla(self, arg: str) -> str:
@@ -1899,6 +1903,30 @@ class Uygulama:
             d.setdefault("ig_token", {})[hesap] = token
             self._durum_yaz(d)
             return f"✅ {hesap} hesabı Instagram'a bağlandı: @{k['kullanici']}\nReels'ler paylaşım saatinde kendiliğinden paylaşılacak."
+        if plat in ("facebook", "threads"):
+            if len(p) < 3:
+                return (f"Anahtarı da yaz:  /bagla {plat} {hesap} anahtar" + ("  [sayfa adı]" if plat == "facebook" else "")
+                        + "\nAdımlar için: /bagla")
+            tok = p[2].strip().strip('"\'<>`')
+            if not re.fullmatch(r"[A-Za-z0-9_\-]{60,}", tok):
+                return "⚠️ Bu bir anahtara benzemiyor. Kopyala butonunu kullan, '...' ile biten yarım yazıyı alma."
+            ek = " ".join(p[3:]).strip()
+            try:
+                if plat == "facebook":
+                    tam = tok + (f"|{ek}" if ek else "")
+                    s_ = await asyncio.to_thread(lambda: paylas.Facebook(tam).sayfa())
+                    ad_ = s_["ad"]
+                else:
+                    tam = tok
+                    k_ = await asyncio.to_thread(
+                        lambda: paylas.Threads(tam, self.kok / "threads" / f"{hesap}.json").hesap())
+                    ad_ = "@" + k_["kullanici"]
+            except Exception as e:  # noqa: BLE001
+                return f"⚠️ Bu anahtar çalışmadı: {e}"[:300]
+            d = self._durum_oku()
+            d.setdefault("fb_token" if plat == "facebook" else "th_token", {})[hesap] = tam
+            self._durum_yaz(d)
+            return f"✅ {hesap} hesabı {'Facebook' if plat == 'facebook' else 'Threads'}'e bağlandı: {ad_}"
         if plat == "youtube":
             istemci = self._yt_istemci(hesap)
             if not istemci.exists():
@@ -1955,7 +1983,10 @@ class Uygulama:
             ytd = ("✅ bağlı" if yt.bagli_mi() else
                    "❌ bağlı değil (YOUTUBE_BAGLA.bat)" if self._yt_istemci(ad).exists() else
                    "❌ bağlı değil (önce youtube/client_secret.json)")
-            satir.append(f"[{ad}]\n📸 Instagram: {ig}\n▶️ YouTube: {ytd}\n🎵 TikTok: elle (Telegram'dan gelir)\n")
+            fb = "✅ bağlı" if h.get("facebook_token") else "❌ bağlı değil (/bagla facebook)"
+            th = "✅ bağlı" if h.get("threads_token") else "❌ bağlı değil (/bagla threads)"
+            satir.append(f"[{ad}]\n📸 Instagram: {ig}\n▶️ YouTube: {ytd}\n📘 Facebook: {fb}\n🧵 Threads: {th}\n"
+                         f"🎵 TikTok: elle (paylaşım kanalına gelir)\n")
         satir.append("Bağlı olanlara paylaşım saatinde kendisi yükler. Kurulum: README → OTOMATİK PAYLAŞIM")
         return "\n".join(satir)
 
@@ -1969,14 +2000,31 @@ class Uygulama:
         from . import paylas
         h = next((x for x in self._hesaplar(hepsi=True) if x["ad"] == hesap), {})
         sonuc: dict = {}
+        video_adresi = ""
         if h.get("instagram_token"):
             try:
                 ig = paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{hesap}.json")
                 sonuc["instagram"] = ig.reels(mp4, pm.get("instagram", "")) or "paylaşıldı"
+                video_adresi = ig.son_video_adresi
                 log.info("📸 Instagram'a paylaşıldı (%s): %s", hesap, sonuc["instagram"])
             except Exception as e:  # noqa: BLE001
                 log.warning("Instagram paylaşımı olmadı (%s): %r", hesap, e)
                 sonuc["instagram"] = f"HATA: {e}"[:200]
+        if h.get("facebook_token"):
+            try:
+                sonuc["facebook"] = paylas.Facebook(h["facebook_token"]).reels(mp4, pm.get("instagram", ""))
+                log.info("📘 Facebook'a paylaşıldı (%s): %s", hesap, sonuc["facebook"])
+            except Exception as e:  # noqa: BLE001
+                log.warning("Facebook paylaşımı olmadı (%s): %r", hesap, e)
+                sonuc["facebook"] = f"HATA: {e}"[:200]
+        if h.get("threads_token"):
+            try:
+                th = paylas.Threads(h["threads_token"], self.kok / "threads" / f"{hesap}.json")
+                sonuc["threads"] = th.video(video_adresi, pm.get("instagram", ""))
+                log.info("🧵 Threads'e paylaşıldı (%s): %s", hesap, sonuc["threads"])
+            except Exception as e:  # noqa: BLE001
+                log.warning("Threads paylaşımı olmadı (%s): %r", hesap, e)
+                sonuc["threads"] = f"HATA: {e}"[:200]
         yt = paylas.YouTube(self._yt_istemci(hesap), self.kok / "youtube" / f"{hesap}.json")
         if h.get("youtube", True) and yt.bagli_mi():
             d = self._durum_oku()
@@ -2014,7 +2062,8 @@ class Uygulama:
         for plat, v in oto.items():
             self.plan.platform_isaretle(it["hid"], plat, v)
         durum_satir = []
-        for ad_, ikon in (("instagram", "📸 Instagram"), ("youtube", "▶️ YouTube")):
+        for ad_, ikon in (("instagram", "📸 Instagram"), ("facebook", "📘 Facebook"), ("threads", "🧵 Threads"),
+                          ("youtube", "▶️ YouTube")):
             if ad_ in oto:
                 durum_satir.append(f"{ikon}: " + ("⚠️ " + oto[ad_][6:] if oto[ad_].startswith("HATA") else
                                                   "✅ paylaşıldı " + oto[ad_]))

@@ -158,3 +158,41 @@ def test_tek_anahtar_iki_hesap_karismaz(tmp_path):
         assert False
     except paylas.PaylasimHatasi as e:
         assert "birden fazla" in str(e)
+
+
+def test_facebook_reels_ve_sayfa_secimi(tmp_path):
+    def isle(req):
+        if req.url.path.endswith("/me/accounts"):
+            return httpx.Response(200, json={"data": [{"id": "11", "name": "GTA 6 TR", "access_token": "PT1"},
+                                                      {"id": "22", "name": "GTA 6 EN", "access_token": "PT2"}]})
+        if req.url.path.endswith("/22/video_reels"):
+            assert dict(httpx.QueryParams(req.content.decode()))["access_token"] == "PT2"
+            return httpx.Response(200, json={"video_id": "V9", "upload_url": "https://rupload.facebook.com/video-upload/v21.0/V9", "success": True})
+        if req.url.host == "rupload.facebook.com":
+            return httpx.Response(200, json={"success": True})
+        return httpx.Response(404, json={"error": {"message": "yok"}})
+    h = httpx.Client(transport=httpx.MockTransport(isle))
+    mp4 = tmp_path / "v.mp4"
+    mp4.write_bytes(b"1")
+    assert paylas.Facebook("UT|GTA 6 EN", h).reels(mp4, "x") == "https://www.facebook.com/reel/V9"
+    try:
+        paylas.Facebook("UT", h).sayfa()
+        assert False
+    except paylas.PaylasimHatasi as e:
+        assert "birden fazla" in str(e)
+
+
+def test_threads_videosu(tmp_path):
+    def isle(req):
+        if req.url.path.endswith("/me"):
+            return httpx.Response(200, json={"id": "7", "username": "gtatr"})
+        if req.url.path.endswith("/7/threads"):
+            assert "video_url=https" in req.content.decode()
+            return httpx.Response(200, json={"id": "C7"})
+        if req.url.path.endswith("/C7"):
+            return httpx.Response(200, json={"status": "FINISHED"})
+        if req.url.path.endswith("/threads_publish"):
+            return httpx.Response(200, json={"id": "T7"})
+        return httpx.Response(200, json={"permalink": "https://threads.net/@gtatr/post/x"})
+    th = paylas.Threads("TT", tmp_path / "th.json", httpx.Client(transport=httpx.MockTransport(isle)), bekle=0)
+    assert th.video("https://cdn.example/v.mp4", "x").startswith("https://threads.net")

@@ -55,6 +55,7 @@ class Instagram:
         # "anahtar|instagram_hesap_id" biçimi de olur (Unified login'de hesap no'su gerekebilir)
         token, _, self.ig_id = (token or "").strip().partition("|")
         self.api = IG_API
+        self.son_video_adresi = ""
         self.kayit = kayit
         self.http = http or httpx.Client(timeout=httpx.Timeout(120, connect=20))
         self.bekle = bekle
@@ -178,10 +179,128 @@ class Instagram:
         mid = _json(self.http.post(f"{api}/{uid}/media_publish",
                                    data={"creation_id": cid, "access_token": self.token}))["id"]
         try:
-            return _json(self.http.get(f"{api}/{mid}", params={"fields": "permalink",
-                                                                  "access_token": self.token})).get("permalink", "")
+            j = _json(self.http.get(f"{api}/{mid}", params={"fields": "permalink,media_url",
+                                                             "access_token": self.token}))
+            self.son_video_adresi = j.get("media_url", "")   # Threads bu adresten videoyu alır
+            return j.get("permalink", "")
         except Exception:  # noqa: BLE001
             return ""
+
+
+# ============================ FACEBOOK REELS ============================
+
+class Facebook:
+    """Facebook sayfasına Reels (doğrudan bilgisayardan yükleme). Sayfa anahtarı ya da uzun süreli kullanıcı
+    anahtarı (program sayfa anahtarını kendisi alır; uzun süreli kullanıcı anahtarından alınan sayfa anahtarı bitmez)."""
+
+    def __init__(self, token: str, http: httpx.Client | None = None, bekle: float = 5.0):
+        token, _, self.sayfa_secici = (token or "").strip().partition("|")
+        self.token = token
+        self.http = http or httpx.Client(timeout=httpx.Timeout(300, connect=20))
+        self.bekle = bekle
+
+    def sayfa(self) -> dict:
+        """{'id', 'ad', 'token'} — hangi sayfaya paylaşılacak."""
+        secici = self.sayfa_secici.lstrip("@").lower()
+        try:
+            j = _json(self.http.get(f"{FB_API}/me/accounts", params={"fields": "id,name,access_token",
+                                                                     "access_token": self.token}))
+            sayfalar = j.get("data") or []
+        except PaylasimHatasi:
+            sayfalar = None
+        if sayfalar is None or not sayfalar:
+            # verilen anahtar zaten bir SAYFA anahtarı olabilir
+            j = _json(self.http.get(f"{FB_API}/me", params={"fields": "id,name", "access_token": self.token}))
+            return {"id": str(j["id"]), "ad": j.get("name", ""), "token": self.token}
+        if secici:
+            for x in sayfalar:
+                if secici in (str(x.get("id")), str(x.get("name", "")).lower()):
+                    return {"id": str(x["id"]), "ad": x.get("name", ""), "token": x["access_token"]}
+            raise PaylasimHatasi("sayfa bulunamadı. Senin sayfaların: " + ", ".join(x.get("name", "") for x in sayfalar))
+        if len(sayfalar) > 1:
+            raise PaylasimHatasi("birden fazla sayfan var, hangisi olduğunu yaz: "
+                                 + ", ".join(x.get("name", "") for x in sayfalar))
+        x = sayfalar[0]
+        return {"id": str(x["id"]), "ad": x.get("name", ""), "token": x["access_token"]}
+
+    def reels(self, mp4: Path, aciklama: str) -> str:
+        s = self.sayfa()
+        pid, tok = s["id"], s["token"]
+        j = _json(self.http.post(f"{FB_API}/{pid}/video_reels", data={"upload_phase": "start", "access_token": tok}))
+        vid = j["video_id"]
+        adres = j.get("upload_url") or f"https://rupload.facebook.com/video-upload/v21.0/{vid}"
+        veri = Path(mp4).read_bytes()
+        _json(self.http.post(adres, content=veri, headers={"Authorization": f"OAuth {tok}", "offset": "0",
+                                                           "file_size": str(len(veri))}))
+        _json(self.http.post(f"{FB_API}/{pid}/video_reels", data={
+            "upload_phase": "finish", "video_id": vid, "video_state": "PUBLISHED",
+            "description": aciklama[:2200], "access_token": tok}))
+        return f"https://www.facebook.com/reel/{vid}"
+
+
+# ============================ THREADS ============================
+
+TH_API = "https://graph.threads.net/v1.0"
+
+
+class Threads:
+    """Threads'e video gönderisi. Threads videoyu bir internet adresinden alır: Instagram'a yüklenen
+    Reels'in adresini kullanırız (bilgisayarını internete açmaya gerek yok)."""
+
+    def __init__(self, token: str, kayit: Path, http: httpx.Client | None = None, bekle: float = 5.0):
+        self.kayit = kayit
+        self.http = http or httpx.Client(timeout=httpx.Timeout(120, connect=20))
+        self.bekle = bekle
+        try:
+            d = json.loads(kayit.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            d = {}
+        if token and d.get("ilk") != token:
+            d = {"ilk": token, "token": token, "t": time.time()}
+            kayit.parent.mkdir(parents=True, exist_ok=True)
+            kayit.write_text(json.dumps(d), encoding="utf-8")
+        self.token = d.get("token") or token
+        self._d = d
+
+    def tazele(self) -> None:
+        if time.time() - float(self._d.get("t", 0)) < 7 * 86400:
+            return
+        try:
+            j = _json(self.http.get("https://graph.threads.net/refresh_access_token",
+                                    params={"grant_type": "th_refresh_token", "access_token": self.token}))
+            if j.get("access_token"):
+                self.token = j["access_token"]
+                self._d.update(token=self.token, t=time.time())
+                self.kayit.write_text(json.dumps(self._d), encoding="utf-8")
+        except Exception as e:  # noqa: BLE001
+            log.warning("Threads anahtarı yenilenemedi: %r", e)
+
+    def hesap(self) -> dict:
+        j = _json(self.http.get(f"{TH_API}/me", params={"fields": "id,username", "access_token": self.token}))
+        return {"id": str(j["id"]), "kullanici": j.get("username", "")}
+
+    def video(self, video_adresi: str, metin: str) -> str:
+        if not video_adresi:
+            raise PaylasimHatasi("Threads için video adresi yok (önce Instagram'a paylaşılmalı)")
+        self.tazele()
+        uid = self.hesap()["id"]
+        cid = _json(self.http.post(f"{TH_API}/{uid}/threads", data={
+            "media_type": "VIDEO", "video_url": video_adresi, "text": metin[:500], "access_token": self.token}))["id"]
+        for _ in range(120):
+            d = _json(self.http.get(f"{TH_API}/{cid}", params={"fields": "status,error_message",
+                                                               "access_token": self.token}))
+            if d.get("status") == "FINISHED":
+                break
+            if d.get("status") in ("ERROR", "EXPIRED"):
+                raise PaylasimHatasi(f"Threads videoyu işleyemedi: {d.get('error_message') or d.get('status')}")
+            time.sleep(self.bekle)
+        mid = _json(self.http.post(f"{TH_API}/{uid}/threads_publish",
+                                   data={"creation_id": cid, "access_token": self.token}))["id"]
+        try:
+            return _json(self.http.get(f"{TH_API}/{mid}", params={"fields": "permalink",
+                                                                  "access_token": self.token})).get("permalink", "")
+        except Exception:  # noqa: BLE001
+            return "paylaşıldı"
 
 
 # ============================ YOUTUBE ============================

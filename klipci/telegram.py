@@ -144,7 +144,8 @@ class Bot:
                     cevap = f"Hata: {e}"
                 if cevap:
                     await self.mesaj(cevap)
-                if metin.lower().startswith(("/bagla instagram", "/bağla instagram", "/ikinci_bot ")):
+                if metin.lower().startswith(("/bagla instagram", "/bağla instagram", "/ikinci_bot ", "/bagla facebook ",
+                                             "/bağla facebook ", "/bagla threads ", "/bağla threads ")):
                     try:   # anahtar sohbette durmasın
                         await self._api("deleteMessage", data={"chat_id": self.chat_id, "message_id": m["message_id"]})
                     except Exception:  # noqa: BLE001
