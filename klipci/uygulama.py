@@ -2028,7 +2028,14 @@ class Uygulama:
             ytd = ("✅ bağlı" if yt.bagli_mi() else
                    "❌ bağlı değil (YOUTUBE_BAGLA.bat)" if self._yt_istemci(ad).exists() else
                    "❌ bağlı değil (önce youtube/client_secret.json)")
-            fb = "✅ bağlı" if h.get("facebook_token") else "❌ bağlı değil (/bagla facebook)"
+            if h.get("facebook_token"):
+                try:
+                    sy = paylas.Facebook(h["facebook_token"]).sayfa()
+                    fb = f"✅ bağlı (sayfa: {sy['ad']})"
+                except Exception as e:  # noqa: BLE001
+                    fb = f"⚠️ çalışmıyor: {e}"[:160]
+            else:
+                fb = "❌ bağlı değil (/bagla facebook)"
             th = "✅ bağlı" if h.get("threads_token") else "❌ bağlı değil (/bagla threads)"
             satir.append(f"[{ad}]\n📸 Instagram: {ig}\n▶️ YouTube: {ytd}\n📘 Facebook: {fb}\n🧵 Threads: {th}\n"
                          f"🎵 TikTok: elle (paylaşım kanalına gelir)\n")
