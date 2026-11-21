@@ -635,7 +635,7 @@ class Uygulama:
                     kesim = [t for t in self._kesim_gecmisi if t > time.time() - 3600]
                     if (len(son_saat) >= butce or len(kesim) >= butce * 5) and s.kat < self.dinamik_kat * 1.8:
                         self.sayac["kotada"] += 1
-                        log.info("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
+                        log.debug("chat patladı ama bu saatin klip kotası dolu (%d), sadece çok güçlü anlar alınıyor: %s",
                                  butce, iz.kanal.anahtar)
                         continue
                     if True:
@@ -698,7 +698,7 @@ class Uygulama:
 
     def _saatlik_butce(self) -> int:
         # yayınlar günde ~12 saat yoğun: günlük hedefi saatlere böl
-        return max(5, round(int(self.cfg.get("hedef_gunluk_klip", 60)) / 12))
+        return max(10, round(int(self.cfg.get("hedef_gunluk_klip", 60)) / 6))
 
     async def hiz_ayari(self) -> None:
         """Her 20 dk: çok klip çıkıyorsa eşiği yükselt, hiç çıkmıyorsa düşür (günde ~hedef kadar klip)."""
@@ -2116,45 +2116,53 @@ class Uygulama:
         {platform: link ya da 'HATA: ...'}"""
         from concurrent.futures import ThreadPoolExecutor
         h = next((x for x in self._hesaplar(hepsi=True) if x["ad"] == hesap), {})
-        isler = [self._ig_ve_threads, self._fb_paylas, self._yt_paylas]
+        isler = [self._ig_paylas, self._fb_paylas, self._yt_paylas]
         sonuc: dict = {}
         with ThreadPoolExecutor(max_workers=3) as ex:
             for r in ex.map(lambda f: f(h, hesap, mp4, pm), isler):
                 sonuc.update(r)
-        return sonuc
-
-    def _ig_ve_threads(self, h: dict, hesap: str, mp4: Path, pm: dict) -> dict:
-        from . import paylas
-        sonuc: dict = {}
-        video_adresi = ""
-        if h.get("instagram_token"):
-            try:
-                ig = paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{hesap}.json", bekle=3)
-                sonuc["instagram"] = ig.reels(mp4, pm.get("instagram", "")) or "paylaşıldı"
-                video_adresi = ig.son_video_adresi
-                sonuc["_instagram_id"] = ig.son_medya_id
-                log.info("📸 Instagram'a paylaşıldı (%s): %s", hesap, sonuc["instagram"])
-            except Exception as e:  # noqa: BLE001
-                log.warning("Instagram paylaşımı olmadı (%s): %r", hesap, e)
-                sonuc["instagram"] = f"HATA: {e}"[:200]
+        # Threads videoyu bir adresten alır: önce Instagram'ın, olmazsa Facebook'un kopyası
         if h.get("threads_token"):
+            from . import paylas
+            adresler = [sonuc.pop("_ig_adres", "")]
+            if sonuc.get("_fb_id"):
+                try:
+                    adresler.append(paylas.Facebook(h["facebook_token"]).video_adresi(sonuc["_fb_id"]))
+                except Exception as e:  # noqa: BLE001
+                    log.debug("facebook video adresi alınamadı: %r", e)
             try:
                 th = paylas.Threads(h["threads_token"], self.kok / "threads" / f"{hesap}.json", bekle=3)
-                sonuc["threads"] = th.video(video_adresi, pm.get("instagram", ""))
+                sonuc["threads"] = th.video(adresler, pm.get("instagram", ""))
                 log.info("🧵 Threads'e paylaşıldı (%s): %s", hesap, sonuc["threads"])
             except Exception as e:  # noqa: BLE001
                 log.warning("Threads paylaşımı olmadı (%s): %r", hesap, e)
                 sonuc["threads"] = f"HATA: {e}"[:200]
+        sonuc.pop("_ig_adres", None)
+        sonuc.pop("_fb_id", None)
         return sonuc
+
+    def _ig_paylas(self, h: dict, hesap: str, mp4: Path, pm: dict) -> dict:
+        from . import paylas
+        if not h.get("instagram_token"):
+            return {}
+        try:
+            ig = paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{hesap}.json", bekle=3)
+            link = ig.reels(mp4, pm.get("instagram", "")) or "paylaşıldı"
+            log.info("📸 Instagram'a paylaşıldı (%s): %s", hesap, link)
+            return {"instagram": link, "_instagram_id": ig.son_medya_id, "_ig_adres": ig.son_video_adresi}
+        except Exception as e:  # noqa: BLE001
+            log.warning("Instagram paylaşımı olmadı (%s): %r", hesap, e)
+            return {"instagram": f"HATA: {e}"[:200]}
 
     def _fb_paylas(self, h: dict, hesap: str, mp4: Path, pm: dict) -> dict:
         from . import paylas
         if not h.get("facebook_token"):
             return {}
         try:
-            link = paylas.Facebook(h["facebook_token"]).reels(mp4, pm.get("instagram", ""))
+            fb = paylas.Facebook(h["facebook_token"])
+            link = fb.reels(mp4, pm.get("instagram", ""))
             log.info("📘 Facebook'a paylaşıldı (%s): %s", hesap, link)
-            return {"facebook": link}
+            return {"facebook": link, "_fb_id": fb.son_video_id}
         except Exception as e:  # noqa: BLE001
             log.warning("Facebook paylaşımı olmadı (%s): %r", hesap, e)
             return {"facebook": f"HATA: {e}"[:200]}

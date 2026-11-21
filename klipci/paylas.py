@@ -222,6 +222,7 @@ class Facebook:
         self.token = token
         self.http = http or httpx.Client(timeout=httpx.Timeout(300, connect=20))
         self.bekle = bekle
+        self.son_video_id = ""
 
     def sayfa(self) -> dict:
         """{'id', 'ad', 'token'} — hangi sayfaya paylaşılacak."""
@@ -259,7 +260,18 @@ class Facebook:
         _json(self.http.post(f"{FB_API}/{pid}/video_reels", data={
             "upload_phase": "finish", "video_id": vid, "video_state": "PUBLISHED",
             "description": aciklama[:2200], "access_token": tok}))
+        self.son_video_id = vid
         return f"https://www.facebook.com/reel/{vid}"
+
+    def video_adresi(self, vid: str) -> str:
+        """Yüklenen Facebook videosunun doğrudan mp4 adresi (Threads için yedek kaynak)."""
+        s = self.sayfa()
+        for _ in range(12):
+            j = _json(self.http.get(f"{FB_API}/{vid}", params={"fields": "source", "access_token": s["token"]}))
+            if j.get("source"):
+                return j["source"]
+            time.sleep(self.bekle)
+        return ""
 
 
 # ============================ THREADS ============================
@@ -303,11 +315,25 @@ class Threads:
         j = _json(self.http.get(f"{TH_API}/me", params={"fields": "id,username", "access_token": self.token}))
         return {"id": str(j["id"]), "kullanici": j.get("username", "")}
 
-    def video(self, video_adresi: str, metin: str) -> str:
-        if not video_adresi:
-            raise PaylasimHatasi("Threads için video adresi yok (önce Instagram'a paylaşılmalı)")
+    def video(self, video_adresi, metin: str) -> str:
+        """video_adresi: tek adres ya da sırayla denenecek adres listesi."""
+        adresler = [a for a in ([video_adresi] if isinstance(video_adresi, str) else list(video_adresi)) if a]
+        if not adresler:
+            raise PaylasimHatasi("Threads için video adresi yok (önce Instagram/Facebook'a paylaşılmalı)")
         self.tazele()
         uid = self.hesap()["id"]
+        son_hata: Exception | None = None
+        for adres in adresler:
+            for deneme in range(2):
+                try:
+                    return self._video_tek(uid, adres, metin)
+                except PaylasimHatasi as e:
+                    son_hata = e
+                    log.info("Threads denemesi olmadı (%s), tekrar/başka kaynak deneniyor", e)
+                    time.sleep(self.bekle * 4 if deneme == 0 else 0)
+        raise son_hata or PaylasimHatasi("Threads paylaşılamadı")
+
+    def _video_tek(self, uid: str, video_adresi: str, metin: str) -> str:
         cid = _json(self.http.post(f"{TH_API}/{uid}/threads", data={
             "media_type": "VIDEO", "video_url": video_adresi, "text": metin[:500], "access_token": self.token}))["id"]
         for _ in range(120):

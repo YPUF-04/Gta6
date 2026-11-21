@@ -226,3 +226,35 @@ def test_ig_istatistik(tmp_path):
         return httpx.Response(404, json={"error": {"message": "yok"}})
     ig = paylas.Instagram("T", tmp_path / "ig.json", httpx.Client(transport=httpx.MockTransport(isle)))
     assert paylas.ig_istatistik(ig, "M1") == {"izlenme": 1500, "begeni": 90, "yorum": 4, "paylasim": 0, "kaydetme": 0}
+
+
+def test_threads_instagram_olmazsa_facebook_kopyasi(tmp_path):
+    denenen = []
+
+    def isle(req):
+        if req.url.path.endswith("/me"):
+            return httpx.Response(200, json={"id": "7", "username": "gtaen"})
+        if req.url.path.endswith("/7/threads"):
+            adres = dict(httpx.QueryParams(req.content.decode()))["video_url"]
+            denenen.append(adres)
+            return httpx.Response(200, json={"id": "IG" if "instagram" in adres else "FB"})
+        if req.url.path.endswith("/IG"):
+            return httpx.Response(200, json={"status": "ERROR", "error_message": "UNKNOWN"})
+        if req.url.path.endswith("/FB"):
+            return httpx.Response(200, json={"status": "FINISHED"})
+        if req.url.path.endswith("/threads_publish"):
+            return httpx.Response(200, json={"id": "T1"})
+        return httpx.Response(200, json={"permalink": "https://threads.net/@gtaen/post/1"})
+    th = paylas.Threads("TT", tmp_path / "th.json", httpx.Client(transport=httpx.MockTransport(isle)), bekle=0)
+    assert th.video(["https://instagram.cdn/v.mp4", "https://fbcdn/v.mp4"], "x").startswith("https://threads.net")
+    assert denenen == ["https://instagram.cdn/v.mp4", "https://instagram.cdn/v.mp4", "https://fbcdn/v.mp4"]
+
+
+def test_wav_oku(tmp_path):
+    import subprocess
+    from klipci.altyazi import wav_oku
+    w = tmp_path / "a.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=d=2", "-ac", "1", "-ar", "16000", str(w)],
+                   check=True)
+    x = wav_oku(w)
+    assert len(x) == 32000 and str(x.dtype) == "float32" and 0 < abs(x).max() <= 1

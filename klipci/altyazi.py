@@ -133,9 +133,10 @@ class Yaziya:
         ayar = dict(word_timestamps=True, beam_size=5, condition_on_previous_text=False,
                     vad_filter=True, vad_parameters={"threshold": 0.35, "min_silence_duration_ms": 400})
         # önce dili kendisi anlasın (yayıncı dilini yanlış seçmiş olabilir); emin değilse yayının dilini kullan
-        segs, info = m.transcribe(str(wav), **ayar)
+        ses = wav_oku(wav)   # sesi kendimiz okuyup veriyoruz: faster-whisper'ın PyAV ile açması yeni sürümlerde bozuk
+        segs, info = m.transcribe(ses, **ayar)
         if dil in ("tr", "en") and getattr(info, "language_probability", 1.0) < 0.6 and info.language != dil:
-            segs, info = m.transcribe(str(wav), language=dil, **ayar)
+            segs, info = m.transcribe(ses, language=dil, **ayar)
         kaynak = info.language
         segler, kelimeler = [], []
         for s in segs:
@@ -149,7 +150,7 @@ class Yaziya:
         # Türkçe/İngilizce değilse: yedek olarak Whisper'ın kendi İngilizce çevirisi (internet çevirisi olmazsa)
         if cevir and kaynak not in ("tr", "en") and segler:
             try:
-                tsegs, _ = m.transcribe(str(wav), task="translate", language=kaynak, **ayar)
+                tsegs, _ = m.transcribe(ses, task="translate", language=kaynak, **ayar)
                 c.en_segler = [(s.start, s.end, s.text.strip()) for s in tsegs
                                if gercek_konusma_mi(s.text, getattr(s, "no_speech_prob", 0.0),
                                                     getattr(s, "avg_logprob", 0.0))]
@@ -172,6 +173,24 @@ def gercek_konusma_mi(metin: str, sessizlik: float, guven: float) -> bool:
     if sessizlik > 0.6 and guven < -0.8:   # büyük ihtimalle konuşma yok, sadece ses
         return False
     return True
+
+
+def wav_oku(wav: Path):
+    """16 kHz tek kanal WAV -> float32 dizi (faster-whisper'a doğrudan verilir)."""
+    import wave
+
+    import numpy as np
+    with wave.open(str(wav), "rb") as w:
+        kanal, gen, hz = w.getnchannels(), w.getsampwidth(), w.getframerate()
+        ham = w.readframes(w.getnframes())
+    x = np.frombuffer(ham, np.int16 if gen == 2 else np.int32).astype(np.float32)
+    x /= 32768.0 if gen == 2 else 2147483648.0
+    if kanal > 1:
+        x = x.reshape(-1, kanal).mean(axis=1)
+    if hz != 16000:   # ses_cikar zaten 16 kHz üretir; yine de güvenli olsun
+        n = int(len(x) * 16000 / hz)
+        x = np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x).astype(np.float32)
+    return x
 
 
 def tr_buyuk(s: str) -> str:
