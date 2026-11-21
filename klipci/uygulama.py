@@ -1751,7 +1751,8 @@ class Uygulama:
         "2) developers.facebook.com → Uygulama oluştur → 'Instagram'da içeriği yönet'\n"
         "3) Uygulama rolleri → Instagram Test Kullanıcısı ekle → Instagram'da daveti kabul et\n"
         "4) Instagram → 'Instagram girişi ile API kurulumu' → Erişim anahtarı oluştur → kopyala\n"
-        "5) Buraya yaz:  /bagla instagram TR anahtar   (mesajın hemen silinir)\n\n"
+        "5) Buraya yaz:  /bagla instagram TR anahtar   (mesajın hemen silinir)\n"
+        "   (Yeni uygulamalarda 'API setup with Unified login' → yapılandırma oluştur → anahtar oluştur)\n\n"
         "▶️ YOUTUBE\n"
         "1) console.cloud.google.com → Yeni proje → 'YouTube Data API v3' etkinleştir\n"
         "2) OAuth izin ekranı → Harici → Uygulamayı yayınla\n"
@@ -1771,7 +1772,7 @@ class Uygulama:
         if plat == "instagram":
             if len(p) < 3:
                 return "Anahtarı da yaz:  /bagla instagram TR anahtar"
-            token = p[2].strip()
+            token = p[2].strip() + (f"|{p[3].strip()}" if len(p) > 3 else "")
             try:
                 k = await asyncio.to_thread(
                     lambda: paylas.Instagram(token, self.kok / "instagram" / f"{hesap}.json").hesap())

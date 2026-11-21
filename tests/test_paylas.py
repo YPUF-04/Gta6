@@ -107,3 +107,33 @@ def test_bagla_komutlari(tmp_path, monkeypatch):
     js = json.dumps({"installed": {"client_id": "c", "client_secret": "s"}}).encode()
     assert "kaydedildi" in asyncio.run(u._belge(js, "client_secret.json", ""))
     assert "tanımadım" in asyncio.run(u._belge(b"\xff", "x.bin", ""))
+
+
+def test_instagram_unified_login_anahtari(tmp_path):
+    """Yeni Meta uygulamaları: graph.instagram.com anahtarı tanımaz, graph.facebook.com ile çalışır."""
+    istekler = []
+
+    def isle(req):
+        istekler.append((req.url.host, req.url.path))
+        if req.url.host == "graph.instagram.com":
+            return httpx.Response(400, json={"error": {"message": "Invalid OAuth access token"}})
+        if req.url.path.endswith("/me/accounts"):
+            return httpx.Response(200, json={"data": [{"instagram_business_account": {"id": "1784", "username": "gtatr"}}]})
+        if req.url.path.endswith("/1784/media"):
+            return httpx.Response(200, json={"id": "C2", "uri": "https://rupload.facebook.com/ig-api-upload/v21.0/C2"})
+        if req.url.host == "rupload.facebook.com":
+            return httpx.Response(200, json={"success": True})
+        if req.url.path.endswith("/C2"):
+            return httpx.Response(200, json={"status_code": "FINISHED"})
+        if req.url.path.endswith("/media_publish"):
+            return httpx.Response(200, json={"id": "M2"})
+        return httpx.Response(200, json={"permalink": "https://instagram.com/reel/x"})
+    mp4 = tmp_path / "v.mp4"
+    mp4.write_bytes(b"1")
+    ig = paylas.Instagram("FBTOK", tmp_path / "ig.json", httpx.Client(transport=httpx.MockTransport(isle)), bekle=0)
+    assert ig.hesap() == {"id": "1784", "kullanici": "gtatr"}
+    assert ig.reels(mp4, "x") == "https://instagram.com/reel/x"
+    assert ("graph.facebook.com", "/v21.0/1784/media_publish") in istekler
+    # hesap numarası elle verilirse
+    ig2 = paylas.Instagram("FBTOK|1784", tmp_path / "ig2.json", httpx.Client(transport=httpx.MockTransport(isle)))
+    assert ig2.ig_id == "1784" and ig2.token == "FBTOK"

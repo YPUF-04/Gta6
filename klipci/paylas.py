@@ -22,6 +22,7 @@ import httpx
 log = logging.getLogger("paylas")
 
 IG_API = "https://graph.instagram.com/v21.0"
+FB_API = "https://graph.facebook.com/v21.0"   # yeni uygulamalar: "Unified login" (sistem kullanıcısı anahtarı)
 IG_YUKLEME = "https://rupload.facebook.com/ig-api-upload/v21.0/{cid}"
 YT_YETKI = "https://accounts.google.com/o/oauth2/v2/auth"
 YT_JETON = "https://oauth2.googleapis.com/token"
@@ -51,6 +52,9 @@ class Instagram:
     """Instagram Reels'e doğrudan bilgisayardan yükler (video herkese açık bir adrese konmadan)."""
 
     def __init__(self, token: str, kayit: Path, http: httpx.Client | None = None, bekle: float = 5.0):
+        # "anahtar|instagram_hesap_id" biçimi de olur (Unified login'de hesap no'su gerekebilir)
+        token, _, self.ig_id = (token or "").strip().partition("|")
+        self.api = IG_API
         self.kayit = kayit
         self.http = http or httpx.Client(timeout=httpx.Timeout(120, connect=20))
         self.bekle = bekle
@@ -74,8 +78,8 @@ class Instagram:
     def tazele(self) -> None:
         """Uzun süreli anahtar 60 gün geçerli; haftada bir yenilenir ki hiç bitmesin."""
         d = self._oku()
-        if time.time() - float(d.get("t", 0)) < 7 * 86400:
-            return
+        if self.api == FB_API or time.time() - float(d.get("t", 0)) < 7 * 86400:
+            return   # Unified login anahtarı hiç bitmez
         try:
             j = _json(self.http.get("https://graph.instagram.com/refresh_access_token",
                                     params={"grant_type": "ig_refresh_token", "access_token": self.token}))
@@ -88,14 +92,49 @@ class Instagram:
             log.warning("Instagram anahtarı yenilenemedi: %r", e)
 
     def hesap(self) -> dict:
-        j = _json(self.http.get(f"{IG_API}/me", params={"fields": "user_id,username", "access_token": self.token}))
-        return {"id": str(j.get("user_id") or j.get("id")), "kullanici": j.get("username", "")}
+        """Anahtarın türünü anla (Instagram girişi / Unified login) ve Instagram hesap numarasını bul."""
+        if self.ig_id:   # hesap numarası verildiyse doğrudan
+            for api in (FB_API, IG_API):
+                try:
+                    j = _json(self.http.get(f"{api}/{self.ig_id}", params={"fields": "id,username",
+                                                                           "access_token": self.token}))
+                    self.api = api
+                    return {"id": str(j.get("id") or self.ig_id), "kullanici": j.get("username", "")}
+                except PaylasimHatasi:
+                    continue
+        try:   # eski yöntem: Instagram girişi anahtarı
+            j = _json(self.http.get(f"{IG_API}/me", params={"fields": "user_id,username", "access_token": self.token}))
+            self.api = IG_API
+            return {"id": str(j.get("user_id") or j.get("id")), "kullanici": j.get("username", "")}
+        except PaylasimHatasi as ilk_hata:
+            hata = ilk_hata
+        # yeni yöntem: Unified login (Facebook anahtarı) — Instagram hesabını bağlı varlıklardan bul
+        self.api = FB_API
+        denemeler = [("me/accounts", {"fields": "instagram_business_account{id,username}"}),
+                     ("me/businesses", {"fields": "instagram_business_accounts{id,username},"
+                                                  "owned_instagram_accounts{id,username}"})]
+        for yol, p in denemeler:
+            try:
+                j = _json(self.http.get(f"{FB_API}/{yol}", params={**p, "access_token": self.token}))
+            except PaylasimHatasi as e:
+                hata = e
+                continue
+            for x in j.get("data") or []:
+                for alan in ("instagram_business_account", "instagram_business_accounts", "owned_instagram_accounts"):
+                    v = x.get(alan)
+                    adaylar = (v.get("data") if isinstance(v, dict) and "data" in v else [v]) if v else []
+                    for ig in adaylar:
+                        if ig and ig.get("id"):
+                            return {"id": str(ig["id"]), "kullanici": ig.get("username", "")}
+        raise PaylasimHatasi(f"Instagram hesabı bulunamadı ({hata}). Anahtarın yanına Instagram hesap numarasını "
+                             "da yaz: /bagla instagram TR anahtar hesapno")
 
     def reels(self, mp4: Path, aciklama: str) -> str:
         """Reels paylaş, gönderinin linkini döndür."""
         self.tazele()
         uid = self.hesap()["id"]
-        j = _json(self.http.post(f"{IG_API}/{uid}/media", data={
+        api = self.api
+        j = _json(self.http.post(f"{api}/{uid}/media", data={
             "media_type": "REELS", "upload_type": "resumable", "caption": aciklama[:2200],
             "share_to_feed": "true", "access_token": self.token}))
         cid = j["id"]
@@ -105,7 +144,7 @@ class Instagram:
             "Authorization": f"OAuth {self.token}", "offset": "0", "file_size": str(len(veri))}))
         # Instagram videoyu işlerken bekle (genelde 20-60 sn)
         for _ in range(120):
-            d = _json(self.http.get(f"{IG_API}/{cid}", params={"fields": "status_code,status",
+            d = _json(self.http.get(f"{api}/{cid}", params={"fields": "status_code,status",
                                                                 "access_token": self.token}))
             durum = d.get("status_code")
             if durum == "FINISHED":
@@ -115,10 +154,10 @@ class Instagram:
             time.sleep(self.bekle)
         else:
             raise PaylasimHatasi("Instagram videoyu 10 dakikada işleyemedi")
-        mid = _json(self.http.post(f"{IG_API}/{uid}/media_publish",
+        mid = _json(self.http.post(f"{api}/{uid}/media_publish",
                                    data={"creation_id": cid, "access_token": self.token}))["id"]
         try:
-            return _json(self.http.get(f"{IG_API}/{mid}", params={"fields": "permalink",
+            return _json(self.http.get(f"{api}/{mid}", params={"fields": "permalink",
                                                                   "access_token": self.token})).get("permalink", "")
         except Exception:  # noqa: BLE001
             return ""
