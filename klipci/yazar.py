@@ -186,6 +186,16 @@ def platform_metinleri(veri: dict, kanal, dil: str) -> dict:
     yt_baslik = (veri.get("youtube_baslik") or cumle).strip()
     if len(yt_baslik) > 90:
         yt_baslik = yt_baslik[:87].rstrip() + "..."
+    baglam = (veri.get("baglam") or "").strip()
+    if baglam:   # profesyonel düzen: söz / kanca, bağlam, kaynak, etiketler
+        tum = [t if t.startswith("#") else "#" + t for t in veri.get("hashtagler", [])][:5]
+        kaynak = f"🎮 {kanal.gorunen} · {kanal.platform.capitalize()}"
+        return {
+            "instagram": f"{cumle}\n{baglam}\n\n{kaynak}\n\n{' '.join(tum)}",
+            "tiktok": f"{cumle} {' '.join(tum[:4])}",
+            "youtube_baslik": f"{yt_baslik} #shorts",
+            "youtube_aciklama": f"{cumle}\n{baglam}\n\n{kaynak} — {kanal.kredi}\n\n{' '.join(tum)} #shorts",
+        }
     return {
         "instagram": f"{cumle} {' '.join(tags)}\n\n{kredi}".strip(),
         "tiktok": f"{cumle} {' '.join(tags)}".strip(),

@@ -852,6 +852,13 @@ class Uygulama:
         return bas, son
 
     @staticmethod
+    def _gulme_orani(is_: "Is") -> float:
+        from .spike import mesaj_puani
+        yakin = [m for t, _, m in is_.chat if is_.an - 3 <= t <= is_.an + 12]
+        sade = {"w", "gg", "?", "??", "???", "help"}
+        return sum(1 for m in yakin if mesaj_puani(m)[0] > 1 and mesaj_puani(m)[1] not in sade) / max(1, len(yakin))
+
+    @staticmethod
     def _oyun_ani_mi(is_: "Is", ses_tepki: float, oyun_anlari: list) -> bool:
         """Komik olan oyundaki karakter mi? (patlama anında oyunda biri konuşuyor/bağırıyor + ses yükseliyor)"""
         yakin = [v for t, v in oyun_anlari if is_.an - 8 <= t <= is_.an + 4]
@@ -1160,6 +1167,21 @@ class Uygulama:
                 alt = segment_parcala([(b, e, t) for i, ((b, e, _), t) in
                                        enumerate(zip(segler, veri.get("altyazi", []))) if i in secili])
             # altyazı doğal yazımıyla kalır ("Oh my god"), büyük harfe çevrilmez
+            if not self.yazar.client:
+                # ücretsiz, profesyonel açıklama: yayıncının o anki sözü + anın türü (rastgele kalıp değil)
+                from . import aciklama as acmod
+                if veri.get("altyazi") and len(veri["altyazi"]) == len(segler) and kaynak_dil != dil:
+                    hedef_seg = [(b, e, t) for i, ((b, e, _), t) in enumerate(zip(segler, veri["altyazi"])) if i in secili]
+                elif kaynak_dil == dil:
+                    hedef_seg = [x for i, x in enumerate(segler) if i in secili]
+                elif dil == "en" and cozum and cozum.en_segler:
+                    hedef_seg = list(cozum.en_segler)
+                else:
+                    hedef_seg = []
+                tur = acmod.an_turu(self._gulme_orani(is_), aksiyon, ses_tepki, oyun_ani,
+                                    is_.spike.neden == "tekrar")
+                veri.update(acmod.yaz(dil, is_.kanal.gorunen, is_.kanal.platform, hedef_seg, is_.an, tur, hid,
+                                      bool(facecam)))
 
             # 2) puan (senin beğenilerine göre ayarlanır)
             oz = puan.ozellik_cikar(is_.spike.kat, is_.chat, is_.sure, ses, analiz.aksiyon,

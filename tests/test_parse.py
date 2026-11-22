@@ -110,3 +110,14 @@ def test_ceviri_satir_sirasi(monkeypatch):
             return [[["merhaba\n", "hello\n"], ["dünya", "world"]]]
     monkeypatch.setattr(ceviri.httpx, "get", lambda *a, **k: C())
     assert ceviri.cevir(["hello", "world"], "tr", "en") == ["merhaba", "dünya"]
+
+
+def test_profesyonel_aciklama():
+    from klipci import aciklama as a
+    seg = [(9, 12, "bro what is he doing right now?"), (1, 2, "ok")]
+    v = a.yaz("en", "Kai Cenat", "twitch", seg, 10, "komik", "x", True)
+    assert v["aciklama"] == "“Bro what is he doing right now?”" and "#kaicenat" in v["hashtagler"]
+    t = a.yaz("tr", "Coringa", "kick", [], 10, "aksiyon", "y", False)
+    assert "Coringa'nın" in t["baglam"] and t["baslik"] == ""
+    assert a.tr_ek("Kai Cenat", "in") == "Kai Cenat'ın" and a.tr_ek("Jynxzi", "a") == "Jynxzi'ye"
+    assert a.an_turu(0.5, 1.0, 3, False, False) == "komik" and a.an_turu(0.1, 3.0, 3, False, False) == "aksiyon"
