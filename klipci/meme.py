@@ -121,7 +121,7 @@ def meme_video(ham: Path, metin: str, cikti: Path, imza: str = "", sure: float =
     try:
         subprocess.run([arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", "-t", f"{sure:.2f}",
                         "-i", str(Path(ham).resolve()), "-filter_complex", filtre, "-map", "[v]", "-map", "0:a:0?",
-                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "160k",
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
                         "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-t", f"{sure:.2f}", "-movflags", "+faststart",
                         str(Path(cikti).resolve())], check=True, cwd=str(ass.parent), creationflags=_PENCERESIZ)
     finally:

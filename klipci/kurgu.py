@@ -310,7 +310,7 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
            "-ss", f"{baslangic:.2f}", "-t", f"{sure:.2f}", "-i", str(Path(kaynak).resolve()),
            "-filter_complex", filtre, "-map", son, "-map", "0:a:0?",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-maxrate", "5M", "-bufsize", "10M",
-           "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
+           "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
            "-af", "asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11", "-t", f"{sure:.2f}",
            "-movflags", "+faststart", str(Path(cikti).resolve())]
     subprocess.run(cmd, check=True, cwd=str(ass.parent) if ass else None, creationflags=_PENCERESIZ)
@@ -338,7 +338,7 @@ def tweet_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
     cmd = [arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", *girdiler,
            "-filter_complex", filtre, "-map", "[v]", "-map", "0:a:0?",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-maxrate", "5M", "-bufsize", "10M",
-           "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
+           "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
            "-af", "asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11", "-t", f"{sure:.2f}",
            "-movflags", "+faststart", str(Path(cikti).resolve())]
     subprocess.run(cmd, check=True, cwd=str(ass.parent), creationflags=_PENCERESIZ)
@@ -369,4 +369,20 @@ def ses_cikar(kaynak: Path, baslangic: float, sure: float, cikti: Path) -> Path:
     subprocess.run([arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
                     "-ss", f"{baslangic:.2f}", "-t", f"{sure:.2f}", "-i", str(kaynak),
                     "-vn", "-ac", "1", "-ar", "16000", str(cikti)], check=True, creationflags=_PENCERESIZ)
+    return cikti
+
+
+def guvenli_kopya(kaynak: Path) -> Path:
+    """Instagram/Threads'in video kurallarına birebir uyan kopya: H.264 High 4.1, 30 fps, 1080x1920,
+    AAC 128 kbps 48 kHz stereo, en fazla 90 sn, faststart. (İlk yükleme reddedilirse kullanılır.)"""
+    cikti = Path(kaynak).with_name(Path(kaynak).stem + "_uyumlu.mp4")
+    if cikti.exists() and cikti.stat().st_size > 0:
+        return cikti
+    subprocess.run([arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", "-i", str(kaynak), "-t", "89",
+                    "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,"
+                           "fps=30,format=yuv420p",
+                    "-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-preset", "veryfast", "-b:v", "6M",
+                    "-maxrate", "8M", "-bufsize", "12M", "-g", "60",
+                    "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+                    "-movflags", "+faststart", str(cikti)], check=True, creationflags=_PENCERESIZ, timeout=600)
     return cikti

@@ -26,7 +26,7 @@ from . import plan as planmod
 from . import meme, puan, yuz
 from . import SURUM
 from .oyun import OYUN, ayarla as oyun_ayarla
-from .kurgu import ass_yaz, chat_sec, dikey_video, ses_cikar, tweet_video, video_saglam_mi
+from .kurgu import ass_yaz, chat_sec, dikey_video, guvenli_kopya, ses_cikar, tweet_video, video_saglam_mi
 from .spike import Spike, SpikeDetector, mesaj_puani, yazi_dili
 from .ceviri import cevir as ceviri_yap
 from .yazar import pov_yazisi
@@ -2145,14 +2145,22 @@ class Uygulama:
         from . import paylas
         if not h.get("instagram_token"):
             return {}
-        try:
-            ig = paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{hesap}.json", bekle=3)
-            link = ig.reels(mp4, pm.get("instagram", "")) or "paylaşıldı"
-            log.info("📸 Instagram'a paylaşıldı (%s): %s", hesap, link)
-            return {"instagram": link, "_instagram_id": ig.son_medya_id, "_ig_adres": ig.son_video_adresi}
-        except Exception as e:  # noqa: BLE001
-            log.warning("Instagram paylaşımı olmadı (%s): %r", hesap, e)
-            return {"instagram": f"HATA: {e}"[:200]}
+        ig = paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{hesap}.json", bekle=3)
+        son_hata: Exception | None = None
+        for deneme, video in enumerate((mp4, None)):
+            try:
+                if video is None:   # ilk deneme reddedildiyse: Instagram'ın kurallarına tam uygun kopya ile tekrar
+                    video = guvenli_kopya(mp4)
+                    log.info("Instagram videoyu reddetti, uyumlu kopya ile tekrar deneniyor (%s)", hesap)
+                link = ig.reels(video, pm.get("instagram", "")) or "paylaşıldı"
+                log.info("📸 Instagram'a paylaşıldı (%s): %s", hesap, link)
+                return {"instagram": link, "_instagram_id": ig.son_medya_id, "_ig_adres": ig.son_video_adresi}
+            except Exception as e:  # noqa: BLE001
+                son_hata = e
+                if "token" in str(e).lower() or "permission" in str(e).lower():
+                    break   # anahtar sorunu: tekrar denemenin anlamı yok
+        log.warning("Instagram paylaşımı olmadı (%s): %r", hesap, son_hata)
+        return {"instagram": f"HATA: {son_hata}"[:200]}
 
     def _fb_paylas(self, h: dict, hesap: str, mp4: Path, pm: dict) -> dict:
         from . import paylas

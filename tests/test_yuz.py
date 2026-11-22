@@ -34,3 +34,16 @@ def test_pip_duzeni_render(tmp_path):
     out = tmp_path / "o.mp4"
     dikey_video(src, 0, 3, out, ass, 1.3, (0, 0, 0.3, 0.3), 1.0, False, "pip")
     assert video_saglam_mi(out, en_az_sn=2)
+
+
+def test_instagram_uyumlu_kopya(tmp_path):
+    import subprocess
+    from klipci.kurgu import guvenli_kopya
+    from klipci.kayit import sure_olc
+    src = tmp_path / "s.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=1080x1920:d=3:r=60", "-f", "lavfi",
+                    "-i", "sine=d=3", "-shortest", "-c:a", "aac", "-b:a", "192k", str(src)], check=True)
+    out = guvenli_kopya(src)
+    bilgi = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=r_frame_rate,sample_rate",
+                            "-of", "csv=p=0", str(out)], capture_output=True, text=True).stdout
+    assert "30/1" in bilgi and "48000" in bilgi and sure_olc(out) > 2
