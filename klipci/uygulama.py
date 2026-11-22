@@ -793,16 +793,16 @@ class Uygulama:
         gulme = sum(1 for m in yakin if mesaj_puani(m)[0] > 1 and mesaj_puani(m)[1] not in sade) / max(1, len(yakin))
         klip = sum(1 for m in yakin if mesaj_puani(m)[1] == "clip")
         p, neden = 0.0, []
-        p += 3.5 * min(1.0, gulme / 0.7)
+        p += 4.0 * min(1.0, gulme / 0.6)
         if gulme >= 0.3:
             neden.append(f"chat %{int(gulme * 100)} gülüyor")
-        p += 1.0 * min(1.0, klip / 4)
+        p += 1.5 * min(1.0, klip / 4)
         if klip:
             neden.append(f"{klip} kişi 'clip' dedi")
         if is_.spike.neden == "tekrar":
             p += 1.5 * min(1.0, is_.spike.tekrar_oran / 0.6)
             neden.append(f"chat hep '{is_.spike.tekrar[:20]}' yazıyor")
-        p += 2.0 * min(1.0, max(0.0, ses_tepki - 3) / 10)
+        p += 2.0 * min(1.0, max(0.0, ses_tepki - 3) / 6)
         if ses_tepki >= 8:
             neden.append("yayıncı bağırdı")
         p += 1.5 * min(1.0, max(0.0, yuz_t - 1) / 2)
@@ -2539,6 +2539,7 @@ class Uygulama:
     async def _hemen_paylas(self, kid: str) -> str:
         """📤 Hemen paylaş: sırayı beklemeden şimdi Instagram/YouTube'a yükle, TikTok için paylaşım kanalına gönder."""
         hesap = kid.rsplit("_", 1)[-1]
+        self._hazira_al(kid)   # klip hâlâ "bekleyen"deyse (anında paylaşım) paylaşılacaklar klasörüne al
         simdi = zaman.now()
         it = {"hid": kid, "saat": simdi.strftime("%H:%M"), "durum": "gonderildi"}
         self.plan.ekle(simdi.date(), hesap, kid, it["saat"], "gonderildi")

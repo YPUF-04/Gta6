@@ -64,9 +64,13 @@ KABA = ("nigg", "fagg", "retard", "orospu", "amk", "sik", "piç", "yarrak", "kah
 def tr_ek(ad: str, ek: str) -> str:
     """Türkçe ünlü uyumuyla kesme ekli ad: tr_ek('Kai Cenat','in') = Kai Cenat'ın, tr_ek('Coringa','in') = Coringa'nın."""
     ince_kalin = {"a": "ı", "ı": "ı", "o": "u", "u": "u", "e": "i", "i": "i", "ö": "ü", "ü": "ü"}
-    sesli = [c for c in ad.lower() if c in ince_kalin]
-    son = sesli[-1] if sesli else "e"
-    unlu_bitis = ad[-1:].lower() in ince_kalin
+    son_kelime = (ad.split() or [ad])[-1].lower()
+    if not any(c in ince_kalin for c in son_kelime):
+        # 'G', 'xQc' gibi harflerle okunan adlar: harf adı (ge, ce, si) gibi ünlüyle biter → G'nin, xQc'nin
+        son, unlu_bitis = "e", True
+    else:
+        son = [c for c in son_kelime if c in ince_kalin][-1]
+        unlu_bitis = son_kelime[-1:] in ince_kalin
     if ek == "in":
         return f"{ad}'{'n' if unlu_bitis else ''}{ince_kalin[son]}n"
     if ek == "i":

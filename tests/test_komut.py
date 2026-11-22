@@ -407,3 +407,25 @@ def test_paylasilamayan_tekrar_denenir_ve_anlik(tmp_path, monkeypatch):
         await asyncio.gather(*list(u._arka))
         return a, b, c
     assert asyncio.run(calis()) == (True, False, False) and cagri == ["x1_EN"]
+
+
+def test_anlik_paylasim_bekleyendeki_klibi_bulur(tmp_path, monkeypatch):
+    """8.5+ klip onaysız 'bekleyen'deyken anında paylaşılınca dosya bulunmalı (önceden 'kayıp' sayılıyordu)."""
+    import json
+    u = _app(tmp_path, monkeypatch)
+    kid = "20261122_210000_kai_EN"
+    k = u.klasor / "bekleyen" / kid
+    k.mkdir(parents=True)
+    (k / "a.mp4").write_bytes(b"x")
+    (k / "aciklama.json").write_text(json.dumps({"instagram": "x", "tiktok": "t"}))
+    giden = []
+
+    async def video(yol, aciklama, kid_, butonlar=None):
+        giden.append(yol)
+
+    async def html(*a, **kw):
+        pass
+    u.bot.video_gonder, u.bot.html = video, html
+    assert "Paylaşılıyor" in asyncio.run(u._hemen_paylas(kid))
+    assert giden and (u.klasor / "hazir" / "EN" / kid).exists()
+    assert u.plan.bul(kid)[2]["durum"] == "gonderildi"
