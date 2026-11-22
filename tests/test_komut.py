@@ -355,3 +355,18 @@ def test_once_sira_sonra_hemen_paylas(tmp_path, monkeypatch):
         assert False
     except RuntimeError as e:
         assert "artık yok" in str(e)
+
+
+def test_meta_engellenince_bekler(tmp_path, monkeypatch):
+    u = _app(tmp_path, monkeypatch)
+    cagri = []
+    monkeypatch.setattr(u, "_ig_paylas", lambda h, *a: (cagri.append("ig"), {"instagram": "HATA: 400: API access blocked."})[1])
+    monkeypatch.setattr(u, "_fb_paylas", lambda h, *a: {"facebook": "HATA: 400: API access blocked."} if h.get("facebook_token") else {})
+    monkeypatch.setattr(u, "_yt_paylas", lambda h, *a: {"youtube": "https://youtube.com/shorts/x"})
+    s = u._otomatik_paylas("EN", tmp_path / "a.mp4", {})
+    assert "engelledi" in s["instagram"] and s["youtube"].startswith("https")
+    assert u._durum_oku()["meta_engel"] > 0
+    monkeypatch.setattr(u, "_ig_paylas", lambda h, *a: (cagri.append("ig2"), {"instagram": "x"} if h.get("instagram_token") else {})[1])
+    s2 = u._otomatik_paylas("EN", tmp_path / "a.mp4", {})
+    assert "instagram" not in s2 and s2["youtube"].startswith("https")   # 12 saat Meta denenmez, YouTube devam
+    assert "sıfırlandı" in asyncio.run(u._komut("/meta_tekrar"))

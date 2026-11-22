@@ -1445,6 +1445,11 @@ class Uygulama:
             g = asyncio.create_task(self.bot2.dinle())
             self._arka.add(g)
             return "✅ Paylaşım botu kuruldu. Şimdi YENİ bota gidip /start yaz."
+        if komut in ("/meta_tekrar", "/metatekrar"):
+            d = self._durum_oku()
+            d.pop("meta_engel", None)
+            self._durum_yaz(d)
+            return "✅ Meta engeli bekleme süresi sıfırlandı, bir sonraki paylaşımda Instagram/Facebook/Threads tekrar denenecek."
         if komut in ("/tamotomatik", "/tam_otomatik"):
             a = arg.strip().lower()
             if a in ("ac", "aç", "on", "kapat", "off"):
@@ -2116,6 +2121,12 @@ class Uygulama:
         {platform: link ya da 'HATA: ...'}"""
         from concurrent.futures import ThreadPoolExecutor
         h = next((x for x in self._hesaplar(hepsi=True) if x["ad"] == hesap), {})
+        # Meta "API erişimi engellendi" dediyse bir süre Meta platformlarını hiç deneme (durumu kötüleştirmesin)
+        engel = float(self._durum_oku().get("meta_engel", 0))
+        if time.time() < engel:
+            kalan = int((engel - time.time()) / 3600) + 1
+            h = {**h, "instagram_token": "", "facebook_token": "", "threads_token": ""}
+            log.info("Meta (Instagram/Facebook/Threads) erişimi engelli, ~%d saat daha denenmeyecek", kalan)
         isler = [self._ig_paylas, self._fb_paylas, self._yt_paylas]
         sonuc: dict = {}
         with ThreadPoolExecutor(max_workers=3) as ex:
@@ -2139,6 +2150,16 @@ class Uygulama:
                 sonuc["threads"] = f"HATA: {e}"[:200]
         sonuc.pop("_ig_adres", None)
         sonuc.pop("_fb_id", None)
+        if any("api access blocked" in str(v).lower() for v in sonuc.values()):
+            d = self._durum_oku()
+            d["meta_engel"] = time.time() + 12 * 3600
+            self._durum_yaz(d)
+            log.warning("Meta API erişimini engelledi: 12 saat Instagram/Facebook/Threads denenmeyecek")
+            for p_ in ("instagram", "facebook", "threads"):
+                if str(sonuc.get(p_, "")).startswith("HATA") or p_ not in sonuc:
+                    if h.get(f"{p_}_token") or p_ in sonuc:
+                        sonuc[p_] = ("HATA: Meta uygulamanın erişimini engelledi (API access blocked). 12 saat "
+                                     "denenmeyecek — developers.facebook.com'da Klip uygulamasındaki uyarılara bak")
         return sonuc
 
     def _ig_paylas(self, h: dict, hesap: str, mp4: Path, pm: dict) -> dict:
