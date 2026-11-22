@@ -152,6 +152,26 @@ class Instagram:
         raise PaylasimHatasi(f"Instagram hesabı bulunamadı ({hata}) — anahtar '{self.token[:4]}…' ile başlıyor, "
                              f"{len(self.token)} karakter")
 
+    def deneme(self, mp4: Path) -> str:
+        """Gerçek deneme ama YAYINLAMADAN: Reels kabı oluştur, videoyu yükle, Instagram işlesin. Kap 24 saatte
+        kendiliğinden silinir; hesabında hiçbir şey görünmez."""
+        uid = self.hesap()["id"]
+        api = self.api
+        j = _json(self.http.post(f"{api}/{uid}/media", data={
+            "media_type": "REELS", "upload_type": "resumable", "caption": "deneme", "access_token": self.token}))
+        cid = j["id"]
+        veri = Path(mp4).read_bytes()
+        _json(self.http.post(j.get("uri") or IG_YUKLEME.format(cid=cid), content=veri, headers={
+            "Authorization": f"OAuth {self.token}", "offset": "0", "file_size": str(len(veri))}))
+        for _ in range(60):
+            d = _json(self.http.get(f"{api}/{cid}", params={"fields": "status_code,status", "access_token": self.token}))
+            if d.get("status_code") == "FINISHED":
+                return "yükleme + işleme tamam (yayınlanmadı)"
+            if d.get("status_code") in ("ERROR", "EXPIRED"):
+                raise PaylasimHatasi(f"Instagram videoyu işleyemedi: {d.get('status') or d.get('status_code')}")
+            time.sleep(self.bekle)
+        raise PaylasimHatasi("Instagram videoyu 5 dakikada işleyemedi")
+
     def reels(self, mp4: Path, aciklama: str) -> str:
         """Reels paylaş, gönderinin linkini döndür."""
         self.tazele()
@@ -436,6 +456,12 @@ class YouTube:
         j = _json(self.http.put(adres, content=veri, headers={"Authorization": f"Bearer {erisim}",
                                                               "Content-Type": "video/mp4"}))
         return f"https://youtube.com/shorts/{j['id']}"
+
+    def kanal(self) -> str:
+        j = _json(self.http.get("https://www.googleapis.com/youtube/v3/channels", params={"part": "snippet", "mine": "true"},
+                                headers={"Authorization": f"Bearer {self._erisim()}"}))
+        it = (j.get("items") or [{}])[0]
+        return (it.get("snippet") or {}).get("title", "") or "bağlı"
 
     def istatistik(self, video_id: str) -> dict:
         j = _json(self.http.get("https://www.googleapis.com/youtube/v3/videos",

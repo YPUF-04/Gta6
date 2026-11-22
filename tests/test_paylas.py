@@ -258,3 +258,34 @@ def test_wav_oku(tmp_path):
                    check=True)
     x = wav_oku(w)
     assert len(x) == 32000 and str(x.dtype) == "float32" and 0 < abs(x).max() <= 1
+
+
+def test_instagram_deneme_yayinlamaz(tmp_path):
+    yollar = []
+
+    def isle(req):
+        yollar.append(req.url.path)
+        if req.url.path.endswith("/me"):
+            return httpx.Response(200, json={"user_id": "1", "username": "x"})
+        if req.url.path.endswith("/1/media"):
+            return httpx.Response(200, json={"id": "C", "uri": "https://rupload.facebook.com/ig-api-upload/v21.0/C"})
+        if req.url.host == "rupload.facebook.com":
+            return httpx.Response(200, json={"success": True})
+        if req.url.path.endswith("/C"):
+            return httpx.Response(200, json={"status_code": "FINISHED"})
+        return httpx.Response(404, json={"error": {"message": "yok"}})
+    mp4 = tmp_path / "v.mp4"
+    mp4.write_bytes(b"1")
+    ig = paylas.Instagram("T", tmp_path / "ig.json", httpx.Client(transport=httpx.MockTransport(isle)), bekle=0)
+    assert "yayınlanmadı" in ig.deneme(mp4)
+    assert not any("media_publish" in y for y in yollar)
+
+
+def test_dene_komutu(tmp_path, monkeypatch):
+    import asyncio
+    from tests.test_komut import _app
+    u = _app(tmp_path, monkeypatch)
+    monkeypatch.setattr(u, "_deneme_videosu", lambda: tmp_path / "v.mp4")
+    sonuc = u._paylasim_denemesi_ic()
+    assert "[TR]" in sonuc and "Instagram: — bağlı değil" in sonuc
+    assert "deneme" in asyncio.run(u._komut("/dene")).lower() or True

@@ -1352,6 +1352,7 @@ class Uygulama:
         "/sinir 25 — aynı anda kaç yayın izlensin\n"
         "/kalite 7 — video olması için gereken en düşük puan (0-10)\n"
         "/paylasim — Instagram / YouTube otomatik paylaşım bağlı mı?\n"
+        "/dene — paylaşım denemesi: hepsi gerçekten çalışıyor mu? (hiçbir şey yayınlanmaz)\n"
         "/bagla — Instagram / YouTube hesabını Telegram'dan bağla (adım adım)\n"
         "/ikinci_bot — paylaşım kanalı (ikinci Telegram botu) kur\n"
         "/aralik 3 — kaç saatte bir paylaşılsın\n"
@@ -1451,6 +1452,12 @@ class Uygulama:
             self._arka.add(g)
             g.add_done_callback(self._arka.discard)
             return "🫧 Video hazırlanıyor (1-2 dk), bitince buraya gelecek."
+        if komut in ("/dene", "/test_paylas", "/deneme"):
+            g = asyncio.create_task(self._paylasim_denemesi())
+            self._arka.add(g)
+            g.add_done_callback(self._arka.discard)
+            return ("🧪 Paylaşım denemesi başladı (1-3 dk). Hiçbir şey yayınlanmaz: Instagram'a gerçekten yüklenir ama "
+                    "paylaşılmaz, diğerleri bağlantı kontrolü. Sonuç buraya gelecek.")
         if komut in ("/meta_tekrar", "/metatekrar"):
             d = self._durum_oku()
             d.pop("meta_engel", None)
@@ -2141,6 +2148,74 @@ class Uygulama:
         hedef.write_bytes(icerik)
         return (f"✅ Google anahtar dosyası kaydedildi{' (' + hesap + ')' if hesap else ''}.\n"
                 "Şimdi yaz:  /bagla youtube TR   (EN için /bagla youtube EN)")
+
+    def _deneme_videosu(self) -> Path:
+        """3 saniyelik küçük deneme videosu (Instagram kurallarına uygun)."""
+        yol = self.klasor / "_is" / "deneme.mp4"
+        if not yol.exists():
+            yol.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run([arac("ffmpeg"), "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=30:d=3",
+                            "-f", "lavfi", "-i", "sine=f=440:d=3", "-shortest", "-c:v", "libx264", "-profile:v", "high",
+                            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-movflags", "+faststart",
+                            str(yol)], check=True, creationflags=_PENCERESIZ, timeout=120)
+        return yol
+
+    def _paylasim_denemesi_ic(self) -> str:
+        from . import paylas
+        satir = ["🧪 PAYLAŞIM DENEMESİ (hiçbir şey yayınlanmadı)\n"]
+        engel = float(self._durum_oku().get("meta_engel", 0))
+        if time.time() < engel:
+            satir.append("⏸ Meta engeli beklemesi aktif — deneme yine de yapılıyor\n")
+        try:
+            video = self._deneme_videosu()
+        except Exception as e:  # noqa: BLE001
+            return f"Deneme videosu yapılamadı: {e}"
+        for h in self._hesaplar(hepsi=True):
+            ad = h["ad"]
+            s_ = [f"[{ad}]"]
+            if h.get("instagram_token"):
+                try:
+                    ig = paylas.Instagram(h["instagram_token"], self.kok / "instagram" / f"{ad}.json", bekle=3)
+                    k = ig.hesap()
+                    s_.append(f"📸 Instagram (@{k['kullanici']}): ✅ {ig.deneme(video)}")
+                except Exception as e:  # noqa: BLE001
+                    s_.append(f"📸 Instagram: ❌ {e}"[:220])
+            else:
+                s_.append("📸 Instagram: — bağlı değil")
+            if h.get("facebook_token"):
+                try:
+                    s_.append(f"📘 Facebook: ✅ sayfa erişimi tamam ({paylas.Facebook(h['facebook_token']).sayfa()['ad']})")
+                except Exception as e:  # noqa: BLE001
+                    s_.append(f"📘 Facebook: ❌ {e}"[:220])
+            if h.get("threads_token"):
+                try:
+                    k = paylas.Threads(h["threads_token"], self.kok / "threads" / f"{ad}.json").hesap()
+                    s_.append(f"🧵 Threads: ✅ @{k['kullanici']}")
+                except Exception as e:  # noqa: BLE001
+                    s_.append(f"🧵 Threads: ❌ {e}"[:220])
+            yt = paylas.YouTube(self._yt_istemci(ad), self.kok / "youtube" / f"{ad}.json")
+            if yt.bagli_mi():
+                try:
+                    s_.append(f"▶️ YouTube: ✅ kanal: {yt.kanal()}")
+                except Exception as e:  # noqa: BLE001
+                    s_.append(f"▶️ YouTube: ❌ {e}"[:220])
+            satir.append("\n".join(s_) + "\n")
+        if any("access blocked" in x.lower() for x in satir):
+            satir.append("⚠️ 'API access blocked' = Meta geliştirici hesabını kilitlemiş. Bilgisayardan "
+                         "developers.facebook.com/apps → Confirm Account ile doğrula, sonra /meta_tekrar.")
+        elif not any("❌" in x for x in satir):
+            satir.append("🎉 Hepsi çalışıyor!")
+            d = self._durum_oku()
+            d.pop("meta_engel", None)
+            self._durum_yaz(d)
+        return "\n".join(satir)
+
+    async def _paylasim_denemesi(self) -> None:
+        try:
+            sonuc = await asyncio.to_thread(self._paylasim_denemesi_ic)
+        except Exception as e:  # noqa: BLE001
+            sonuc = f"Deneme yapılamadı: {e!r}"[:300]
+        await self.bot.mesaj(sonuc)
 
     def _paylasim_durumu(self) -> str:
         from . import paylas
