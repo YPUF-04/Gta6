@@ -1356,7 +1356,7 @@ class Uygulama:
         "/ikinci_bot — paylaşım kanalı (ikinci Telegram botu) kur\n"
         "/aralik 3 — kaç saatte bir paylaşılsın\n"
         "/tamotomatik — onayımı beklemeden en iyi klibi kendin paylaş (aç/kapat)\n"
-        "/merge · /sekme — şimdi simülasyon videosu yap (her gün kendiliğinden de yapılır)\n"
+        "/merge · /sekme · /sarkac — şimdi simülasyon videosu yap (her gün kendiliğinden de yapılır)\n"
         "/bugun — bugün paylaşılanlar\n"
         "/bildirim — bilgi mesajları (varsayılan kapalı: sadece videolar gelir) · /bildirim ac\n\n"
         "🎬 VİDEOLAR\n"
@@ -1446,7 +1446,7 @@ class Uygulama:
             g = asyncio.create_task(self.bot2.dinle())
             self._arka.add(g)
             return "✅ Paylaşım botu kuruldu. Şimdi YENİ bota gidip /start yaz."
-        if komut in ("/merge", "/sekme"):
+        if komut in ("/merge", "/sekme", "/sarkac"):
             g = asyncio.create_task(self.merge_uret([komut.strip("/")]))
             self._arka.add(g)
             g.add_done_callback(self._arka.discard)
@@ -1949,11 +1949,13 @@ class Uygulama:
         """Günün simülasyon videoları: "merge" (birleşen toplar) ve "sekme" (her sekme = +1 top).
         Her açık hesap için kendi dilinde, seslendirmeli, seri numaralı. Sıraya yüksek puanla girer."""
         from . import merge as mg
+        from . import sarkac as sr
         from . import sekme as sk
-        turler = turler or list(self.cfg.get("gunluk_simulasyonlar") or ["merge", "sekme"])
+        turler = turler or list(self.cfg.get("gunluk_simulasyonlar") or ["merge", "sekme", "sarkac"])
         yapilan = 0
         for tur in turler:
-            uret, baslik = {"merge": (mg.merge_video, "MERGE"), "sekme": (sk.sekme_video, "BOUNCE")}.get(tur, (None, ""))
+            uret, baslik = {"merge": (mg.merge_video, "MERGE"), "sekme": (sk.sekme_video, "BOUNCE"),
+                            "sarkac": (sr.sarkac_video, "PENDULUM")}.get(tur, (None, ""))
             if not uret:
                 continue
             d = self._durum_oku()
@@ -1971,7 +1973,8 @@ class Uygulama:
                     shutil.rmtree(klasor, ignore_errors=True)
                     continue
                 ac = r["aciklama"]
-                ad_ = ("SEKME" if h["dil"] == "tr" else "BOUNCE") if tur == "sekme" else "MERGE"
+                ad_ = {"sekme": ("SEKME", "BOUNCE"), "sarkac": ("SARKAÇ", "PENDULUM")}.get(
+                    tur, ("MERGE", "MERGE"))[0 if h["dil"] == "tr" else 1]
                 pm = {"instagram": ac, "tiktok": ac, "youtube_baslik": f"{ad_} #{bolum} 😳 #shorts",
                       "youtube_aciklama": f"{ac} #shorts"}
                 (klasor / "aciklama.json").write_text(json.dumps(pm, ensure_ascii=False, indent=1), encoding="utf-8")

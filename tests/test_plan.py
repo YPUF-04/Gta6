@@ -81,3 +81,9 @@ def test_sekme_buyume_egrisi():
     esik = {v: t for t, tur, v in olaylar if tur == "esik"}
     assert 4 < esik[10] < 14 and 14 < esik[100] < 24 and 25 < esik[1000] < 36
     assert any(tur == "tasti" for _, tur, _ in olaylar)
+
+
+def test_sarkac_bloklar_yapisir():
+    from klipci.sarkac import simule
+    kareler, olaylar = simule(20, 1)
+    assert kareler[-1][6] > 5 and sum(1 for _, tur, _ in olaylar if tur == "yapisti") == kareler[-1][6]

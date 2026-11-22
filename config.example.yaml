@@ -155,7 +155,7 @@ paylasim_araligi_saat: 3    # kaç saatte bir paylaşılsın (Telegram: /aralik 
 gunluk_paylasim: 25         # her hesap için günde kaç video (TR 25 + EN 25). Telegram: /gunluk 25
 hedef_stok: 20              # her hesapta hazır bekleyen video hedefi
 gunluk_merge: true          # her gün TR + EN simülasyon videoları (seslendirmeli, seri numaralı). Telegram: /merge /sekme
-gunluk_simulasyonlar: [merge, sekme]   # merge = birleşen toplar, sekme = her sekme +1 top
+gunluk_simulasyonlar: [merge, sekme, sarkac]   # merge = birleşen toplar, sekme = her sekme +1 top, sarkac = yapışan sarkaç
 merge_saati: 11             # saat kaçta hazırlansın
 gunluk_meme: 2              # her hesap için günde kaç meme videosu (her gün 10:00'da hazırlanır)
 stok_rapor_saati: "21:30"   # her akşam bu saatte yarının stok durumu gelir
