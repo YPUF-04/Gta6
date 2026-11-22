@@ -5,3 +5,4 @@ pyyaml>=6
 anthropic>=2.10
 numpy
 opencv-python-headless>=4.8,<5
+edge-tts>=6

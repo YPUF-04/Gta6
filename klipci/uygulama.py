@@ -1356,6 +1356,7 @@ class Uygulama:
         "/ikinci_bot — paylaşım kanalı (ikinci Telegram botu) kur\n"
         "/aralik 3 — kaç saatte bir paylaşılsın\n"
         "/tamotomatik — onayımı beklemeden en iyi klibi kendin paylaş (aç/kapat)\n"
+        "/merge — şimdi bir MERGE videosu yap (her gün kendiliğinden de yapılır)\n"
         "/bugun — bugün paylaşılanlar\n"
         "/bildirim — bilgi mesajları (varsayılan kapalı: sadece videolar gelir) · /bildirim ac\n\n"
         "🎬 VİDEOLAR\n"
@@ -1445,6 +1446,11 @@ class Uygulama:
             g = asyncio.create_task(self.bot2.dinle())
             self._arka.add(g)
             return "✅ Paylaşım botu kuruldu. Şimdi YENİ bota gidip /start yaz."
+        if komut == "/merge":
+            g = asyncio.create_task(self.merge_uret())
+            self._arka.add(g)
+            g.add_done_callback(self._arka.discard)
+            return "🫧 MERGE videosu hazırlanıyor (1-2 dk), bitince buraya gelecek."
         if komut in ("/meta_tekrar", "/metatekrar"):
             d = self._durum_oku()
             d.pop("meta_engel", None)
@@ -1895,6 +1901,13 @@ class Uygulama:
                     n = await asyncio.to_thread(self.performans.guncelle, self._istatistik_cek)
                     if n:
                         log.info("📈 %d paylaşımın istatistiği güncellendi", n)
+                if (self.cfg.get("gunluk_merge", True) and simdi.hour >= int(self.cfg.get("merge_saati", 11))
+                        and self._durum_oku().get("son_merge") != simdi.date().isoformat()):
+                    d = self._durum_oku()
+                    d["son_merge"] = simdi.date().isoformat()
+                    self._durum_yaz(d)
+                    n = await self.merge_uret()
+                    log.info("🫧 günün MERGE videoları hazır: %d", n)
                 if simdi.hour >= 10 and son_meme != simdi.date().isoformat():
                     son_meme = simdi.date().isoformat()
                     d = self._durum_oku()
@@ -1931,6 +1944,42 @@ class Uygulama:
             except Exception:  # noqa: BLE001
                 log.exception("plan hatası")
             await asyncio.sleep(60)
+
+    async def merge_uret(self) -> int:
+        """Günün MERGE videosu (her açık hesap için, kendi dilinde seslendirmeli). Sıraya yüksek puanla girer."""
+        from . import merge as mg
+        d = self._durum_oku()
+        bolum = int(d.get("merge_bolum", 0)) + 1
+        yapilan = 0
+        for h in self._hesaplar():
+            hid = f"{zaman.now().strftime('%Y%m%d_%H%M%S')}_merge_{h['ad']}"
+            klasor = self.klasor / "bekleyen" / hid
+            klasor.mkdir(parents=True, exist_ok=True)
+            mp4 = klasor / f"{hid}.mp4"
+            try:
+                r = await asyncio.to_thread(mg.merge_video, mp4, h["dil"], bolum)
+            except Exception as e:  # noqa: BLE001
+                log.warning("merge videosu yapılamadı: %r", e)
+                shutil.rmtree(klasor, ignore_errors=True)
+                continue
+            ac = r["aciklama"]
+            pm = {"instagram": ac, "tiktok": ac, "youtube_baslik": f"MERGE #{bolum} 😳 #shorts",
+                  "youtube_aciklama": f"{ac} #shorts"}
+            (klasor / "aciklama.json").write_text(json.dumps(pm, ensure_ascii=False, indent=1), encoding="utf-8")
+            (klasor / "aciklama.txt").write_text(ac, encoding="utf-8")
+            (klasor / "bilgi.json").write_text(json.dumps({
+                "yayinci": "merge", "platform": "merge", "hesap": h["ad"], "dil": h["dil"],
+                "puan": float(self.cfg.get("merge_puan", 9.0)),
+                "neden": f"günlük MERGE #{bolum} (seviye {r['en_yuksek']}, seslendirme: "
+                         f"{'var' if r['seslendirme'] else 'yok — internet?'})"}, ensure_ascii=False, indent=1),
+                encoding="utf-8")
+            yapilan += 1
+            await self._gonder(klasor)
+        if yapilan:
+            d = self._durum_oku()
+            d["merge_bolum"] = bolum
+            self._durum_yaz(d)
+        return yapilan
 
     async def meme_uret(self, adet: int | None = None) -> int:
         """Her açık hesap için meme videosu yap ve onaya yolla. Kaç tane yapıldığını döndürür."""

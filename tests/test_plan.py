@@ -64,3 +64,12 @@ def test_tam_otomatik_en_iyiyi_secer(tmp_path, monkeypatch):
     u.plan.ata("2026-11-22", "EN", g["EN"][0]["saat"], "20261122_100000_kai_EN")
     assert u.plan.planli_mi("20261122_100000_kai_EN")
     assert u._en_iyi_aday("EN") == "20261122_100100_xqc_EN"   # planlanan tekrar seçilmez
+
+
+def test_merge_simulasyonu_boss_ve_olaylar():
+    from klipci.merge import BOSS, simule
+    kareler, olaylar = simule(20, 3)
+    assert len(kareler) == 20 * 30
+    assert any(tur == "birles" for _, tur, _ in olaylar)
+    assert kareler[-1][1] > 0                      # skor arttı
+    assert all(0 <= sv <= BOSS for top, _ in kareler for *_x, sv, _y in top)
