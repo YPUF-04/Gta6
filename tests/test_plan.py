@@ -73,3 +73,11 @@ def test_merge_simulasyonu_boss_ve_olaylar():
     assert any(tur == "birles" for _, tur, _ in olaylar)
     assert kareler[-1][1] > 0                      # skor arttı
     assert all(0 <= sv <= BOSS for top, _ in kareler for *_x, sv, _y in top)
+
+
+def test_sekme_buyume_egrisi():
+    from klipci.sekme import simule
+    _, olaylar = simule(50, 4)
+    esik = {v: t for t, tur, v in olaylar if tur == "esik"}
+    assert 4 < esik[10] < 14 and 14 < esik[100] < 24 and 25 < esik[1000] < 36
+    assert any(tur == "tasti" for _, tur, _ in olaylar)

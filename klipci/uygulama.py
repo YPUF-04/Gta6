@@ -1356,7 +1356,7 @@ class Uygulama:
         "/ikinci_bot — paylaşım kanalı (ikinci Telegram botu) kur\n"
         "/aralik 3 — kaç saatte bir paylaşılsın\n"
         "/tamotomatik — onayımı beklemeden en iyi klibi kendin paylaş (aç/kapat)\n"
-        "/merge — şimdi bir MERGE videosu yap (her gün kendiliğinden de yapılır)\n"
+        "/merge · /sekme — şimdi simülasyon videosu yap (her gün kendiliğinden de yapılır)\n"
         "/bugun — bugün paylaşılanlar\n"
         "/bildirim — bilgi mesajları (varsayılan kapalı: sadece videolar gelir) · /bildirim ac\n\n"
         "🎬 VİDEOLAR\n"
@@ -1446,11 +1446,11 @@ class Uygulama:
             g = asyncio.create_task(self.bot2.dinle())
             self._arka.add(g)
             return "✅ Paylaşım botu kuruldu. Şimdi YENİ bota gidip /start yaz."
-        if komut == "/merge":
-            g = asyncio.create_task(self.merge_uret())
+        if komut in ("/merge", "/sekme"):
+            g = asyncio.create_task(self.merge_uret([komut.strip("/")]))
             self._arka.add(g)
             g.add_done_callback(self._arka.discard)
-            return "🫧 MERGE videosu hazırlanıyor (1-2 dk), bitince buraya gelecek."
+            return "🫧 Video hazırlanıyor (1-2 dk), bitince buraya gelecek."
         if komut in ("/meta_tekrar", "/metatekrar"):
             d = self._durum_oku()
             d.pop("meta_engel", None)
@@ -1907,7 +1907,7 @@ class Uygulama:
                     d["son_merge"] = simdi.date().isoformat()
                     self._durum_yaz(d)
                     n = await self.merge_uret()
-                    log.info("🫧 günün MERGE videoları hazır: %d", n)
+                    log.info("🫧 günün simülasyon videoları hazır: %d", n)
                 if simdi.hour >= 10 and son_meme != simdi.date().isoformat():
                     son_meme = simdi.date().isoformat()
                     d = self._durum_oku()
@@ -1945,40 +1945,50 @@ class Uygulama:
                 log.exception("plan hatası")
             await asyncio.sleep(60)
 
-    async def merge_uret(self) -> int:
-        """Günün MERGE videosu (her açık hesap için, kendi dilinde seslendirmeli). Sıraya yüksek puanla girer."""
+    async def merge_uret(self, turler: list[str] | None = None) -> int:
+        """Günün simülasyon videoları: "merge" (birleşen toplar) ve "sekme" (her sekme = +1 top).
+        Her açık hesap için kendi dilinde, seslendirmeli, seri numaralı. Sıraya yüksek puanla girer."""
         from . import merge as mg
-        d = self._durum_oku()
-        bolum = int(d.get("merge_bolum", 0)) + 1
+        from . import sekme as sk
+        turler = turler or list(self.cfg.get("gunluk_simulasyonlar") or ["merge", "sekme"])
         yapilan = 0
-        for h in self._hesaplar():
-            hid = f"{zaman.now().strftime('%Y%m%d_%H%M%S')}_merge_{h['ad']}"
-            klasor = self.klasor / "bekleyen" / hid
-            klasor.mkdir(parents=True, exist_ok=True)
-            mp4 = klasor / f"{hid}.mp4"
-            try:
-                r = await asyncio.to_thread(mg.merge_video, mp4, h["dil"], bolum)
-            except Exception as e:  # noqa: BLE001
-                log.warning("merge videosu yapılamadı: %r", e)
-                shutil.rmtree(klasor, ignore_errors=True)
+        for tur in turler:
+            uret, baslik = {"merge": (mg.merge_video, "MERGE"), "sekme": (sk.sekme_video, "BOUNCE")}.get(tur, (None, ""))
+            if not uret:
                 continue
-            ac = r["aciklama"]
-            pm = {"instagram": ac, "tiktok": ac, "youtube_baslik": f"MERGE #{bolum} 😳 #shorts",
-                  "youtube_aciklama": f"{ac} #shorts"}
-            (klasor / "aciklama.json").write_text(json.dumps(pm, ensure_ascii=False, indent=1), encoding="utf-8")
-            (klasor / "aciklama.txt").write_text(ac, encoding="utf-8")
-            (klasor / "bilgi.json").write_text(json.dumps({
-                "yayinci": "merge", "platform": "merge", "hesap": h["ad"], "dil": h["dil"],
-                "puan": float(self.cfg.get("merge_puan", 9.0)),
-                "neden": f"günlük MERGE #{bolum} (seviye {r['en_yuksek']}, seslendirme: "
-                         f"{'var' if r['seslendirme'] else 'yok — internet?'})"}, ensure_ascii=False, indent=1),
-                encoding="utf-8")
-            yapilan += 1
-            await self._gonder(klasor)
-        if yapilan:
             d = self._durum_oku()
-            d["merge_bolum"] = bolum
-            self._durum_yaz(d)
+            bolum = int(d.get(f"{tur}_bolum", 0)) + 1
+            tur_yapilan = 0
+            for h in self._hesaplar():
+                hid = f"{zaman.now().strftime('%Y%m%d_%H%M%S')}_{tur}_{h['ad']}"
+                klasor = self.klasor / "bekleyen" / hid
+                klasor.mkdir(parents=True, exist_ok=True)
+                mp4 = klasor / f"{hid}.mp4"
+                try:
+                    r = await asyncio.to_thread(uret, mp4, h["dil"], bolum)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("%s videosu yapılamadı: %r", tur, e)
+                    shutil.rmtree(klasor, ignore_errors=True)
+                    continue
+                ac = r["aciklama"]
+                ad_ = ("SEKME" if h["dil"] == "tr" else "BOUNCE") if tur == "sekme" else "MERGE"
+                pm = {"instagram": ac, "tiktok": ac, "youtube_baslik": f"{ad_} #{bolum} 😳 #shorts",
+                      "youtube_aciklama": f"{ac} #shorts"}
+                (klasor / "aciklama.json").write_text(json.dumps(pm, ensure_ascii=False, indent=1), encoding="utf-8")
+                (klasor / "aciklama.txt").write_text(ac, encoding="utf-8")
+                (klasor / "bilgi.json").write_text(json.dumps({
+                    "yayinci": tur, "platform": tur, "hesap": h["ad"], "dil": h["dil"],
+                    "puan": float(self.cfg.get("merge_puan", 9.0)),
+                    "neden": f"günlük {ad_} #{bolum} (seslendirme: "
+                             f"{'var' if r['seslendirme'] else 'yok — internet?'})"}, ensure_ascii=False, indent=1),
+                    encoding="utf-8")
+                tur_yapilan += 1
+                await self._gonder(klasor)
+            if tur_yapilan:
+                d = self._durum_oku()
+                d[f"{tur}_bolum"] = bolum
+                self._durum_yaz(d)
+            yapilan += tur_yapilan
         return yapilan
 
     async def meme_uret(self, adet: int | None = None) -> int:
