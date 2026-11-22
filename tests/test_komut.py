@@ -370,3 +370,40 @@ def test_meta_engellenince_bekler(tmp_path, monkeypatch):
     s2 = u._otomatik_paylas("EN", tmp_path / "a.mp4", {})
     assert "instagram" not in s2 and s2["youtube"].startswith("https")   # 12 saat Meta denenmez, YouTube devam
     assert "sıfırlandı" in asyncio.run(u._komut("/meta_tekrar"))
+
+
+def test_paylasilamayan_tekrar_denenir_ve_anlik(tmp_path, monkeypatch):
+    import json
+    u = _app(tmp_path, monkeypatch)
+    kid = "20261122_200000_kai_EN"
+    k = u.klasor / "hazir" / "EN" / kid
+    k.mkdir(parents=True)
+    (k / "a.mp4").write_bytes(b"x")
+    (k / "aciklama.json").write_text(json.dumps({"instagram": "x"}))
+    u._tekrar_ekle(kid, "EN", "instagram")
+    giden = []
+
+    async def mesaj(m, **kw):
+        giden.append(m)
+    u.bot.mesaj = mesaj
+    monkeypatch.setattr(u, "_ig_paylas", lambda h, hs, mp4, pm: {"instagram": "HATA: 400: API access blocked."})
+    assert asyncio.run(u._tekrar_dene()) == 0 and u._durum_oku()["tekrar"][0]["deneme"] == 1
+    assert asyncio.run(u._tekrar_dene()) == 0          # Meta engelli: denenmez, bekler
+    d = u._durum_oku(); d.pop("meta_engel"); u._durum_yaz(d)
+    monkeypatch.setattr(u, "_ig_paylas", lambda h, hs, mp4, pm: {"instagram": "https://instagram.com/reel/x"})
+    assert asyncio.run(u._tekrar_dene()) == 1 and not u._durum_oku()["tekrar"]
+    assert "♻️" in giden[-1]
+    # anlık paylaşım: 8.5+ hemen, 45 dk içinde ikincisi sıraya
+    cagri = []
+
+    async def hp(h):
+        cagri.append(h)
+    u._hemen_paylas = hp
+
+    async def calis():
+        a = u._anlik_paylas_mi("x1_EN", "EN", 9.1)
+        b = u._anlik_paylas_mi("x2_EN", "EN", 9.3)
+        c = u._anlik_paylas_mi("x3_TR", "TR", 7.9)
+        await asyncio.gather(*list(u._arka))
+        return a, b, c
+    assert asyncio.run(calis()) == (True, False, False) and cagri == ["x1_EN"]

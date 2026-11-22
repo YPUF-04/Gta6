@@ -119,6 +119,7 @@ class Uygulama:
         self._son_gecen = time.time()
         self.son_sorun = ""
         self._son_istatistik = 0.0
+        self._son_tekrar = 0.0
         self.basladi = time.time()
         self.son_bulunan: list[tuple[kesif.Kanal, int]] = []
         self.son_tarama = 0.0
@@ -1243,6 +1244,7 @@ class Uygulama:
                 self._kabul_gecmisi.append(time.time())
             self._asama(is_.takip, "📤 Telegram'a gönderiliyor")
             await self._gonder(klasor)
+            self._anlik_paylas_mi(hid, ad, skor)
 
     def _baslik_metni(self, bilgi: dict, metin: str, hid: str) -> str:
         sira, toplam = self.ogrenci.sira(hid)
@@ -1353,6 +1355,7 @@ class Uygulama:
         "/kalite 7 — video olması için gereken en düşük puan (0-10)\n"
         "/paylasim — Instagram / YouTube otomatik paylaşım bağlı mı?\n"
         "/dene — paylaşım denemesi: hepsi gerçekten çalışıyor mu? (hiçbir şey yayınlanmaz)\n"
+        "/anlik 8.5 — bu puan ve üstü klipler saat beklemeden hemen paylaşılsın\n"
         "/bagla — Instagram / YouTube hesabını Telegram'dan bağla (adım adım)\n"
         "/ikinci_bot — paylaşım kanalı (ikinci Telegram botu) kur\n"
         "/aralik 3 — kaç saatte bir paylaşılsın\n"
@@ -1452,6 +1455,16 @@ class Uygulama:
             self._arka.add(g)
             g.add_done_callback(self._arka.discard)
             return "🫧 Video hazırlanıyor (1-2 dk), bitince buraya gelecek."
+        if komut in ("/anlik", "/anlık"):
+            try:
+                n = float(arg.strip().replace(",", "."))
+            except ValueError:
+                return (f"⚡ Puanı {self._anlik_esik():g} ve üstü olan klipler saat beklemeden HEMEN paylaşılıyor "
+                        f"(aynı hesaba en az 45 dk arayla).\nDeğiştirmek için: /anlik 9  ·  kapatmak için: /anlik 11")
+            d = self._durum_oku()
+            d["anlik_esik"] = n
+            self._durum_yaz(d)
+            return f"✅ Artık {n:g}+ puanlı klipler hemen paylaşılacak." if n <= 10 else "✅ Anında paylaşım kapatıldı."
         if komut in ("/dene", "/test_paylas", "/deneme"):
             g = asyncio.create_task(self._paylasim_denemesi())
             self._arka.add(g)
@@ -1462,7 +1475,9 @@ class Uygulama:
             d = self._durum_oku()
             d.pop("meta_engel", None)
             self._durum_yaz(d)
-            return "✅ Meta engeli bekleme süresi sıfırlandı, bir sonraki paylaşımda Instagram/Facebook/Threads tekrar denenecek."
+            self._son_tekrar = 0.0
+            return ("✅ Meta engeli bekleme süresi sıfırlandı. Paylaşılamayan videolar birkaç dakika içinde tekrar "
+                    f"denenecek ({len(self._durum_oku().get('tekrar') or [])} bekliyor).")
         if komut in ("/tamotomatik", "/tam_otomatik"):
             a = arg.strip().lower()
             if a in ("ac", "aç", "on", "kapat", "off"):
@@ -1903,6 +1918,9 @@ class Uygulama:
                                                         + "\n\n" + self.performans.rapor())
                     except Exception as e:  # noqa: BLE001
                         log.warning("günlük özet gönderilemedi: %r", e)
+                if time.time() - self._son_tekrar > 20 * 60:
+                    self._son_tekrar = time.time()
+                    await self._tekrar_dene()
                 if time.time() - self._son_istatistik > 6 * 3600:
                     self._son_istatistik = time.time()
                     n = await asyncio.to_thread(self.performans.guncelle, self._istatistik_cek)
@@ -1988,7 +2006,7 @@ class Uygulama:
                 (klasor / "aciklama.txt").write_text(ac, encoding="utf-8")
                 (klasor / "bilgi.json").write_text(json.dumps({
                     "yayinci": tur, "platform": tur, "hesap": h["ad"], "dil": h["dil"],
-                    "puan": float(self.cfg.get("merge_puan", 9.0)),
+                    "puan": float(self.cfg.get("merge_puan", 8.0)),
                     "neden": f"günlük {ad_} #{bolum} (seslendirme: "
                              f"{'var' if r['seslendirme'] else 'yok — internet?'})"}, ensure_ascii=False, indent=1),
                     encoding="utf-8")
@@ -2149,6 +2167,91 @@ class Uygulama:
         return (f"✅ Google anahtar dosyası kaydedildi{' (' + hesap + ')' if hesap else ''}.\n"
                 "Şimdi yaz:  /bagla youtube TR   (EN için /bagla youtube EN)")
 
+    # ---------- anında paylaşım (çok yüksek puan) ----------
+    def _anlik_esik(self) -> float:
+        return float(self._durum_oku().get("anlik_esik", self.cfg.get("anlik_paylasim_puani", 8.5)))
+
+    def _anlik_paylas_mi(self, hid: str, hesap: str, skor: float) -> bool:
+        """Puanı çok yüksek (varsayılan 8.5+) klip saati beklemeden hemen paylaşılır.
+        Aynı hesaba en az 'anlik_aralik_dk' (45 dk) arayla; arası dolmadıysa normal sıraya kalır (öncelikli)."""
+        if not self._tam_otomatik() or skor < self._anlik_esik():
+            return False
+        d = self._durum_oku()
+        son = (d.get("son_anlik") or {}).get(hesap, 0)
+        if time.time() - son < float(self.cfg.get("anlik_aralik_dk", 45)) * 60:
+            log.info("⚡ %s puan %.1f ama %s hesabına az önce paylaşıldı, sıraya girdi", hid, skor, hesap)
+            return False
+        d.setdefault("son_anlik", {})[hesap] = time.time()
+        self._durum_yaz(d)
+        log.info("⚡ puan %.1f ≥ %.1f: %s hemen paylaşılıyor", skor, self._anlik_esik(), hid)
+        g = asyncio.create_task(self._hemen_paylas(hid))
+        self._arka.add(g)
+        g.add_done_callback(self._arka.discard)
+        return True
+
+    # ---------- paylaşılamayanları tekrar dene ----------
+    def _tekrar_ekle(self, hid: str, hesap: str, plat: str) -> None:
+        d = self._durum_oku()
+        kuyruk = d.setdefault("tekrar", [])
+        if not any(k["hid"] == hid and k["plat"] == plat for k in kuyruk):
+            kuyruk.append({"hid": hid, "hesap": hesap, "plat": plat, "t": time.time(), "deneme": 0})
+            self._durum_yaz(d)
+
+    async def _tekrar_dene(self) -> int:
+        """Bir platforma paylaşılamamış klipleri, platform tekrar çalışınca paylaş (en fazla 3 gün içinde, 6 deneme)."""
+        d = self._durum_oku()
+        kuyruk = [k for k in (d.get("tekrar") or []) if time.time() - k["t"] < 3 * 86400 and k["deneme"] < 6]
+        if not kuyruk:
+            if d.get("tekrar"):
+                d["tekrar"] = []
+                self._durum_yaz(d)
+            return 0
+        meta_engelli = time.time() < float(d.get("meta_engel", 0))
+        yt_dolu = {h: (d.get("yt_sayac") or {}).get(f"{tarih.today().isoformat()}_{h}", 0)
+                   >= int(self.cfg.get("youtube_gunluk", 6)) for h in {k["hesap"] for k in kuyruk}}
+        basarili, kalan, islenen = [], [], 0
+        for k in kuyruk:
+            if islenen >= 4 or (k["plat"] in ("instagram", "facebook") and meta_engelli) or (
+                    k["plat"] == "youtube" and yt_dolu.get(k["hesap"])):
+                kalan.append(k)
+                continue
+            yer = self._klip_yeri(k["hid"])
+            if not yer:
+                continue   # dosya silinmiş: bırak
+            klasor = yer[1]
+            mp4 = next(iter(klasor.glob("*.mp4")), None)
+            try:
+                pm = json.loads((klasor / "aciklama.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pm = {}
+            h = next((x for x in self._hesaplar(hepsi=True) if x["ad"] == k["hesap"]), {})
+            f = {"instagram": self._ig_paylas, "facebook": self._fb_paylas, "youtube": self._yt_paylas}[k["plat"]]
+            islenen += 1
+            sonuc = await asyncio.to_thread(f, h, k["hesap"], mp4, pm)
+            v = str(sonuc.get(k["plat"], "HATA: bağlı değil"))
+            if v.startswith("HATA"):
+                k["deneme"] += 1
+                kalan.append(k)
+                if "api access blocked" in v.lower():
+                    d2 = self._durum_oku()
+                    d2["meta_engel"] = time.time() + 12 * 3600
+                    self._durum_yaz(d2)
+                    meta_engelli = True
+                continue
+            self.plan.platform_isaretle(k["hid"], k["plat"], v)
+            basarili.append((k, v))
+        d = self._durum_oku()
+        d["tekrar"] = kalan
+        self._durum_yaz(d)
+        if basarili:
+            ikon = {"instagram": "📸 Instagram", "facebook": "📘 Facebook", "youtube": "▶️ YouTube"}
+            try:
+                await self._paylas_botu().mesaj("♻️ Daha önce paylaşılamayanlar şimdi paylaşıldı:\n" + "\n".join(
+                    f"{ikon[k['plat']]} [{k['hesap']}] {planmod.yayinci_adi(k['hid'])}: ✅ {v}" for k, v in basarili))
+            except Exception as e:  # noqa: BLE001
+                log.warning("tekrar bildirimi gönderilemedi: %r", e)
+        return len(basarili)
+
     def _deneme_videosu(self) -> Path:
         """3 saniyelik küçük deneme videosu (Instagram kurallarına uygun)."""
         yol = self.klasor / "_is" / "deneme.mp4"
@@ -2215,7 +2318,12 @@ class Uygulama:
             sonuc = await asyncio.to_thread(self._paylasim_denemesi_ic)
         except Exception as e:  # noqa: BLE001
             sonuc = f"Deneme yapılamadı: {e!r}"[:300]
+        bekleyen = len(self._durum_oku().get("tekrar") or [])
+        if "Hepsi çalışıyor" in sonuc and bekleyen:
+            sonuc += f"\n♻️ Daha önce paylaşılamayan {bekleyen} paylaşım şimdi tekrar deneniyor."
         await self.bot.mesaj(sonuc)
+        if "Hepsi çalışıyor" in sonuc and bekleyen:
+            await self._tekrar_dene()
 
     def _paylasim_durumu(self) -> str:
         from . import paylas
@@ -2374,6 +2482,8 @@ class Uygulama:
             self.performans.kaydet(it["hid"], hesap, planmod.yayinci_adi(it["hid"]), kimlik)
         for plat, v in oto.items():
             self.plan.platform_isaretle(it["hid"], plat, v)
+            if str(v).startswith("HATA") and plat in ("instagram", "facebook", "youtube"):
+                self._tekrar_ekle(it["hid"], hesap, plat)
         durum_satir = []
         for ad_, ikon in (("instagram", "📸 Instagram"), ("facebook", "📘 Facebook"), ("threads", "🧵 Threads"),
                           ("youtube", "▶️ YouTube")):
