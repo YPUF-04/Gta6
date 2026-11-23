@@ -257,7 +257,7 @@ def test_kalite_puani():
     s = Spike(0, 0, 80, 10)
     iyi = Is(kesif.Kanal("twitch", "x"), s, None, 0, 30, komik, True, 20.0, "x")
     p, neden = Uygulama.kalite_puani(iyi, 12.0, 2.8, False, 0.0, True)
-    assert p >= 7.5 and "gülüyor" in neden
+    assert p >= 7.5 and "gül" in neden
     sakin = Is(kesif.Kanal("twitch", "x"), s, None, 0, 30, [(20 + i, "u", "selam") for i in range(20)], True,
                20.0, "x")
     assert Uygulama.kalite_puani(sakin, 3.0, 1.0, False, 0.0, True)[0] < 4
@@ -471,3 +471,39 @@ def test_sabit_saatler_ve_platformlar(tmp_path, monkeypatch):
     u._otomatik_paylas("TR", tmp_path / "a.mp4", {}, ["facebook"])
     assert cagri == []
     assert "TR" in asyncio.run(u._komut("/saatler"))
+
+
+def test_bayildim_ogrenir_ve_one_alir(tmp_path, monkeypatch):
+    import json
+    u = _app(tmp_path, monkeypatch)
+    for i, (y, puan) in enumerate((("kai", 7.2), ("xqc", 8.4))):
+        kid = f"20261123_10000{i}_{y}_EN"
+        k = u.klasor / "bekleyen" / kid
+        k.mkdir(parents=True)
+        (k / "a.mp4").write_bytes(b"x")
+        (k / "bilgi.json").write_text(json.dumps({"puan": puan}))
+        u.ogrenci.puanla(kid, y, {"chat": 0.9, "tepki": 0.8, "ses": 0.7, "aksiyon": 0.2, "konusma": 0.3, "yuz": 0.0,
+                                  "yz": 0.5})
+    giden = []
+
+    async def mesaj(m, **k):
+        giden.append(m)
+    u.bot.mesaj = mesaj
+    assert u._en_iyi_aday("EN").endswith("xqc_EN")
+    cevap, _, _ = asyncio.run(u._buton("by:20261123_100000_kai_EN"))
+    assert "Anladım" in cevap and "coşkusu" in cevap
+    assert u._en_iyi_aday("EN").endswith("kai_EN")          # 😍 bastığın ilk gider
+    assert u._durum_oku()["favori"]["kai"] == 1
+    baslik = u._baslik_metni({"puan": 9.0, "yayinci": "Kai", "platform": "twitch", "hesap": "EN",
+                              "neden": "izleyiciler güldü"}, "x", "h")
+    assert baslik.startswith("★★★★½") and "🔥 Çok iyi" in baslik
+
+
+def test_sade_mod(tmp_path, monkeypatch):
+    u = _app(tmp_path, monkeypatch)
+    b = {"puan": 7.4, "yayinci": "Kai", "platform": "twitch", "hesap": "EN", "neden": "izleyiciler güldü"}
+    assert "Kai" in u._baslik_metni(b, "açıklama", "h")
+    assert "Sade" in asyncio.run(u._komut("/sade"))
+    assert u._baslik_metni(b, "açıklama", "h") == "★★★½☆  7.4/10"
+    asyncio.run(u._komut("/detay"))
+    assert "Kai" in u._baslik_metni(b, "açıklama", "h")

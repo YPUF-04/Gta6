@@ -445,6 +445,10 @@ class Uygulama:
                 continue
             p += 0.5 if (onayli or karar == "onay") else 0.0
             p *= self.performans.yayinci_carpani(planmod.yayinci_adi(k.name))
+            fav = (self._durum_oku().get("favori") or {}).get(planmod.yayinci_adi(k.name), 0)
+            p *= min(1.2, 1 + 0.05 * fav)                     # 😍 bastığın yayıncılar öne
+            if (self.ogrenci.kayitlar.get(k.name) or {}).get("bayildi"):
+                p += 2.0                                      # 😍 bastığın klip ilk gider
             adaylar.append((p, k.name))
         return max(adaylar)[1] if adaylar else ""
 
@@ -822,22 +826,22 @@ class Uygulama:
         p, neden = 0.0, []
         p += 4.0 * min(1.0, gulme / 0.6)
         if gulme >= 0.3:
-            neden.append(f"chat %{int(gulme * 100)} gülüyor")
+            neden.append("izleyiciler gülmekten kırıldı" if gulme >= 0.6 else "izleyiciler güldü")
         p += 1.5 * min(1.0, klip / 4)
         if klip:
-            neden.append(f"{klip} kişi 'clip' dedi")
+            neden.append("izleyiciler klip istedi")
         if is_.spike.neden == "tekrar":
             p += 1.5 * min(1.0, is_.spike.tekrar_oran / 0.6)
-            neden.append(f"chat hep '{is_.spike.tekrar[:20]}' yazıyor")
+            neden.append("herkes aynı şeyi yazdı")
         p += 2.0 * min(1.0, max(0.0, ses_tepki - 3) / 6)
         if ses_tepki >= 8:
             neden.append("yayıncı bağırdı")
         p += 1.5 * min(1.0, max(0.0, yuz_t - 1) / 2)
         if yuz_t >= 2:
-            neden.append("kamerada coştu")
+            neden.append("yayıncı coştu")
         if oyun_ani:
             p += 1.5
-            neden.append("oyun karakteri anı")
+            neden.append("oyun içi an")
         if is_.spike.neden == "chat":
             p += 1.0 * min(1.0, max(0.0, is_.spike.kat - 2) / 8)
         if konustu:
@@ -1225,10 +1229,10 @@ class Uygulama:
             # izlenme verisi biriktikçe öğrenilen zevkin payı artar (en fazla %50)
             pay = min(0.5, 0.2 + 0.015 * len(self.ogrenci.kararlilar()))
             skor = kalite if not self.ogrenci.w else round((1 - pay) * kalite + pay * skor_ogr, 1)
-            neden = " · ".join(x for x in (kalite_neden, neden) if x)
+            ogr = neden if neden.startswith("sevdiğin tarz") else ""
+            neden = " · ".join(x for x in (kalite_neden, ogr) if x)
             if oyun_ani:   # oyundaki karakterin şaşkınlığı/çıldırması: bu klipler öne çıksın
                 skor = min(10.0, round(skor + 0.5, 1))
-                neden = ("🎭 oyun karakteri anı · " + neden) if neden else "🎭 oyun karakteri anı"
             hedef_kok = "bekleyen" if skor >= en_dusuk else "dusuk_puan"
             # sadece iyi anlar video olur: yapay zekâ "boş an" dediyse ya da son kliplerin zayıf yarısındaysa atla
             yz = veri.get("puan") if self.yazar.client else None
@@ -1306,12 +1310,17 @@ class Uygulama:
             self._anlik_paylas_mi(hid, ad, skor)
 
     def _baslik_metni(self, bilgi: dict, metin: str, hid: str) -> str:
-        sira, toplam = self.ogrenci.sira(hid)
-        yildiz = "🔥" if bilgi.get("puan", 0) >= 7.5 else "⭐" if bilgi.get("puan", 0) >= 5 else "▫️"
-        ust = (f"[{bilgi.get('hesap', '')}] {yildiz} {bilgi.get('puan', '?')}/10 — {bilgi.get('yayinci', '')} "
-               f"({bilgi.get('platform', '')})")
-        if toplam > 1:
-            ust += f" · son 24 saatin {sira}./{toplam}"
+        p = float(bilgi.get("puan", 0) or 0)
+        # 10 üzerinden puan + 5 yıldız (yarım yıldızlarla), kısa ve anlaşılır
+        dolu = int(round(p / 2 * 2)) / 2
+        yildiz = "★" * int(dolu) + ("½" if dolu % 1 else "") + "☆" * (5 - int(dolu + 0.5))
+        etiket = "🔥 Çok iyi" if p >= 8.5 else "👍 İyi" if p >= 7 else "· Orta"
+        if self._durum_oku().get("sade"):   # /sade: sadece puan (video zaten mesajın kendisi)
+            return f"{yildiz}  {p:.1f}/10"
+        plat = str(bilgi.get("platform", "")).capitalize()
+        ust = (f"{yildiz}  {p:.1f}/10  {etiket}\n"
+               f"🎮 {bilgi.get('yayinci', '')}" + (f" · {plat}" if plat and plat.lower() not in ("merge", "sekme", "sarkac") else "")
+               + f" · {bilgi.get('hesap', '')}")
         if bilgi.get("neden"):
             ust += f"\n💡 {bilgi['neden']}"
         if bilgi.get("altyazi_notu"):
@@ -1416,6 +1425,7 @@ class Uygulama:
         "/dene — paylaşım denemesi: hepsi gerçekten çalışıyor mu? (hiçbir şey yayınlanmaz)\n"
         "/anlik 8.5 — bu puan ve üstü klipler saat beklemeden hemen paylaşılsın\n"
         "/saatler — her gün hangi saatte hangi platforma paylaşılıyor\n"
+        "/sade — kliplerde sadece video + puan görünsün · /detay — her şey görünsün\n"
         "/bagla — Instagram / YouTube hesabını Telegram'dan bağla (adım adım)\n"
         "/ikinci_bot — paylaşım kanalı (ikinci Telegram botu) kur\n"
         "/aralik 3 — kaç saatte bir paylaşılsın\n"
@@ -1515,6 +1525,12 @@ class Uygulama:
             self._arka.add(g)
             g.add_done_callback(self._arka.discard)
             return "🫧 Video hazırlanıyor (1-2 dk), bitince buraya gelecek."
+        if komut in ("/sade", "/detay", "/detayli", "/detaylı"):
+            d = self._durum_oku()
+            d["sade"] = komut == "/sade"
+            self._durum_yaz(d)
+            return ("✅ Sade mod: kliplerde sadece video ve puan görünecek. Eski hâline dönmek için /detay"
+                    if d["sade"] else "✅ Detaylı mod: puanın yanında yayıncı, neden ve açıklama da görünecek. Sade için /sade")
         if komut in ("/saatler", "/saat"):
             sabit = self._sabit_saatler()
             if not sabit:
@@ -1870,6 +1886,20 @@ class Uygulama:
             self._durum_yaz(d)
             self._uyandir.set()
             return (cevap, *self._platform_menusu())
+        if tur == "by":   # 😍 bayıldım: en güçlü sinyal — öğren, yayıncıyı öne çıkar, klibi ilk sıraya al
+            nedenler = await asyncio.to_thread(self.ogrenci.bayildi, kalan)
+            d = self._durum_oku()
+            fav = d.setdefault("favori", {})
+            y = planmod.yayinci_adi(kalan)
+            fav[y] = fav.get(y, 0) + 1
+            self._durum_yaz(d)
+            if self._klip_yeri(kalan) and (self._klip_yeri(kalan) or ("",))[0] == "bekleyen":
+                await self._onay(kalan)
+            ne = " + ".join(nedenler) if nedenler else "bu tarz an"
+            cevap = (f"😍 Anladım! Bundan sonra böyle videolar öne çıkacak: {ne}"
+                     f"{f' · {y} kliplerine öncelik' if y else ''}. Bu klip de ilk paylaşım saatinde gidiyor.")
+            await self.bot.mesaj(cevap)
+            return (cevap, None, [[{"text": "😍 Bayıldın — öğrenildi", "callback_data": "x:"}]])
         if tur == "bg":   # 👍 beğendim: zevkini öğren, klip yerinde kalsın (sonra paylaşabilirsin)
             await asyncio.to_thread(self.ogrenci.karar, kalan, "onay")
             return ("👍 Not aldım, bu tarzı seviyorsun", None,

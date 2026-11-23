@@ -21,7 +21,7 @@ from .kayit import _PENCERESIZ, arac
 log = logging.getLogger("puan")
 
 OZELLIK_ADI = {
-    "chat": "chat patlaması",
+    "chat": "chat'in coşkusu",
     "tepki": "gülme/şok tepkileri",
     "ses": "ani bağırma/patlama sesi",
     "aksiyon": "hareketli sahne",
@@ -159,11 +159,12 @@ class Ogrenci:
             for r in veri:
                 x = r["oz"]
                 y = 1.0 if self._etiket(r) == "onay" else 0.0
+                a = 3.0 if r.get("bayildi") else 1.0          # 😍 bayıldım = 3 kat güçlü sinyal
                 p = 1 / (1 + math.exp(-(b + sum(w[k] * x.get(k, 0) for k in anahtar))))
                 for k in anahtar:
-                    gw[k] += (p - y) * x.get(k, 0)
-                gb += p - y
-            n = len(veri)
+                    gw[k] += a * (p - y) * x.get(k, 0)
+                gb += a * (p - y)
+            n = sum(3.0 if r.get("bayildi") else 1.0 for r in veri)
             for k in anahtar:
                 w[k] -= 0.5 * (gw[k] / n + 0.01 * w[k])
             b -= 0.5 * gb / n
@@ -196,9 +197,7 @@ class Ogrenci:
             kalan = max(0, 6 - len(self.kararlilar()))
             neden.append(f"{kalan} karar daha verince senin zevkine göre puanlamaya başlayacağım" if kalan
                          else "beğenilerinden öğrenmek için hem ✅ hem 🗑 kullan")
-        guclu = [OZELLIK_ADI[k] for k, v in sorted(oz.items(), key=lambda x: -x[1]) if v >= 0.6 and k != "yz"][:3]
-        if guclu:
-            neden.insert(0, "öne çıkan: " + ", ".join(guclu))
+
         with self._kilit:
             self.kayitlar[kid] = {"id": kid, "kanal": kanal, "oz": oz, "taban": taban, "puan": puan,
                                   "karar": None, "t": time.time()}
@@ -214,6 +213,22 @@ class Ogrenci:
             if r["id"] == kid:
                 return i, len(son)
         return 0, len(son)
+
+    def bayildi(self, kid: str) -> list[str]:
+        """😍: en güçlü olumlu sinyal. Bu klibi öne çıkaran özellikleri (Türkçe adlarıyla) döndürür."""
+        with self._kilit:
+            r = self.kayitlar.get(kid)
+            if not r:
+                return []
+            r["karar"], r["bayildi"] = "onay", True
+            self._yaz()
+        self._egit()
+        oz = r.get("oz") or {}
+        guclu = [k for k, v in sorted(oz.items(), key=lambda x: -x[1]) if k != "yz" and v >= 0.45][:3]
+        return [OZELLIK_ADI.get(k, k) for k in guclu]
+
+    def bayildiklari(self) -> list[dict]:
+        return [r for r in self.kayitlar.values() if r.get("bayildi")]
 
     def karar(self, kid: str, karar: str) -> None:
         with self._kilit:
