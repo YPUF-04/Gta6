@@ -68,6 +68,25 @@ class Performans:
     def _toplam(r: dict, alan: str) -> int:
         return sum(int((s or {}).get(alan, 0) or 0) for s in (r.get("sayilar") or {}).values())
 
+    def iyi_kotu(self, en_az_saat: float = 24) -> dict[str, str]:
+        """Paylaşılalı en az 24 saat olmuş kliplerin izlenmesine göre: en çok izlenen %30 'iyi', en az %30 'kotu'.
+        (Hesaplar ayrı değerlendirilir: TR ve EN izleyici sayısı farklı.)"""
+        out: dict[str, str] = {}
+        d = self._oku()
+        for hesap in {r.get("hesap") for r in d.values()}:
+            lst = [(self._toplam(r, "izlenme"), hid) for hid, r in d.items()
+                   if r.get("hesap") == hesap and r.get("sayilar") and time.time() - r.get("t", 0) >= en_az_saat * 3600
+                   and "_merge_" not in hid and "_sekme_" not in hid and "_sarkac_" not in hid]
+            if len(lst) < 6:
+                continue
+            lst.sort()
+            k = max(1, int(len(lst) * 0.3))
+            for _, hid in lst[:k]:
+                out[hid] = "kotu"
+            for _, hid in lst[-k:]:
+                out[hid] = "iyi"
+        return out
+
     def yayinci_carpani(self, yayinci: str) -> float:
         """Bu yayıncının klipleri ortalamadan ne kadar çok izleniyor? (0.8 - 1.3; veri azsa 1)"""
         d = [r for r in self._oku().values() if r.get("sayilar")]

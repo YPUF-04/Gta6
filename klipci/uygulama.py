@@ -1222,7 +1222,9 @@ class Uygulama:
                                     veri.get("puan") if self.yazar.client else None)
             skor_ogr, neden = self.ogrenci.puanla(hid, is_.kanal.gorunen.lower(), oz)
             # ücretsiz kalite puanı (anın kendisi) + senin ✅/🗑 kararlarından öğrenilen zevk
-            skor = kalite if not self.ogrenci.w else round(0.65 * kalite + 0.35 * skor_ogr, 1)
+            # izlenme verisi biriktikçe öğrenilen zevkin payı artar (en fazla %50)
+            pay = min(0.5, 0.2 + 0.015 * len(self.ogrenci.kararlilar()))
+            skor = kalite if not self.ogrenci.w else round((1 - pay) * kalite + pay * skor_ogr, 1)
             neden = " · ".join(x for x in (kalite_neden, neden) if x)
             if oyun_ani:   # oyundaki karakterin şaşkınlığı/çıldırması: bu klipler öne çıksın
                 skor = min(10.0, round(skor + 0.5, 1))
@@ -1999,6 +2001,10 @@ class Uygulama:
                     n = await asyncio.to_thread(self.performans.guncelle, self._istatistik_cek)
                     if n:
                         log.info("📈 %d paylaşımın istatistiği güncellendi", n)
+                        # izlenmeden öğren: çok izlenen anların özelliklerine benzeyen klipler daha yüksek puan alır
+                        ogrenilen = await asyncio.to_thread(self.ogrenci.izlenme_isaretle, self.performans.iyi_kotu())
+                        if ogrenilen:
+                            log.info("🧠 %d klibin izlenme sonucu öğrenmeye eklendi", ogrenilen)
                 if (self.cfg.get("gunluk_merge", True) and simdi.hour >= int(self.cfg.get("merge_saati", 11))
                         and self._durum_oku().get("son_merge") != simdi.date().isoformat()):
                     d = self._durum_oku()

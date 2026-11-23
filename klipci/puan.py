@@ -119,13 +119,35 @@ class Ogrenci:
                        encoding="utf-8")
         tmp.replace(self.yol)
 
+    @staticmethod
+    def _etiket(r: dict) -> str | None:
+        """Senin kararın (👍/👎) önce gelir; yoksa izlenme sonucu (çok izlendi = iyi, az izlendi = kötü)."""
+        if r.get("karar") in ("onay", "sil"):
+            return r["karar"]
+        return {"iyi": "onay", "kotu": "sil"}.get(r.get("izlenme"))
+
     def kararlilar(self) -> list[dict]:
-        return [r for r in self.kayitlar.values() if r.get("karar") in ("onay", "sil")]
+        return [r for r in self.kayitlar.values() if self._etiket(r)]
+
+    def izlenme_isaretle(self, sonuc: dict[str, str]) -> int:
+        """{hid: 'iyi'|'kotu'} — paylaşılan kliplerin izlenme sonucunu öğrenmeye ekle."""
+        n = 0
+        with self._kilit:
+            for hid, e in sonuc.items():
+                r = self.kayitlar.get(hid)
+                if r and r.get("izlenme") != e:
+                    r["izlenme"] = e
+                    n += 1
+            if n:
+                self._yaz()
+        if n:
+            self._egit()
+        return n
 
     def _egit(self) -> None:
         """Basit lojistik regresyon (numpy yok sayılırsa saf Python)."""
         veri = self.kararlilar()
-        if len(veri) < 8 or len({r["karar"] for r in veri}) < 2:
+        if len(veri) < 6 or len({self._etiket(r) for r in veri}) < 2:
             self.w, self.b = {}, 0.0
             return
         anahtar = list(TABAN_AGIRLIK)
@@ -136,7 +158,7 @@ class Ogrenci:
             gb = 0.0
             for r in veri:
                 x = r["oz"]
-                y = 1.0 if r["karar"] == "onay" else 0.0
+                y = 1.0 if self._etiket(r) == "onay" else 0.0
                 p = 1 / (1 + math.exp(-(b + sum(w[k] * x.get(k, 0) for k in anahtar))))
                 for k in anahtar:
                     gw[k] += (p - y) * x.get(k, 0)
@@ -171,7 +193,7 @@ class Ogrenci:
             if n >= 3:
                 neden.append(f"{kanal} kliplerinin %{int(oran * 100)}'ini beğendin")
         else:
-            kalan = max(0, 8 - len(self.kararlilar()))
+            kalan = max(0, 6 - len(self.kararlilar()))
             neden.append(f"{kalan} karar daha verince senin zevkine göre puanlamaya başlayacağım" if kalan
                          else "beğenilerinden öğrenmek için hem ✅ hem 🗑 kullan")
         guclu = [OZELLIK_ADI[k] for k, v in sorted(oz.items(), key=lambda x: -x[1]) if v >= 0.6 and k != "yz"][:3]
