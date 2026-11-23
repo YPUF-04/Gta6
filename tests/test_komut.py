@@ -323,7 +323,7 @@ def test_hemen_paylas_begendim_ve_ozet(tmp_path, monkeypatch):
     asyncio.run(u._buton(f"tt:{kid}"))
     ozet = u._paylasim_ozeti(datetime.now().date(), "Bugün")
     assert "kai [TR]" in ozet and "🎵✅" in ozet
-    assert u._aralik() == 5 and u._gunluk() == 3
+    assert u._aralik() == 5 and u._gunluk() == 10      # sabit saat düzeni: günde 10
     assert "BotFather" in asyncio.run(u._komut("/ikinci_bot"))
 
 
@@ -399,6 +399,7 @@ def test_paylasilamayan_tekrar_denenir_ve_anlik(tmp_path, monkeypatch):
     async def hp(h):
         cagri.append(h)
     u._hemen_paylas = hp
+    u.cfg["sabit_saatler"] = False     # anında paylaşım sadece sabit saat düzeni kapalıyken
 
     async def calis():
         a = u._anlik_paylas_mi("x1_EN", "EN", 9.1)
@@ -446,3 +447,27 @@ def test_gunluk_platform_siniri(tmp_path, monkeypatch):
     sonuc = [u._otomatik_paylas("EN", tmp_path / "a.mp4", {}) for _ in range(4)]
     assert cagri == [True, True, True, False]          # günde en fazla 3 Instagram
     assert sonuc[3]["instagram"].startswith("SINIR")
+
+
+
+def test_sabit_saatler_ve_platformlar(tmp_path, monkeypatch):
+    from datetime import date, datetime
+    u = _app(tmp_path, monkeypatch)
+    sabit = u._sabit_saatler()
+    assert len(sabit["TR"]) == 10 and len(sabit["EN"]) == 10
+    ig = sum("instagram" in pl for _, pl in sabit["TR"])
+    yt = sum("youtube" in pl for _, pl in sabit["EN"])
+    assert ig == 3 and yt == 2
+    g = u.plan.plan_yap(date(2026, 11, 23), ["TR", "EN"], 10, datetime(2026, 11, 23, 0, 0), 5, True, sabit)
+    assert [i["saat"] for i in g["TR"]][:3] == ["09:00", "11:00", "12:30"]
+    assert g["TR"][2]["platformlar"] == ["instagram", "facebook"]
+    assert "02:30" in [i["saat"] for i in g["EN"]]
+    # bu saatte sadece Facebook: Instagram'a gitmemeli
+    cagri = []
+    monkeypatch.setattr(u, "_ig_paylas", lambda h, *a: (cagri.append("ig"), {})[1] if h.get("instagram_token") else {})
+    monkeypatch.setattr(u, "_fb_paylas", lambda h, *a: {})
+    monkeypatch.setattr(u, "_yt_paylas", lambda h, *a: {})
+    d = u._durum_oku(); d["ig_token"] = {"TR": "T"}; u._durum_yaz(d)
+    u._otomatik_paylas("TR", tmp_path / "a.mp4", {}, ["facebook"])
+    assert cagri == []
+    assert "TR" in asyncio.run(u._komut("/saatler"))

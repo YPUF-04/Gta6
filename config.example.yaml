@@ -149,6 +149,14 @@ ilerleme_cubugu: false      # altta sarı ilerleme çubuğu
 hedef_puan: 7               # sadece 0-10 arası bu puan ve üstü anlar video olur (Telegram: /kalite 8)
 ses_tetik: true             # chat'e bakmadan da: yayıncı aniden bağırırsa an incelenir
 en_dusuk_puan: 0            # bunun altındaki klipler Telegram'a gelmez (0 = hepsi gelir)
+# SABİT SAATLER (Türkiye saati): her gün aynı saatlerde paylaşılır. Telegram: /saatler
+# Her satır: [saat, platformlar]  ig=Instagram fb=Facebook yt=YouTube th=Threads (TikTok her saatte, elle)
+sabit_saatler: true
+# paylasim_saatleri:            # değiştirmek istersen bu satırların başındaki # işaretini kaldır
+#   TR: [["09:00", "fb"], ["11:00", "th"], ["12:30", "ig fb"], ["14:00", "th"], ["16:00", "fb"],
+#        ["18:00", "th"], ["19:30", "ig yt"], ["20:30", "fb"], ["21:30", "ig"], ["23:00", "yt"]]
+#   EN: [["15:00", "fb"], ["17:00", "th"], ["19:00", "ig fb"], ["20:30", "yt"], ["22:00", "th"],
+#        ["23:30", "ig fb"], ["01:00", "th"], ["02:30", "yt"], ["04:00", "ig fb"], ["05:30", ""]]
 tam_otomatik: true          # saat gelince onayını beklemeden en iyi klibi kendisi paylaşır (Telegram: /tamotomatik)
 anlik_paylasim_puani: 8.5   # bu puan ve üstü klip saat beklemeden HEMEN paylaşılır (Telegram: /anlik 9)
 anlik_aralik_dk: 45         # aynı hesaba iki anlık paylaşım arası en az bu kadar dakika

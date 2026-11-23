@@ -96,11 +96,11 @@ def test_ara_sahne_oyun_ani_sayilmaz(tmp_path):
     assert not Uygulama._oyun_ani_mi(is_, 8.0, ara_sahne)
 
 
-def test_klip_en_fazla_40_sn(tmp_path):
+def test_klip_en_fazla_60_sn(tmp_path):
     from klipci import kesif
     from klipci.spike import Spike
     from klipci.uygulama import Is, Uygulama
-    chat = [(10 + i * 0.25, "a", "KEKW") for i in range(300)]     # chat 75 sn boyunca gülüyor
+    chat = [(10 + i * 0.25, "a", "KEKW") for i in range(320)]     # chat 80 sn boyunca gülüyor
     is_ = Is(kesif.Kanal("kick", "x"), Spike(0, 0, 1, 1), tmp_path / "a.ts", 0, 90, chat, False, 12.0, "x")
     bas, son = Uygulama._akilli_aralik(is_, [])
-    assert bas == 6.0 and son - bas <= 40.5
+    assert bas == 6.0 and 55 <= son - bas <= 60.5

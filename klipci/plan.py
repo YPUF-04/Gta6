@@ -101,9 +101,21 @@ class Planlayici:
 
     # ---------- plan ----------
     def plan_yap(self, gun: date, hesaplar: list[str], adet: int, simdi: datetime | None = None,
-                 aralik_saat: float = 0, otomatik: bool = False) -> dict:
+                 aralik_saat: float = 0, otomatik: bool = False, sabit: dict | None = None) -> dict:
         d = self._oku()
         g = d.setdefault(gun.isoformat(), {})
+        if otomatik and sabit:
+            # SABİT SAATLER: her gün aynı saatler, her saatin hangi platformlara gideceği belli
+            su_an = simdi.strftime("%H:%M") if simdi and simdi.date() == gun else ""
+            for h in hesaplar:
+                mevcut = g.setdefault(h, [])
+                dolu = {i["saat"] for i in mevcut}
+                for saat, platformlar in sabit.get(h, []):
+                    if saat not in dolu and (not su_an or saat >= su_an):
+                        mevcut.append({"hid": "", "saat": saat, "durum": "bekliyor", "platformlar": list(platformlar)})
+                g[h] = sorted(mevcut, key=lambda i: i["saat"])
+            self._yaz(d)
+            return g
         if otomatik and aralik_saat:
             # tam otomatik: saatler şimdiden belli, HANGİ klibin gideceği saati gelince seçilir (o anki en iyisi)
             for h in hesaplar:

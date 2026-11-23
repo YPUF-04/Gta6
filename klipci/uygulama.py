@@ -392,6 +392,31 @@ class Uygulama:
         except (TypeError, ValueError):
             return 3.0
 
+    # Sabit paylaşım saatleri (Türkiye saati). Araştırma: Reels sabah 08-10, öğle 12-14, akşam 19-21 en iyi;
+    # oyun içeriği akşam 18-23 güçlü. EN hesabının izleyicisi ABD: ABD öğle-akşamı = TR 19:00-05:30.
+    # Her saatin gideceği platformlar: Instagram günde 3 (en iyi saatler), YouTube 2, Facebook 4, Threads 3,
+    # TikTok her saatte (elle). ig=Instagram fb=Facebook yt=YouTube th=Threads
+    SABIT_SAATLER = {
+        "TR": [("09:00", "fb"), ("11:00", "th"), ("12:30", "ig fb"), ("14:00", "th"), ("16:00", "fb"),
+               ("18:00", "th"), ("19:30", "ig yt"), ("20:30", "fb"), ("21:30", "ig"), ("23:00", "yt")],
+        "EN": [("15:00", "fb"), ("17:00", "th"), ("19:00", "ig fb"), ("20:30", "yt"), ("22:00", "th"),
+               ("23:30", "ig fb"), ("01:00", "th"), ("02:30", "yt"), ("04:00", "ig fb"), ("05:30", "")],
+    }
+    KISA = {"ig": "instagram", "fb": "facebook", "yt": "youtube", "th": "threads"}
+
+    def _sabit_saatler(self) -> dict:
+        """{hesap: [(HH:MM, [platformlar]), ...]} — /saatler ile görülür, config 'paylasim_saatleri' ile değişir."""
+        if not self.cfg.get("sabit_saatler", True):
+            return {}
+        kaynak = self.cfg.get("paylasim_saatleri") or self.SABIT_SAATLER
+        out = {}
+        for h, lst in kaynak.items():
+            out[str(h).upper()] = [(str(x[0]) if isinstance(x, (list, tuple)) else str(x.get("saat")),
+                                    [self.KISA.get(k, k) for k in (x[1] if isinstance(x, (list, tuple))
+                                                                   else x.get("platformlar", "")).split()])
+                                   for x in lst]
+        return out
+
     def _tam_otomatik(self) -> bool:
         """Saat gelince senin onayını beklemeden en iyi klibi kendisi paylaşsın mı? (varsayılan: evet)"""
         return bool(self._durum_oku().get("tam_otomatik", self.cfg.get("tam_otomatik", True)))
@@ -433,6 +458,9 @@ class Uygulama:
 
     def _gunluk(self) -> int:
         """Her hesap için günde kaç paylaşım (Telegram /gunluk ile değişir)."""
+        sabit = self._sabit_saatler()
+        if sabit:
+            return max((len(v) for v in sabit.values()), default=10)
         if self._aralik():
             return len(planmod.aralikli_saatler(self._aralik(), tarih(2000, 1, 1)))
         return int(self._durum_oku().get("gunluk") or self.cfg.get("gunluk_paylasim", 10))
@@ -846,8 +874,8 @@ class Uygulama:
             if b < bas < e and bas - b <= 5:
                 bas = max(0.0, b - 0.2)
         # izlenme süresi: kısa ve dolu klipler sonuna kadar izlenir (algoritmanın en önemli sinyali)
-        if son - bas > 40:
-            son = bas + 40
+        if son - bas > 60:   # uzun olabilir; boş kuyruk zaten tepki sönünce kesiliyor
+            son = bas + 60
             for b, e, _ in segler:
                 if b < son < e and e - son <= 3:
                     son = e + 0.3
@@ -1385,6 +1413,7 @@ class Uygulama:
         "/paylasim — Instagram / YouTube otomatik paylaşım bağlı mı?\n"
         "/dene — paylaşım denemesi: hepsi gerçekten çalışıyor mu? (hiçbir şey yayınlanmaz)\n"
         "/anlik 8.5 — bu puan ve üstü klipler saat beklemeden hemen paylaşılsın\n"
+        "/saatler — her gün hangi saatte hangi platforma paylaşılıyor\n"
         "/bagla — Instagram / YouTube hesabını Telegram'dan bağla (adım adım)\n"
         "/ikinci_bot — paylaşım kanalı (ikinci Telegram botu) kur\n"
         "/aralik 3 — kaç saatte bir paylaşılsın\n"
@@ -1484,6 +1513,20 @@ class Uygulama:
             self._arka.add(g)
             g.add_done_callback(self._arka.discard)
             return "🫧 Video hazırlanıyor (1-2 dk), bitince buraya gelecek."
+        if komut in ("/saatler", "/saat"):
+            sabit = self._sabit_saatler()
+            if not sabit:
+                return f"Sabit saatler kapalı; {self._aralik():g} saatte bir paylaşılıyor."
+            ikon = {"instagram": "📸", "facebook": "📘", "youtube": "▶️", "threads": "🧵"}
+            satir = ["⏰ PAYLAŞIM SAATLERİ (Türkiye saati, her gün aynı)\n"]
+            for h, lst in sabit.items():
+                satir.append(f"[{h}] {len(lst)} video/gün")
+                for saat, pl in lst:
+                    satir.append(f"  {saat}  🎵" + "".join(ikon.get(p_, "") for p_ in pl))
+                satir.append("")
+            satir.append("🎵 TikTok her saatte (paylaşım kanalından elle). EN saatleri ABD izleyicisine göre.\n"
+                         "Değiştirmek için config.yaml → paylasim_saatleri")
+            return "\n".join(satir)
         if komut in ("/anlik", "/anlık"):
             try:
                 n = float(arg.strip().replace(",", "."))
@@ -1924,7 +1967,8 @@ class Uygulama:
                 simdi = zaman.now()
                 hesaplar = [h["ad"] for h in self._hesaplar()]
                 adet = self._gunluk()
-                self.plan.plan_yap(simdi.date(), hesaplar, adet, simdi, self._aralik(), self._tam_otomatik())
+                self.plan.plan_yap(simdi.date(), hesaplar, adet, simdi, self._aralik(), self._tam_otomatik(),
+                                   self._sabit_saatler())
                 for hesap, it in self.plan.zamani_gelenler(simdi):
                     if not it.get("hid"):   # tam otomatik: şu an elimizdeki en iyi klibi seç
                         hid = await asyncio.to_thread(self._en_iyi_aday, hesap)
@@ -2214,7 +2258,7 @@ class Uygulama:
             log.debug("kapak yapılamadı: %r", e)
 
     # platform başına günlük paylaşım sınırı (araştırma: Reels günde 1-3, Shorts'ta günün 2.'si sonrası düşer)
-    GUNLUK_SINIR = {"instagram": 3, "facebook": 3, "threads": 3, "youtube": 2}
+    GUNLUK_SINIR = {"instagram": 3, "facebook": 4, "threads": 3, "youtube": 2}
 
     def _platform_sinir(self, plat: str) -> int:
         ayar = self._durum_oku().get("gunluk_sinir") or self.cfg.get("gunluk_sinir") or {}
@@ -2238,6 +2282,9 @@ class Uygulama:
         """Puanı çok yüksek (varsayılan 8.5+) klip saati beklemeden hemen paylaşılır.
         Aynı hesaba en az 'anlik_aralik_dk' (45 dk) arayla; arası dolmadıysa normal sıraya kalır (öncelikli)."""
         if not self._tam_otomatik() or skor < self._anlik_esik():
+            return False
+        if self._sabit_saatler() and not self.cfg.get("sabit_saatte_anlik", False):
+            log.info("⚡ %s puan %.1f: sabit saat düzeni, bir sonraki paylaşım saatinde ilk o gidecek", hid, skor)
             return False
         d = self._durum_oku()
         son = (d.get("son_anlik") or {}).get(hesap, 0)
@@ -2424,7 +2471,7 @@ class Uygulama:
         ozel = self.kok / "youtube" / f"client_secret_{hesap}.json"
         return ozel if hesap and ozel.exists() else self.kok / "youtube" / "client_secret.json"
 
-    def _otomatik_paylas(self, hesap: str, mp4: Path, pm: dict) -> dict:
+    def _otomatik_paylas(self, hesap: str, mp4: Path, pm: dict, izinli: list | None = None) -> dict:
         """Bağlı platformlara AYNI ANDA yükle (Instagram→Threads zinciri, Facebook, YouTube paralel).
         {platform: link ya da 'HATA: ...'}"""
         from concurrent.futures import ThreadPoolExecutor
@@ -2438,6 +2485,8 @@ class Uygulama:
         # günlük sınırı dolan platform bugün atlanır (hesabı spam gibi göstermesin; fazla video TikTok'a kalır)
         dolu = {p_: self._platform_sayi(hesap, p_) >= self._platform_sinir(p_)
                 for p_ in ("instagram", "facebook", "threads", "youtube")}
+        if izinli is not None:   # sabit saat: bu saatte sadece belirlenen platformlar
+            dolu = {p_: dolu[p_] or p_ not in izinli for p_ in dolu}
         if dolu["instagram"]:
             h = {**h, "instagram_token": ""}
         if dolu["facebook"]:
@@ -2473,7 +2522,7 @@ class Uygulama:
             if p_ in self.GUNLUK_SINIR and str(v).startswith("http"):
                 self._platform_sayi(hesap, p_, artir=True)
         for p_ in ("instagram", "facebook", "youtube"):
-            if dolu[p_] and p_ not in sonuc:
+            if dolu[p_] and p_ not in sonuc and (izinli is None or p_ in izinli):
                 sonuc[p_] = f"SINIR: bugünkü {p_} sınırı ({self._platform_sinir(p_)}) doldu, hesap korunuyor"
         if any("api access blocked" in str(v).lower() for v in sonuc.values()):
             d = self._durum_oku()
@@ -2563,7 +2612,7 @@ class Uygulama:
             pm = json.loads((k / "aciklama.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pm = {}
-        oto = await asyncio.to_thread(self._otomatik_paylas, hesap, mp4, pm)
+        oto = await asyncio.to_thread(self._otomatik_paylas, hesap, mp4, pm, it.get("platformlar"))
         kimlik = {"instagram": oto.pop("_instagram_id", ""),
                   "youtube": oto["youtube"].rsplit("/", 1)[-1] if str(oto.get("youtube", "")).startswith("http") else ""}
         if any(kimlik.values()):
@@ -2579,8 +2628,9 @@ class Uygulama:
                 v_ = oto[ad_]
                 durum_satir.append(f"{ikon}: " + ("⚠️ " + v_[6:] if v_.startswith("HATA") else
                                                   "⏸ " + v_[7:] if v_.startswith("SINIR") else "✅ paylaşıldı " + v_))
-        elle = [p for p in ("instagram", "tiktok", "youtube") if p == "tiktok" or not oto.get(p)
-                or str(oto.get(p, "")).startswith(("HATA", "SINIR"))]
+        izinli = it.get("platformlar")
+        elle = [p for p in ("instagram", "tiktok", "youtube") if p == "tiktok" or (
+                (izinli is None or p in izinli) and (not oto.get(p) or str(oto.get(p, "")).startswith(("HATA", "SINIR"))))]
         bot = self._paylas_botu()
         try:
             await bot.video_gonder(mp4, f"📤 {hesap} — {it['saat']}  ({planmod.yayinci_adi(it['hid'])})\n"
