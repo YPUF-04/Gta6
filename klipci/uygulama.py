@@ -29,7 +29,6 @@ from .oyun import OYUN, ayarla as oyun_ayarla
 from .kurgu import ass_yaz, chat_sec, dikey_video, guvenli_kopya, ses_cikar, tweet_video, video_saglam_mi
 from .spike import Spike, SpikeDetector, mesaj_puani, yazi_dili
 from .ceviri import cevir as ceviri_yap
-from .yazar import pov_yazisi
 from .oyunsesi import bagirma_mi, oyun_aksiyonu, parca_sesi
 from .oyunsesi import hareketsiz_oran, oyun_altyazi_anlari, oyun_konusmasi_mi, yuz_tepkisi
 from .telegram import Bot
@@ -1219,7 +1218,7 @@ class Uygulama:
                 # karakter anı (kamerası olmayan yayın): oyun tam ekran, üstte GTA VI + pembe POV yazısı,
                 # yayıncı konuştuysa altyazısı yine altta
                 duzen = "pov"
-                veri["baslik"] = pov_yazisi(dil, hid)
+                # ekranda uydurma POV cümlesi yok: sadece yayıncının gerçek sözü (varsa) yazılır
                 tepki = None
             mp4 = klasor / f"{hid}.mp4"
             try:

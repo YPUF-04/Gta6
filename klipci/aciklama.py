@@ -15,42 +15,24 @@ import random
 import re
 
 # --- anın türüne göre kanca ve bağlam cümleleri (abartısız, temiz, her biri bir duruma özel) ---
+# Program ne olduğunu GÖRMÜYOR; bu yüzden olayı uyduran cümleler YOK ("yanlış NPC'ye bulaştı" gibi).
+# Söz yoksa başlık sadece gerçek bilgi: yayıncı + oyun. Bağlam cümlesi sadece ÖLÇTÜĞÜMÜZ şeyi söyler
+# (chat güldü mü, yayıncı bağırdı mı, ekran hareketli mi).
 KANCA = {
-    "tr": {
-        "komik": ["{ad} bunu hiç beklemiyordu", "GTA 6'da işler {ad} için ters gitti", "{ad} ve GTA 6: kısa bir hikâye",
-                  "Bu anın zamanlaması kusursuz", "{ad} bu sahneyi unutmayacak"],
-        "aksiyon": ["GTA 6'da kontrol {ad_in} elinden çıktı", "{ad_in} yayınındaki en sert an", "Saniyeler içinde her şey değişti",
-                    "GTA 6'nın fiziği yine şov yaptı", "{ad} gaza bastı, gerisi tarih"],
-        "npc": ["GTA 6 NPC'leri bu sefer karşılık verdi", "Bu NPC'nin tepkisi her şeyi anlatıyor",
-                "Rockstar NPC'lerde çıtayı yükseltmiş", "{ad} yanlış kişiye bulaştı"],
-        "sok": ["{ad} ekranın başında dondu kaldı", "Bu an {ad_i} bile şaşırttı", "Kimsenin beklemediği bir son",
-                "{ad_in} tepkisi her şeyi özetliyor"],
-        "chat": ["Chat bu anı konuşmayı bırakmadı", "Yayın bir anda durdu, chat aktı", "{ad_in} chat'i bu anla yıkıldı"],
-    },
-    "en": {
-        "komik": ["{ad} did not see that coming", "GTA 6 had other plans for {ad}", "The timing on this is perfect",
-                  "{ad} will be thinking about this one", "A short story about {ad} and GTA 6"],
-        "aksiyon": ["Things escalated fast for {ad}", "The wildest moment of {ad}'s stream", "It all changed in seconds",
-                    "GTA 6 physics never miss", "{ad} hit the gas and never looked back"],
-        "npc": ["The NPCs in GTA 6 fight back now", "This NPC's reaction says it all", "Rockstar went all in on the NPCs",
-                "{ad} picked the wrong person"],
-        "sok": ["{ad} froze in front of the screen", "Even {ad} couldn't believe this", "Nobody expected this ending",
-                "{ad}'s reaction says everything"],
-        "chat": ["Chat could not stop talking about this", "The stream stopped and chat went wild",
-                 "{ad}'s chat lost it over this"],
-    },
+    "tr": ["{ad} · GTA 6", "{ad_in} GTA 6 yayınından", "GTA 6 · {ad}"],
+    "en": ["{ad} · GTA 6", "From {ad_in} GTA 6 stream", "GTA 6 · {ad}"],
 }
 BAGLAM = {
-    "tr": {"komik": "{ad_in} GTA 6 yayınında chat kahkahaya boğuldu.",
-           "aksiyon": "{ad_in} GTA 6 yayınından tam bir aksiyon sahnesi.",
-           "npc": "GTA 6'nın yapay zekâsı {ad_i} bile şaşırttı.",
-           "sok": "{ad_in} GTA 6 yayınında herkesi susturan an.",
-           "chat": "{ad_in} GTA 6 yayınında chat'in en hareketli anı."},
-    "en": {"komik": "Chat could not stop laughing during {ad}'s GTA 6 stream.",
-           "aksiyon": "Pure action from {ad}'s GTA 6 stream.",
-           "npc": "GTA 6's AI caught even {ad} off guard.",
-           "sok": "The moment that silenced {ad}'s GTA 6 stream.",
-           "chat": "The loudest moment in {ad}'s chat during GTA 6."},
+    "tr": {"komik": "Chat bu anda kahkahaya boğuldu.",
+           "aksiyon": "Yayının en hareketli anlarından biri.",
+           "npc": "Chat bu anda kahkahaya boğuldu.",
+           "sok": "Yayıncının tepkisi chat'i hareketlendirdi.",
+           "chat": "Chat bu anı konuşmayı bırakmadı."},
+    "en": {"komik": "Chat burst out laughing at this moment.",
+           "aksiyon": "One of the most intense moments of the stream.",
+           "npc": "Chat burst out laughing at this moment.",
+           "sok": "The reaction that set the chat off.",
+           "chat": "Chat could not stop talking about this one."},
 }
 ETIKET = {
     "tr": ["#gta6", "#gtavi", "#gta6türkiye", "#oyun"],
@@ -122,14 +104,11 @@ def yaz(dil: str, yayinci: str, platform: str, segler: list[tuple[float, float, 
     dil = dil if dil in KANCA else "en"
     rnd = random.Random(tohum)
     soz = en_iyi_soz(segler, an)
-    kancalar = KANCA[dil][tur]
-    if not yuz:   # kamera yoksa "yüz ifadesi / dondu kaldı" gibi şeyler söyleme
-        kancalar = [k for k in kancalar if "ekranın başında" not in k and "froze" not in k] or kancalar
-    ekler = {"ad": yayinci, "ad_in": tr_ek(yayinci, "in"), "ad_i": tr_ek(yayinci, "i"), "ad_a": tr_ek(yayinci, "a")}
+    ekler = {"ad": yayinci, "ad_in": tr_ek(yayinci, "in")}
     if dil == "en":
-        ekler.update(ad_in=f"{yayinci}'s", ad_i=yayinci, ad_a=yayinci)
-    kanca = rnd.choice(kancalar).format(**ekler)
-    baglam = BAGLAM[dil][tur].format(**ekler)
+        ekler["ad_in"] = f"{yayinci}'s"
+    kanca = rnd.choice(KANCA[dil]).format(**ekler)
+    baglam = BAGLAM[dil][tur]
     ana = f"“{soz}”" if soz else kanca
     etiketler = [ETIKET[dil][0], ETIKET[dil][1], "#" + re.sub(r"[^\w]", "", yayinci.lower())]
     etiketler += [PLATFORM_ETIKET.get(platform, ETIKET[dil][3]), ETIKET[dil][2]]
@@ -139,7 +118,7 @@ def yaz(dil: str, yayinci: str, platform: str, segler: list[tuple[float, float, 
     return {
         "baslik": soz if soz and len(soz) <= 48 else "",
         "aciklama": ana,
-        "baglam": baglam if soz else (baglam if kanca not in baglam else ""),
+        "baglam": baglam,
         "youtube_baslik": yt,
         "hashtagler": list(dict.fromkeys(etiketler)),
     }

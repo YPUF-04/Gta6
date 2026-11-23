@@ -118,6 +118,13 @@ def test_profesyonel_aciklama():
     v = a.yaz("en", "Kai Cenat", "twitch", seg, 10, "komik", "x", True)
     assert v["aciklama"] == "“Bro what is he doing right now?”" and "#kaicenat" in v["hashtagler"]
     t = a.yaz("tr", "Coringa", "kick", [], 10, "aksiyon", "y", False)
-    assert "Coringa'nın" in t["baglam"] and t["baslik"] == ""
+    assert t["baslik"] == "" and "Coringa" in t["aciklama"]
+    # olayı uyduran hiçbir cümle olmamalı
+    import itertools
+    for dil, tur in itertools.product(("tr", "en"), ("komik", "aksiyon", "npc", "sok", "chat")):
+        for i in range(6):
+            v = a.yaz(dil, "Coringa", "kick", [], 10, tur, str(i), False)
+            metin = (v["aciklama"] + v["baglam"]).lower()
+            assert not any(k in metin for k in ("npc", "bulaş", "wrong", "kontrol", "dondu", "froze"))
     assert a.tr_ek("Kai Cenat", "in") == "Kai Cenat'ın" and a.tr_ek("Jynxzi", "a") == "Jynxzi'ye"
     assert a.an_turu(0.5, 1.0, 3, False, False) == "komik" and a.an_turu(0.1, 3.0, 3, False, False) == "aksiyon"
