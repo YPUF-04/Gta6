@@ -70,7 +70,7 @@ def test_akilli_aralik_bos_kuyrugu_keser(tmp_path):
     chat = [(9 + i * 0.25, "a", "KEKW") for i in range(24)] + [(16 + i, "b", "devam abi") for i in range(14)]
     is_ = Is(kesif.Kanal("kick", "barisg"), Spike(0, 0, 1, 1), tmp_path / "a.ts", 0, 30, chat, False, 10.0, "x")
     bas, son = Uygulama._akilli_aralik(is_, [])
-    assert bas == 0.0 and 17 <= son <= 22          # 30 sn yerine ~20 sn, boş kuyruk gitti
+    assert bas == 4.0 and 17 <= son <= 22          # olaydan ~6 sn önce başlar, boş kuyruk gitti
     # yayıncı tam bitişte konuşuyorsa cümlesini bitirsin
     bas2, son2 = Uygulama._akilli_aralik(is_, [(18.0, 23.0, "abi bu ne ya")])
     assert abs(son2 - 23.3) < 0.01
@@ -94,3 +94,13 @@ def test_ara_sahne_oyun_ani_sayilmaz(tmp_path):
     is_ = Is(kesif.Kanal("kick", "maddyson"), Spike(0, 0, 1, 1), tmp_path / "a.ts", 0, 40, [], True, 20.0, "x")
     ara_sahne = [(t / 2, True) for t in range(80)]          # baştan sona oyun altyazısı = ara sahne/diyalog
     assert not Uygulama._oyun_ani_mi(is_, 8.0, ara_sahne)
+
+
+def test_klip_en_fazla_40_sn(tmp_path):
+    from klipci import kesif
+    from klipci.spike import Spike
+    from klipci.uygulama import Is, Uygulama
+    chat = [(10 + i * 0.25, "a", "KEKW") for i in range(300)]     # chat 75 sn boyunca gülüyor
+    is_ = Is(kesif.Kanal("kick", "x"), Spike(0, 0, 1, 1), tmp_path / "a.ts", 0, 90, chat, False, 12.0, "x")
+    bas, son = Uygulama._akilli_aralik(is_, [])
+    assert bas == 6.0 and son - bas <= 40.5

@@ -822,7 +822,7 @@ class Uygulama:
         return round(max(0.0, min(10.0, p)), 1), ", ".join(neden)
 
     @staticmethod
-    def _akilli_aralik(is_: "Is", segler: list, giris_sn: float = 11.0) -> tuple[float, float]:
+    def _akilli_aralik(is_: "Is", segler: list, giris_sn: float = 6.0) -> tuple[float, float]:
         """Klibin gerçekten izlenecek kısmı (klip içi saniyeler): (başlangıç, bitiş).
         Bitiş: chat'in gülme/şaşırma tepkisi söndükten ~2 sn sonra (chat zaten olaydan 2-4 sn geç tepki verir).
         Başlangıç: patlamadan ~11 sn önce. İkisi de yayıncının cümlesini ortadan bölmez."""
@@ -845,6 +845,12 @@ class Uygulama:
                 son = min(is_.sure, e + 0.3) if e - son <= 5 else son
             if b < bas < e and bas - b <= 5:
                 bas = max(0.0, b - 0.2)
+        # izlenme süresi: kısa ve dolu klipler sonuna kadar izlenir (algoritmanın en önemli sinyali)
+        if son - bas > 40:
+            son = bas + 40
+            for b, e, _ in segler:
+                if b < son < e and e - son <= 3:
+                    son = e + 0.3
         if son - bas < 12:   # çok kısa kalmasın
             son = min(is_.sure, bas + 12)
             bas = max(0.0, son - 12)
