@@ -81,6 +81,9 @@ def test_akilli_aralik_bos_kuyrugu_keser(tmp_path):
     is_.chat = chat3
     _, son3 = Uygulama._akilli_aralik(is_, [(27.0, 34.0, "ve sonra adam dedi ki")])
     assert son3 <= 27.0
+    # kanca: olaydan önce kimse konuşmuyor (yayıncı sadece sonra konuşuyor) → giriş 6 değil ~4 sn
+    bas4, _ = Uygulama._akilli_aralik(is_, [(11.0, 14.0, "abi noluyor")])
+    assert abs(bas4 - 6.0) < 0.01
 
 
 def test_aksiyon_puani_yukseltir():

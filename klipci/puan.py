@@ -204,6 +204,13 @@ class Ogrenci:
             self._yaz()
         return puan, " · ".join(neden)
 
+    def olasilik(self, oz: dict) -> float | None:
+        """Öğrenilen modele göre bu klibin İYİ gitme ihtimali (0-1). Yeterli veri yoksa None."""
+        if not self.w or not oz:
+            return None
+        z = self.b + sum(self.w[k] * oz.get(k, 0) for k in self.w)
+        return 1 / (1 + math.exp(-z))
+
     def sira(self, kid: str, saat: float = 24) -> tuple[int, int]:
         """Son 24 saatteki klipler arasında kaçıncı (1 = en iyi)."""
         sinir = time.time() - saat * 3600

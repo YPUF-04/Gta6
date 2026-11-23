@@ -421,11 +421,21 @@ class Uygulama:
         """Saat gelince senin onayını beklemeden en iyi klibi kendisi paylaşsın mı? (varsayılan: evet)"""
         return bool(self._durum_oku().get("tam_otomatik", self.cfg.get("tam_otomatik", True)))
 
-    def _en_iyi_aday(self, hesap: str) -> str:
-        """Şu an bu hesap için paylaşılabilecek en iyi (puanı 10'a en yakın) klip. Senin ✅ / 👍 bastıkların +0.5.
+    def _en_iyi_aday(self, hesap: str, neden_dondur: bool = False):
+        """Paylaşım saatinde bu hesap için "en güzel olduğuna inandığı" klip. Sadece en yüksek puana bakmaz:
+        - kalite puanı (temel),
+        - izlenmelerden öğrendiği: bu tarz klipler bu hesapta iyi gidiyor mu (öğrenci modeli),
+        - yayıncının bu hesaptaki izlenme geçmişi, senin 😍 / ✅ / 👍 bastıkların,
+        - çeşitlilik: aynı yayıncı art arda / gün içinde tekrar tekrar gitmesin (takipçi sıkılmasın),
+        - tazelik: yeni anlar eskilerden önce, yayıncının konuştuğu (kancalı) klipler biraz önde.
         En az 'oto_en_dusuk_puan' (varsayılan 7) olmalı."""
         en_az = float(self.cfg.get("oto_en_dusuk_puan", 7))
-        adaylar: list[tuple[float, str]] = []
+        adaylar: list[tuple[float, str, str]] = []
+        # bugün bu hesapta giden yayıncılar (çeşitlilik için)
+        bugun = [it for it in (self.plan.gun_plani(datetime.now().date()).get(hesap) or [])
+                 if it.get("hid") and it.get("durum") in ("gonderildi", "paylasildi")]
+        bugun.sort(key=lambda it: it.get("saat", ""))
+        giden = [planmod.yayinci_adi(it["hid"]) for it in bugun]
         yerler = [(k, True) for k in (self.klasor / "hazir" / hesap).glob("*")]
         yerler += [(k, False) for k in (self.klasor / "bekleyen").glob(f"*_{hesap}")]
         for k, onayli in yerler:
@@ -440,17 +450,46 @@ class Uygulama:
             p = float(b.get("puan", 0))
             if p < en_az:
                 continue
-            karar = (self.ogrenci.kayitlar.get(k.name) or {}).get("karar")
+            kayit = self.ogrenci.kayitlar.get(k.name) or {}
+            karar = kayit.get("karar")
             if karar == "sil":
                 continue
-            p += 0.5 if (onayli or karar == "onay") else 0.0
-            p *= self.performans.yayinci_carpani(planmod.yayinci_adi(k.name))
-            fav = (self._durum_oku().get("favori") or {}).get(planmod.yayinci_adi(k.name), 0)
+            yay = planmod.yayinci_adi(k.name)
+            notlar = [f"puan {p:.1f}"]
+            ol = self.ogrenci.olasilik(b.get("ozellikler") or kayit.get("oz") or {})
+            if ol is not None:                                 # izlenmelerden öğrendiği tarz
+                ek = round(3.0 * (ol - 0.5), 1)
+                p += ek
+                if abs(ek) >= 0.3:
+                    notlar.append(f"izlenmelerden öğrendiğim {ek:+.1f}")
+            if onayli or karar == "onay":
+                p += 0.5
+            c = self.performans.yayinci_carpani(yay)
+            p *= c
+            if abs(c - 1) >= 0.05:
+                notlar.append(f"{yay} bu hesapta x{c:.2f}")
+            fav = (self._durum_oku().get("favori") or {}).get(yay, 0)
             p *= min(1.2, 1 + 0.05 * fav)                     # 😍 bastığın yayıncılar öne
-            if (self.ogrenci.kayitlar.get(k.name) or {}).get("bayildi"):
+            if kayit.get("bayildi"):
                 p += 2.0                                      # 😍 bastığın klip ilk gider
-            adaylar.append((p, k.name))
-        return max(adaylar)[1] if adaylar else ""
+                notlar.append("😍")
+            # çeşitlilik: aynı yayıncı art arda gitmesin, gün içinde de çok tekrar etmesin
+            if giden and giden[-1] == yay:
+                p -= 1.5
+                notlar.append("az önce de bu yayıncı gitti")
+            elif giden.count(yay):
+                p -= 0.6 * giden.count(yay)
+                notlar.append(f"bugün {giden.count(yay)} kez gitti")
+            # tazelik: günde ~0.4 puan eskir
+            p -= 0.4 * (time.time() - k.stat().st_mtime) / 86400
+            # kanca: yayıncı konuşuyorsa (altyazılı, ilk saniyeden ilgi çeker) biraz önde
+            if b.get("transkript"):
+                p += 0.3
+            adaylar.append((p, k.name, ", ".join(notlar)))
+        if not adaylar:
+            return ("", "") if neden_dondur else ""
+        en = max(adaylar)
+        return (en[1], f"{en[0]:.1f} — " + en[2]) if neden_dondur else en[1]
 
     def _hazira_al(self, kid: str) -> None:
         """Onay beklemeden seçilen klibi paylaşılacaklar klasörüne taşı."""
@@ -892,6 +931,10 @@ class Uygulama:
                 son = canli[-1] + 3 + 2
         son = min(is_.sure, max(son, is_.an + 6))
         bas = max(0.0, is_.an - giris_sn)
+        # KANCA: ilk saniyeler boş geçmesin (izleyici ilk 1-2 sn'de kaydırıp geçer). Yayıncı bu klipte konuşuyor
+        # ama olaydan önceki girişte sessizse, girişi kısalt: olaydan ~4 sn önce başla.
+        if segler and not any(e > bas + 0.5 and b < is_.an - 1 for b, e, _ in segler):
+            bas = max(bas, is_.an - 4.0)
         for b, e, _ in segler:   # cümle ortasında kesme
             if b < son < e:
                 son = min(is_.sure, e + 0.3) if e - son <= 5 else son
@@ -2056,7 +2099,9 @@ class Uygulama:
                                    self._sabit_saatler())
                 for hesap, it in self.plan.zamani_gelenler(simdi):
                     if not it.get("hid"):   # tam otomatik: şu an elimizdeki en iyi klibi seç
-                        hid = await asyncio.to_thread(self._en_iyi_aday, hesap)
+                        hid, neden = await asyncio.to_thread(self._en_iyi_aday, hesap, True)
+                        if hid:
+                            log.info("🏆 %s %s için en güzel bulduğum: %s (%s)", it.get("saat"), hesap, hid, neden)
                         if not hid:
                             self.plan.ata(simdi.date().isoformat(), hesap, it["saat"], "-", "bos")
                             log.info("⏰ %s %s: paylaşılacak yeterince iyi klip yok, bu saat atlandı", hesap, it["saat"])

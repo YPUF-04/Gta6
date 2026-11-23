@@ -87,3 +87,21 @@ def test_sarkac_bloklar_yapisir():
     from klipci.sarkac import simule
     kareler, olaylar = simule(20, 1)
     assert kareler[-1][6] > 5 and sum(1 for _, tur, _ in olaylar if tur == "yapisti") == kareler[-1][6]
+
+
+def test_en_guzel_secim_ayni_yayinciyi_art_arda_vermez(tmp_path, monkeypatch):
+    """Bugün az önce kai gittiyse, kai'nin biraz daha yüksek puanlı klibi yerine başka yayıncının güzel klibi gider."""
+    import json
+    from datetime import datetime
+    from tests.test_komut import _app
+    u = _app(tmp_path, monkeypatch)
+    for ad, puan in (("20261122_100000_kai_EN", 8.6), ("20261122_100100_xqc_EN", 8.2)):
+        k = u.klasor / "bekleyen" / ad
+        k.mkdir(parents=True)
+        (k / "a.mp4").write_bytes(b"x")
+        (k / "bilgi.json").write_text(json.dumps({"puan": puan}))
+    assert u._en_iyi_aday("EN") == "20261122_100000_kai_EN"
+    gun = datetime.now().date().isoformat()
+    u.plan.ekle(datetime.now().date(), "EN", "20261122_090000_kai_EN", "09:00", "gonderildi")
+    hid, neden = u._en_iyi_aday("EN", True)
+    assert hid == "20261122_100100_xqc_EN" and gun
