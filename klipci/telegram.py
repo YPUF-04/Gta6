@@ -77,7 +77,7 @@ class Bot:
     async def video_gonder(self, yol: Path, aciklama: str, klip_id: str, butonlar: list | None = None) -> None:
         if not self.chat_id:
             raise RuntimeError("Telegram chat_id yok — botuna /start yaz")
-        yol = telegram_kopyasi(Path(yol))
+        yol = await asyncio.to_thread(telegram_kopyasi, Path(yol))
         klavye = {"inline_keyboard": butonlar or [
             [{"text": "📤 Hemen paylaş", "callback_data": f"hp:{klip_id}"[:64]},
              {"text": "✅ Sıraya ekle", "callback_data": f"ok:{klip_id}"[:64]}],
