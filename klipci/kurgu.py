@@ -89,10 +89,13 @@ def _altyazi_olaylari(altyazilar, sure: float, x: int, y: int, katman: int = 3) 
             e = kelimeler[i + 1][0] if i + 1 < len(kelimeler) else bit
             if e <= b:
                 continue
+            # yeni cümle hafifçe büyüyerek gelir; söylenen kelime mor kutuda ve biraz büyük
+            giris = "\\fscx88\\fscy88\\t(0,110,\\fscx100\\fscy100)" if i == 0 else ""
             yazi = " ".join(
-                (f"{{\\3c{MOR}\\bord14\\shad0}}{_ass_metin(w)}{{\\r}}" if j == i else _ass_metin(w))
+                (f"{{\\3c{MOR}\\bord14\\shad0\\fscx108\\fscy108}}{_ass_metin(w)}{{\\r}}" if j == i
+                 else _ass_metin(w))
                 for j, (_a, _b, w) in enumerate(kelimeler))
-            out.append(f"Dialogue: {katman},{_zaman(b)},{_zaman(e)},Alt,,0,0,0,,{konum}{yazi}")
+            out.append(f"Dialogue: {katman},{_zaman(b)},{_zaman(e)},Alt,,0,0,0,,{{\\pos({x},{y}){giris}}}{yazi}")
     return out
 
 
@@ -236,13 +239,20 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
     yol.write_text("\n".join(satirlar) + "\n", encoding="utf-8")
 
 
-def _yakinlas(genislik: int, yukseklik: int, an: float | None) -> str:
-    """Chat'in patladığı anda oyun görüntüsüne ani yakınlaşma (editörlerin 'punch-in'i), 1.4 sn sürer."""
-    if an is None or an < 0:
+# görüntü: biraz daha canlı renk + kontrast, hafif netleştirme (720p yayın 1080'e büyütülünce yumuşamasın)
+GRADE = ",eq=contrast=1.06:saturation=1.14:gamma=0.98,unsharp=5:5:0.5:5:5:0"
+
+
+def _yakinlas(genislik: int, yukseklik: int, an: float | None, sure: float | None = None) -> str:
+    """Sinematik hareket: klip boyunca çok yavaş yakınlaşma + chat'in patladığı an yumuşak bir 'punch-in'
+    (sert sıçrama değil; ~0.5 sn'de girip çıkar). Kare kare ölçeklenir, zoompan titremesi yok."""
+    drift = f"0.045*t/{max(sure, 1.0):.2f}" if sure else "0"
+    punch = f"+0.13*exp(-pow((t-{an:.2f})/0.45\\,2))" if (an is not None and an >= 0) else ""
+    if not sure and not punch:
         return ""
-    a, b = max(0.0, an - 0.3), an + 1.1
-    return (f",zoompan=z='if(between(it\\,{a:.2f}\\,{b:.2f})\\,1.18\\,1)':d=1"
-            f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={genislik}x{yukseklik}:fps=30")
+    z = f"(1+{drift}{punch})"
+    return (f",scale=w='2*trunc({genislik}*{z}/2)':h='2*trunc({yukseklik}*{z}/2)':eval=frame:flags=bicubic,"
+            f"crop={genislik}:{yukseklik}:(iw-{genislik})/2:(ih-{yukseklik})/2")
 
 
 def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: Path | None,
@@ -252,23 +262,25 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
     an: klipte chat'in patladığı saniye (o anda kısa yakınlaşma). cubuk: altta ilerleme çubuğu."""
     if duzen == "pov":   # oyun tam ekran, kamera yok
         filtre = (f"[0:v]setpts=PTS-STARTPTS,crop=min(iw\\,ih*{W}/{H}):ih:(iw-min(iw\\,ih*{W}/{H}))/2:0,"
-                  f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps=30"
-                  f"{_yakinlas(W, H, an)},format=yuv420p[v0]")
+                  f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},setsar=1,fps=30"
+                  f"{GRADE}{_yakinlas(W, H, an, sure)},format=yuv420p[v0]")
     elif facecam and duzen == "pip":
         fx, fy, fw, fh = facecam
         kx, ky, kw, kh = DUZEN["pip"]["kutu"]
-        r = 28   # köşe yuvarlaklığı
+        cer = 5    # kamera kutusunun beyaz çerçevesi (px)
+        r = 32     # köşe yuvarlaklığı
         kose = (f"if(gt(abs(X-W/2),W/2-{r})*gt(abs(Y-H/2),H/2-{r}),"
                 f"if(lte(hypot({r}-(W/2-abs(X-W/2)),{r}-(H/2-abs(Y-H/2))),{r}),255,0),255)")
         filtre = (
             f"[0:v]setpts=PTS-STARTPTS,split=2[a][b];"
             f"[b]crop=min(iw\\,ih*{W}/{H}):ih:(iw-min(iw\\,ih*{W}/{H}))/2:0,"
-            f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps=30"
-            f"{_yakinlas(W, H, an)}[oyun];"
+            f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},setsar=1,fps=30"
+            f"{GRADE}{_yakinlas(W, H, an, sure)}[oyun];"
             f"[a]crop=iw*{fw:.4f}:ih*{fh:.4f}:iw*{fx:.4f}:ih*{fy:.4f},"
-            f"scale={kw}:{kh}:force_original_aspect_ratio=increase,crop={kw}:{kh},setsar=1,fps=30,"
+            f"scale={kw}:{kh}:force_original_aspect_ratio=increase:flags=lanczos,crop={kw}:{kh},setsar=1,fps=30"
+            f"{GRADE},pad={kw + 2 * cer}:{kh + 2 * cer}:{cer}:{cer}:color=white,"
             f"format=yuva420p,geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)':a='{kose}'[kam];"
-            f"[oyun][kam]overlay={kx}:{ky},fps=30,format=yuv420p[v0]"
+            f"[oyun][kam]overlay={kx - cer}:{ky - cer},fps=30,format=yuv420p[v0]"
         )
         cubuk = True   # bu tarzda altta ince ilerleme çubuğu var
     elif facecam:
@@ -278,16 +290,17 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
         filtre = (
             f"[0:v]setpts=PTS-STARTPTS,split=2[a][b];"
             f"[a]crop=iw*{fw:.4f}:ih*{fh:.4f}:iw*{fx:.4f}:ih*{fy:.4f},"
-            f"scale={W}:{kh}:force_original_aspect_ratio=increase,crop={W}:{kh},setsar=1[kam];"
+            f"scale={W}:{kh}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{kh},setsar=1{GRADE}[kam];"
             f"[b]crop=min(iw\\,ih*{W}/{oh}):ih:(iw-min(iw\\,ih*{W}/{oh}))/2:0,"
-            f"scale={W}:{oh}:force_original_aspect_ratio=increase,crop={W}:{oh},setsar=1,fps=30"
-            f"{_yakinlas(W, oh, an)}[oyun];"
+            f"scale={W}:{oh}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{oh},setsar=1,fps=30"
+            f"{GRADE}{_yakinlas(W, oh, an, sure)}[oyun];"
             f"[kam][oyun]vstack=inputs=2,fps=30,format=yuv420p[v0]"
         )
     else:
         zoom = max(1.0, zoom)
         fh = int(round(W * 9 * zoom / 16 / 2)) * 2   # 16:9 kaynak varsayımı
-        fg = f"crop=iw/{zoom}:ih:(iw-iw/{zoom})/2:0,scale={W}:{fh},setsar=1,fps=30{_yakinlas(W, fh, an)}"
+        fg = (f"crop=iw/{zoom}:ih:(iw-iw/{zoom})/2:0,scale={W}:{fh}:flags=lanczos,setsar=1,fps=30"
+              f"{GRADE}{_yakinlas(W, fh, an, sure)}")
         filtre = (
             f"[0:v]setpts=PTS-STARTPTS,split=2[a][b];"
             f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
@@ -302,16 +315,17 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
     else:
         filtre += ";[v0]null[v1]"
     if ass is not None:
-        filtre += f";[v1]ass={ass.name}[v]"   # cwd=ass klasörü: Windows'ta C:\ kaçış derdi yok
+        filtre += (f";[v1]ass={ass.name},fade=t=out:st={max(0.0, sure - 0.3):.2f}:d=0.3[v]")   # cwd=ass klasörü
         son = "[v]"
     else:
         son = "[v1]"
     cmd = [arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
            "-ss", f"{baslangic:.2f}", "-t", f"{sure:.2f}", "-i", str(Path(kaynak).resolve()),
            "-filter_complex", filtre, "-map", son, "-map", "0:a:0?",
-           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-maxrate", "5M", "-bufsize", "10M",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-maxrate", "6M", "-bufsize", "12M",
            "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
-           "-af", "asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11", "-t", f"{sure:.2f}",
+           "-af", f"asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11,afade=t=in:d=0.05,"
+                  f"afade=t=out:st={max(0.0, sure - 0.35):.2f}:d=0.35", "-t", f"{sure:.2f}",
            "-movflags", "+faststart", str(Path(cikti).resolve())]
     subprocess.run(cmd, check=True, cwd=str(ass.parent) if ass else None, creationflags=_PENCERESIZ)
     return cikti
@@ -323,8 +337,8 @@ def tweet_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
     vy, vh = DUZEN["tweet"]["video_y"], DUZEN["tweet"]["video_h"]
     girdiler = ["-ss", f"{baslangic:.2f}", "-t", f"{sure:.2f}", "-i", str(Path(kaynak).resolve())]
     filtre = (f"color=c=white:s={W}x{H}:r=30:d={sure:.2f}[zemin];"
-              f"[0:v]setpts=PTS-STARTPTS,crop=min(iw\\,ih):min(iw\\,ih),scale={W}:{vh},setsar=1,fps=30"
-              f"{_yakinlas(W, vh, an)}[oyun];"
+              f"[0:v]setpts=PTS-STARTPTS,crop=min(iw\\,ih):min(iw\\,ih),scale={W}:{vh}:flags=lanczos,setsar=1,fps=30"
+              f"{GRADE}{_yakinlas(W, vh, an, sure)}[oyun];"
               f"[zemin][oyun]overlay=0:{vy}:shortest=1[z1]")
     if profil and Path(profil).exists():
         girdiler += ["-loop", "1", "-i", str(Path(profil).resolve())]
@@ -334,12 +348,13 @@ def tweet_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
         son = "[z2]"
     else:
         son = "[z1]"
-    filtre += f";{son}format=yuv420p,ass={ass.name}[v]"
+    filtre += f";{son}format=yuv420p,ass={ass.name},fade=t=out:st={max(0.0, sure - 0.3):.2f}:d=0.3[v]"
     cmd = [arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", *girdiler,
            "-filter_complex", filtre, "-map", "[v]", "-map", "0:a:0?",
-           "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-maxrate", "5M", "-bufsize", "10M",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-maxrate", "6M", "-bufsize", "12M",
            "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
-           "-af", "asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11", "-t", f"{sure:.2f}",
+           "-af", f"asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11,afade=t=in:d=0.05,"
+                  f"afade=t=out:st={max(0.0, sure - 0.35):.2f}:d=0.35", "-t", f"{sure:.2f}",
            "-movflags", "+faststart", str(Path(cikti).resolve())]
     subprocess.run(cmd, check=True, cwd=str(ass.parent), creationflags=_PENCERESIZ)
     return cikti
