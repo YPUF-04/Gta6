@@ -125,6 +125,7 @@ def test_profesyonel_aciklama():
         for i in range(6):
             v = a.yaz(dil, "Coringa", "kick", [], 10, tur, str(i), False)
             metin = (v["aciklama"] + v["baglam"]).lower()
-            assert not any(k in metin for k in ("npc", "bulaş", "wrong", "kontrol", "dondu", "froze"))
+            assert not any(k in metin for k in ("npc", "bulaş", "wrong", "kontrol", "dondu", "froze", "chat",
+                                                    "patla", "koptu", "lost it"))
     assert a.tr_ek("Kai Cenat", "in") == "Kai Cenat'ın" and a.tr_ek("Jynxzi", "a") == "Jynxzi'ye"
     assert a.an_turu(0.5, 1.0, 3, False, False) == "komik" and a.an_turu(0.1, 3.0, 3, False, False) == "aksiyon"

@@ -22,17 +22,24 @@ KANCA = {
     "tr": ["{ad} · GTA 6", "{ad_in} GTA 6 yayınından", "GTA 6 · {ad}"],
     "en": ["{ad} · GTA 6", "From {ad_in} GTA 6 stream", "GTA 6 · {ad}"],
 }
+# Bağlam cümlesi: editör dili, abartısız, olay uydurmaz, "chat" demez. Her türde birkaç seçenek (her video farklı).
 BAGLAM = {
-    "tr": {"komik": "Chat bu anda kahkahaya boğuldu.",
-           "aksiyon": "Yayının en hareketli anlarından biri.",
-           "npc": "Chat bu anda kahkahaya boğuldu.",
-           "sok": "Yayıncının tepkisi chat'i hareketlendirdi.",
-           "chat": "Chat bu anı konuşmayı bırakmadı."},
-    "en": {"komik": "Chat burst out laughing at this moment.",
-           "aksiyon": "One of the most intense moments of the stream.",
-           "npc": "Chat burst out laughing at this moment.",
-           "sok": "The reaction that set the chat off.",
-           "chat": "Chat could not stop talking about this one."},
+    "tr": {"komik": ["GTA 6'dan günün en eğlenceli anlarından biri.", "Tekrar izlemeye değer bir an.",
+                     "GTA 6'da bugün yaşanan en keyifli sahnelerden biri."],
+           "aksiyon": ["GTA 6'da tempo bir anda yükseldi.", "Yayının en hareketli sahnelerinden biri.",
+                       "Saf GTA 6 aksiyonu."],
+           "npc": ["GTA 6'dan günün en eğlenceli anlarından biri.", "Tekrar izlemeye değer bir an."],
+           "sok": ["Yayının akıllarda kalan anlarından biri.", "Sesi açıp izlemeye değer.",
+                   "Yayının en dikkat çeken anı."],
+           "chat": ["Yayının en çok konuşulan anı.", "Günün öne çıkan GTA 6 anlarından biri."]},
+    "en": {"komik": ["One of the funniest GTA 6 moments today.", "A moment worth the rewatch.",
+                     "Easily one of today's best GTA 6 clips."],
+           "aksiyon": ["Things picked up fast in GTA 6.", "One of the most intense moments of the stream.",
+                       "Pure GTA 6 action."],
+           "npc": ["One of the funniest GTA 6 moments today.", "A moment worth the rewatch."],
+           "sok": ["One of the most memorable moments of the stream.", "Turn the sound on for this one.",
+                   "The standout moment of the stream."],
+           "chat": ["The moment everyone was talking about.", "One of today's standout GTA 6 moments."]},
 }
 ETIKET = {
     "tr": ["#gta6", "#gtavi", "#gta6türkiye", "#oyun"],
@@ -108,7 +115,7 @@ def yaz(dil: str, yayinci: str, platform: str, segler: list[tuple[float, float, 
     if dil == "en":
         ekler["ad_in"] = f"{yayinci}'s"
     kanca = rnd.choice(KANCA[dil]).format(**ekler)
-    baglam = BAGLAM[dil][tur]
+    baglam = rnd.choice(BAGLAM[dil][tur])
     ana = f"“{soz}”" if soz else kanca
     etiketler = [ETIKET[dil][0], ETIKET[dil][1], "#" + re.sub(r"[^\w]", "", yayinci.lower())]
     etiketler += [PLATFORM_ETIKET.get(platform, ETIKET[dil][3]), ETIKET[dil][2]]
