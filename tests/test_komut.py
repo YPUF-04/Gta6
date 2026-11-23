@@ -253,7 +253,7 @@ def test_kalite_puani():
     from klipci import kesif
     from klipci.spike import Spike
     from klipci.uygulama import Is, Uygulama
-    komik = [(20 + i * 0.3, "u", "KEKW" if i % 4 else "clip it") for i in range(40)]
+    komik = [(20 + i * 0.3, f"u{i}", "KEKW" if i % 4 else "clip it") for i in range(40)]
     s = Spike(0, 0, 80, 10)
     iyi = Is(kesif.Kanal("twitch", "x"), s, None, 0, 30, komik, True, 20.0, "x")
     p, neden = Uygulama.kalite_puani(iyi, 12.0, 2.8, False, 0.0, True)

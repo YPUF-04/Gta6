@@ -51,7 +51,8 @@ class Yaziya:
     def __init__(self, model: str = "small", cihaz: str = "auto"):
         self.model_adi, self.cihaz = model, cihaz
         self._model = None
-        self._kilit = threading.Lock()   # birden çok kurgu işçisi aynı modeli paylaşır
+        self._kilit = threading.Lock()
+        self.buyuk_model = True   # ekran kartı varsa large-v3-turbo (Türkçede çok daha az hata)   # birden çok kurgu işçisi aynı modeli paylaşır
         self.durum = "hazırlanıyor (ilk açılışta model indiriliyor, birkaç dk)"
 
     def _yukle(self):
@@ -84,7 +85,7 @@ class Yaziya:
         log.info("altyazı modeli yükleniyor (%s, %s) — ilk sefer ~500 MB indirir", self.model_adi, cihaz)
         if cihaz == "cuda":
             # ekran kartı varsa daha iyi model: Türkçeyi çok daha doğru yazar, yine de hızlı
-            if self.model_adi == "auto":
+            if self.model_adi in ("auto", "small", "base", "tiny") and self.buyuk_model:
                 eski, self.model_adi = self.model_adi, "large-v3-turbo"
                 try:
                     self._model = self._dene("cuda")
@@ -122,7 +123,7 @@ class Yaziya:
             log.warning("altyazı modeli şimdilik hazırlanamadı (%r) — sonra tekrar denenecek", e)
             return False
 
-    def coz(self, wav: Path, dil: str = "", cevir: bool = True) -> Cozum | None:
+    def coz(self, wav: Path, dil: str = "", cevir: bool = True, ipucu: str = "") -> Cozum | None:
         """dil: yayının dili biliniyorsa ("tr"/"en") verilir — oyun sesi varken dili tahmin etmek zor."""
         try:
             m = self._yukle()
@@ -132,6 +133,10 @@ class Yaziya:
             raise RuntimeError(f"altyazı modeli yüklenemedi: {e!r}"[:200]) from e
         ayar = dict(word_timestamps=True, beam_size=5, condition_on_previous_text=False,
                     vad_filter=True, vad_parameters={"threshold": 0.35, "min_silence_duration_ms": 400})
+        # ipucu: konu ve kelime dağarcığı (yayıncı adı, GTA terimleri) — doğru yazım ve noktalama için
+        istem = IPUCU.get(dil if dil in IPUCU else "en", "").format(ipucu=ipucu)
+        if istem:
+            ayar["initial_prompt"] = istem
         # önce dili kendisi anlasın (yayıncı dilini yanlış seçmiş olabilir); emin değilse yayının dilini kullan
         ses = wav_oku(wav)   # sesi kendimiz okuyup veriyoruz: faster-whisper'ın PyAV ile açması yeni sürümlerde bozuk
         segs, info = m.transcribe(ses, **ayar)
@@ -193,6 +198,14 @@ def wav_oku(wav: Path):
     return x
 
 
+IPUCU = {
+    "tr": "{ipucu} GTA 6 yayını. Türkçe konuşma: polis, araba, köpek, silah, yıldız, aranma, kovalamaca, "
+          "kaza, soygun, abi, kanka, ne yapıyorsun, olamaz.",
+    "en": "{ipucu} GTA 6 stream. The streamer talks to chat: cops, car, chase, wanted level, heist, bro, "
+          "what is he doing, no way.",
+}
+
+
 def tr_buyuk(s: str) -> str:
     return s.replace("i", "İ").replace("ı", "I").upper()
 
@@ -203,13 +216,20 @@ def kelime_parcala(kelimeler: list[Kelime], en_cok_kelime: int = 3, en_uzun_sn: 
     Dönüş: (başlangıç, bitiş, metin, [(kelime_bas, kelime_bit, kelime), ...]) — kelime kelime vurgu için."""
     out, grup = [], []
 
+    def temiz(w: str) -> str:
+        return w.rstrip(".,;:…").strip("\"“”«»") if len(w.rstrip(".,;:…")) > 0 else w
+
     def ekle(g):
-        out.append([g[0].bas, g[-1].bit, " ".join(x.metin for x in g), [(x.bas, x.bit, x.metin) for x in g]])
+        ws = [(x.bas, x.bit, temiz(x.metin)) for x in g if temiz(x.metin)]
+        if ws:
+            out.append([g[0].bas, g[-1].bit, " ".join(w for *_x, w in ws), ws])
 
     for k in kelimeler:
         if not k.metin:
             continue
-        if grup and (len(grup) >= en_cok_kelime or k.bit - grup[0].bas > en_uzun_sn
+        # yeni cümle yeni altyazıda başlasın ("yapamam Yürü" gibi cümle ortasına büyük harf düşmesin)
+        cumle_bitti = bool(grup) and grup[-1].metin.rstrip().endswith((".", "!", "?", "…"))
+        if grup and (cumle_bitti or len(grup) >= en_cok_kelime or k.bit - grup[0].bas > en_uzun_sn
                      or k.bas - grup[-1].bit > 0.6):
             ekle(grup)
             grup = []

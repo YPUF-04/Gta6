@@ -69,7 +69,8 @@ DUZEN = {
     "pov": {"alt_pos": (540, 1580), "chat_y": 1236, "kredi_mv": 0},
     "tweet": {"video_y": 400, "video_h": 1080, "alt_pos": (540, 1390), "baslik": (540, 560)},
 }
-MOR = "&H00E43F7B&"   # söylenen kelimenin arkasındaki mor kutu (BGR)
+MOR = "&H00E43F7B&"   # (eski mor kutu — artık kullanılmıyor)
+VURGU = "&H004BE1FF&"  # söylenen kelime: sarı (#FFE14B, ASS'de BGR) — kutu yok, sade ve şık
 
 
 def _altyazi_olaylari(altyazilar, sure: float, x: int, y: int, katman: int = 3) -> list[str]:
@@ -92,7 +93,7 @@ def _altyazi_olaylari(altyazilar, sure: float, x: int, y: int, katman: int = 3) 
             # yeni cümle hafifçe büyüyerek gelir; söylenen kelime mor kutuda ve biraz büyük
             giris = "\\fscx88\\fscy88\\t(0,110,\\fscx100\\fscy100)" if i == 0 else ""
             yazi = " ".join(
-                (f"{{\\3c{MOR}\\bord14\\shad0\\fscx108\\fscy108}}{_ass_metin(w)}{{\\r}}" if j == i
+                (f"{{\\c{VURGU}\\fscx110\\fscy110}}{_ass_metin(w)}{{\\r}}" if j == i
                  else _ass_metin(w))
                 for j, (_a, _b, w) in enumerate(kelimeler))
             out.append(f"Dialogue: {katman},{_zaman(b)},{_zaman(e)},Alt,,0,0,0,,{{\\pos({x},{y}){giris}}}{yazi}")
@@ -107,12 +108,12 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
     d = DUZEN.get(duzen, DUZEN["tek"])
     import random
     rnd = random.Random(yol.parent.name)   # her videoda biraz farklı: hepsi aynı şablondan çıkmış gibi durmasın
-    alt_font = (rnd.choice(["Arial Black", "Arial", "Impact"]) if duzen not in ("yuz", "pip")
-                else rnd.choice(["Arial", "Arial Black"]))
+    alt_font = "Arial Black"   # her videoda aynı, kalın ve okunaklı (tutarlı marka görünümü)
     alt_boy = {"yuz": 70, "tek": 74, "tweet": 60, "pip": 76, "pov": 70}[duzen] + rnd.choice([-4, 0, 4])
     stiller = [
         # Altyazı: beyaz kalın + siyah kenar (söylenen kelime mor kutuda)
-        f"Style: Alt,{alt_font},{alt_boy},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,5,40,40,0,1",
+        # beyaz kalın yazı, ince siyah kenar + yumuşak gölge (kutu yok)
+        f"Style: Alt,{alt_font},{alt_boy},&H00FFFFFF,&H00FFFFFF,&H00000000,&H78000000,-1,0,0,0,100,100,0,0,1,5,3,5,40,40,0,1",
         f"Style: Baslik,Arial,{rnd.choice([54, 58, 62])},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,2,5,60,60,0,1",
         "Style: Chat,Arial,31,&H00FFFFFF,&H00FFFFFF,&H78000000,&H78000000,-1,0,0,0,100,100,0,0,3,7,0,7,0,0,0,1",
         f"Style: Kredi,Arial,36,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,{d.get('kredi_mv', 60)},1",

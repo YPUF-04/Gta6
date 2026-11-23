@@ -154,3 +154,32 @@ def oyun_aksiyonu(video: Path, ofset: float, sure: float, facecam, an: float) ->
     except Exception as e:  # noqa: BLE001
         log.debug("aksiyon ölçülemedi: %r", e)
         return 0.0
+
+
+def ses_zirvesi(video: Path, ofset: float, sure: float, an: float, once: float = 10.0,
+                sonra: float = 2.0) -> tuple[float, float]:
+    """Chat'in tepkisinden önceki ~10 sn içinde sesin en çok yükseldiği an (asıl olayın anı: bağırma, patlama,
+    çarpma). Dönüş: (klip içi saniye, klibin normaline göre dB farkı). Bulamazsa (an, 0)."""
+    try:
+        ham = subprocess.run([arac("ffmpeg"), "-v", "error", "-ss", f"{ofset:.2f}", "-t", f"{sure:.2f}",
+                              "-i", str(video), "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "-"],
+                             capture_output=True, timeout=60, creationflags=_PENCERESIZ).stdout
+        import numpy as np
+        x = np.frombuffer(ham, np.int16).astype(np.float32) / 32768.0
+        d = 2000   # çeyrek saniye
+        if len(x) < d * 8:
+            return an, 0.0
+        db = 20 * np.log10(np.sqrt(np.array([np.mean(x[i:i + d] ** 2) for i in range(0, len(x) - d + 1, d)])) + 1e-10)
+        normal = float(np.median(db))
+        a, b = max(6, int((an - once) * 4)), min(len(db), int((an + sonra) * 4) + 1)   # klibin ilk 1.5 sn'si değil
+        if b - a < 2:
+            return an, 0.0
+        # tek bir tık değil: yarım saniyelik ortalamanın zirvesi
+        yumusak = np.convolve(db, np.ones(2) / 2, mode="same")
+        i = a + int(np.argmax(yumusak[a:b]))
+        if i in (a, b - 1):   # pencerenin kenarı: gerçek bir zirve değil, sesin genel seviyesi
+            return an, 0.0
+        return i / 4, float(yumusak[i] - normal)
+    except Exception as e:  # noqa: BLE001
+        log.debug("ses zirvesi bulunamadı: %r", e)
+        return an, 0.0

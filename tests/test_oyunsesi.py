@@ -32,10 +32,11 @@ def test_bos_an(tmp_path, monkeypatch):
     sakin = Is(k, s, tmp_path / "a.ts", 0, 30, [(20.0, "a", "nice"), (21.0, "b", "hello")] * 5, True, 20.0, "x")
     from klipci.uygulama import Uygulama
     assert "işareti yok" in Uygulama._bos_an_mi(sakin, 2.0, [])
-    komik = Is(k, s, tmp_path / "a.ts", 0, 30, [(20.0, "a", "LMAOOO"), (21.0, "b", "KEKW")] * 5, True, 20.0, "x")
+    komik = Is(k, s, tmp_path / "a.ts", 0, 30, [(20.0 + i * 0.2, f"u{i}", ("LMAOOO", "KEKW")[i % 2]) for i in range(10)],
+               True, 20.0, "x")
     assert Uygulama._bos_an_mi(komik, 2.0, []) == ""
-    biraz = Is(k, s, tmp_path / "a.ts", 0, 30, [(20.0, "a", "LMAO"), (20.5, "b", "KEKW"), (21.0, "c", "ok"),
-                                                (21.5, "d", "yo"), (22.0, "e", "hi")] * 3, True, 20.0, "x")
+    biraz = Is(k, s, tmp_path / "a.ts", 0, 30, [(20.0 + i * 0.2, f"u{i}", ("LMAO", "KEKW", "ok", "yo", "hi")[i % 5])
+                                                for i in range(30)], True, 20.0, "x")
     assert "ara sahne" in Uygulama._bos_an_mi(biraz, 9.0, [(t, True) for t in range(10)])
 
 
@@ -53,7 +54,7 @@ def test_oyun_karakteri_ani(tmp_path):
     from klipci import kesif
     from klipci.spike import Spike
     from klipci.uygulama import Is, Uygulama
-    chat = [(20.0, "a", "LMAOOO"), (21.0, "b", "KEKW"), (21.5, "c", "ok")] * 4
+    chat = [(20.0 + i * 0.2, f"u{i}", ("LMAOOO", "KEKW", "ok")[i % 3]) for i in range(12)]
     is_ = Is(kesif.Kanal("kick", "x"), Spike(0, 0, 1, 1), tmp_path / "a.ts", 0, 30, chat, True, 20.0, "x")
     npc = [(t / 2, 12 <= t / 2 <= 24) for t in range(60)]   # patlama anında oyunda biri konuşuyor
     assert Uygulama._oyun_ani_mi(is_, 7.0, npc)
@@ -80,7 +81,7 @@ def test_aksiyon_puani_yukseltir():
     from klipci import kesif
     from klipci.spike import Spike
     from klipci.uygulama import Is, Uygulama
-    chat = [(20 + i * 0.3, "u", "KEKW" if i % 2 else "ok") for i in range(30)]
+    chat = [(20 + i * 0.3, f"u{i}", "KEKW" if i % 2 else "ok") for i in range(30)]
     is_ = Is(kesif.Kanal("twitch", "x"), Spike(0, 0, 50, 10), None, 0, 30, chat, True, 20.0, "x")
     sakin, _ = Uygulama.kalite_puani(is_, 5.0, 1.0, False, 0.0, True, aksiyon=1.0)
     kaza, neden = Uygulama.kalite_puani(is_, 5.0, 1.0, False, 0.0, True, aksiyon=3.0)
@@ -104,3 +105,31 @@ def test_klip_en_fazla_60_sn(tmp_path):
     is_ = Is(kesif.Kanal("kick", "x"), Spike(0, 0, 1, 1), tmp_path / "a.ts", 0, 90, chat, False, 12.0, "x")
     bas, son = Uygulama._akilli_aralik(is_, [])
     assert bas == 6.0 and 55 <= son - bas <= 60.5
+
+
+def test_spam_ve_hep_gulen_chat_puani_sisirmez(tmp_path):
+    from klipci import kesif
+    from klipci.spike import Spike
+    from klipci.uygulama import Is, Uygulama
+    k, s = kesif.Kanal("twitch", "x"), Spike(0, 0, 50, 10)
+    gercek = [(30 + i * 0.3, f"u{i}", "KEKW") for i in range(30)]                          # 30 farklı kişi güldü
+    spam = [(30 + i * 0.3, "tek", "KEKW") for i in range(25)] + [(30 + i, f"u{i}", "ok") for i in range(5)]
+    hep = [(5 + i * 0.5, f"a{i % 20}", "KEKW" if i % 2 else "lol") for i in range(40)] + \
+          [(30 + i * 0.5, f"b{i}", "KEKW" if i % 2 else "nice") for i in range(20)]       # zaten hep gülen chat
+    oran = lambda c: Uygulama._gulme_orani(Is(k, s, None, 0, 45, c, True, 30.0, "t"))
+    assert oran(gercek) > 0.9
+    assert oran(spam) < 0.6           # tek kişinin spam'i "herkes gülüyor" sayılmaz
+    assert oran(hep) < 0.4            # chat'in normali zaten gülmekse bu an özel sayılmaz
+
+
+def test_ses_zirvesi_olayin_anini_bulur(tmp_path):
+    import subprocess
+    from klipci.oyunsesi import ses_zirvesi
+    v = tmp_path / "v.mp4"
+    # 20 sn sessiz-ish ses, 12. saniyede 1 sn yüksek patlama
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anoisesrc=d=20:a=0.02", "-f", "lavfi",
+                    "-i", "sine=f=300:d=1", "-filter_complex",
+                    "[1:a]volume=8,adelay=12000|12000[p];[0:a][p]amix=inputs=2:duration=first[a]", "-map", "[a]",
+                    str(v)], check=True)
+    t, db = ses_zirvesi(v, 0, 20, an=16.0)      # chat 16. sn'de tepki verdi
+    assert 11.5 <= t <= 13.0 and db > 7

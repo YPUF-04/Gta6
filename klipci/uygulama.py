@@ -29,7 +29,7 @@ from .oyun import OYUN, ayarla as oyun_ayarla
 from .kurgu import ass_yaz, chat_sec, dikey_video, guvenli_kopya, ses_cikar, tweet_video, video_saglam_mi
 from .spike import Spike, SpikeDetector, mesaj_puani, yazi_dili
 from .ceviri import cevir as ceviri_yap
-from .oyunsesi import bagirma_mi, oyun_aksiyonu, parca_sesi
+from .oyunsesi import bagirma_mi, oyun_aksiyonu, parca_sesi, ses_zirvesi
 from .oyunsesi import hareketsiz_oran, oyun_altyazi_anlari, oyun_konusmasi_mi, yuz_tepkisi
 from .telegram import Bot
 from .yazar import Yazar, paylasim_metni, platform_metinleri, trend_arastir
@@ -816,15 +816,14 @@ class Uygulama:
 
     @staticmethod
     def kalite_puani(is_: "Is", ses_tepki: float, yuz_t: float, oyun_ani: bool, duran: float,
-                     konustu: bool, aksiyon: float = 0.0) -> tuple[float, str]:
+                     konustu: bool, aksiyon: float = 0.0, segler: list | None = None) -> tuple[float, str]:
         """Ücretsiz kalite puanı 0-10 ve kısa açıklama. Net komik/şok anlar ~7-9 alır."""
         from .spike import mesaj_puani
-        yakin = [m for t, _, m in is_.chat if is_.an - 3 <= t <= is_.an + 12]
-        sade = {"w", "gg", "?", "??", "???", "help"}
-        gulme = sum(1 for m in yakin if mesaj_puani(m)[0] > 1 and mesaj_puani(m)[1] not in sade) / max(1, len(yakin))
-        klip = sum(1 for m in yakin if mesaj_puani(m)[1] == "clip")
+        gulme = Uygulama._gulme_orani(is_)
+        # "clip" diyen FARKLI kişi sayısı (bir kişinin 10 kez yazması 1 sayılır)
+        klip = len({k for t, k, m in is_.chat if is_.an - 3 <= t <= is_.an + 12 and mesaj_puani(m)[1] == "clip"})
         p, neden = 0.0, []
-        p += 4.0 * min(1.0, gulme / 0.6)
+        p += 4.5 * min(1.0, gulme / 0.55)
         if gulme >= 0.3:
             neden.append("izleyiciler gülmekten kırıldı" if gulme >= 0.6 else "izleyiciler güldü")
         p += 1.5 * min(1.0, klip / 4)
@@ -846,6 +845,19 @@ class Uygulama:
             p += 1.0 * min(1.0, max(0.0, is_.spike.kat - 2) / 8)
         if konustu:
             p += 0.5
+        # yayıncının anlatımı: o an heyecanla, hızlı konuşuyor mu? gülüyor mu? (bağırmasa da eğlenceli anlar)
+        yakin = [(b, e, t) for b, e, t in (segler or []) if e >= is_.an - 5 and b <= is_.an + 8]
+        if yakin:
+            kelime = sum(len(t.split()) for _, _, t in yakin)
+            hiz = kelime / max(4.0, min(13.0, max(e for _, e, _ in yakin) - min(b for b, _, _ in yakin)))
+            if hiz >= 1.8:
+                p += 1.2 * min(1.0, (hiz - 1.8) / 1.2 + 0.4)
+                neden.append("yayıncı heyecanla anlatıyor")
+            metin = " ".join(t for _, _, t in yakin).lower()
+            if any(g in metin for g in ("haha", "ahah", "hehe", "jaja", "kahkaha", "güldü", "gülüyor", "laugh",
+                                        "(gül", "[gül")):
+                p += 1.2
+                neden.append("yayıncı güldü")
         # aksiyon öne çıksın: kaza, patlama, kovalamaca (görüntü birden sertleşiyor)
         p += 2.0 * min(1.0, max(0.0, aksiyon - 1.3) / 1.7)
         if aksiyon >= 2.0:
@@ -890,10 +902,27 @@ class Uygulama:
 
     @staticmethod
     def _gulme_orani(is_: "Is") -> float:
+        """Gerçek tepki oranı (0-1): (1) mesaj sayısına değil FARKLI KİŞİLERE bakar (bir kişinin spam'i şişirmesin),
+        (2) chat'in bu yayındaki NORMAL gülme oranını çıkarır (sürekli 'KEKW' yazan chat'lerde her an komik sayılmasın)."""
         from .spike import mesaj_puani
-        yakin = [m for t, _, m in is_.chat if is_.an - 3 <= t <= is_.an + 12]
         sade = {"w", "gg", "?", "??", "???", "help"}
-        return sum(1 for m in yakin if mesaj_puani(m)[0] > 1 and mesaj_puani(m)[1] not in sade) / max(1, len(yakin))
+
+        def oran(lst):
+            if not lst:
+                return 0.0
+            gul = [(k, m) for k, m in lst if mesaj_puani(m)[0] > 1 and mesaj_puani(m)[1] not in sade]
+            mesaj = len(gul) / len(lst)
+            gulen = len({k for k, _ in gul})
+            kisi = gulen / max(1, len({k for k, _ in lst}))
+            # en az 4 farklı kişi gülmeli: tek kişinin spam'i "herkes gülüyor" sayılmaz
+            return (0.5 * mesaj + 0.5 * kisi) * min(1.0, gulen / 4)
+        simdi = [(k, m) for t, k, m in is_.chat if is_.an - 3 <= t <= is_.an + 12]
+        once = [(k, m) for t, k, m in is_.chat if t < is_.an - 5]
+        g = oran(simdi)
+        if len({k for k, _ in once}) >= 8:   # yeterince "normal an" verisi varsa ona göre düzelt
+            taban = oran(once) * 0.6
+            g = max(0.0, g - taban) / max(0.3, 1 - taban)
+        return min(1.0, g)
 
     @staticmethod
     def _oyun_ani_mi(is_: "Is", ses_tepki: float, oyun_anlari: list) -> bool:
@@ -911,7 +940,7 @@ class Uygulama:
         yakin = [m for t, _, m in is_.chat if is_.an - 3 <= t <= is_.an + 12]
         # "W", "gg", "?" komiklik göstermez; gülme/şok tepkileri sayılır
         sade = {"w", "gg", "?", "??", "???", "help"}
-        gulme = sum(1 for m in yakin if mesaj_puani(m)[0] > 1 and mesaj_puani(m)[1] not in sade) / max(1, len(yakin))
+        gulme = Uygulama._gulme_orani(is_)
         ara_sahne = (sum(v for _, v in oyun_anlari) / len(oyun_anlari)) if oyun_anlari else 0.0
         klip = sum(1 for m in yakin if mesaj_puani(m)[1] == "clip")
         # en az bir güçlü işaret lazım: chat gerçekten gülüyor / "clip" diyor / yayıncı bağırıyor ya da kamerada coşuyor
@@ -1081,7 +1110,8 @@ class Uygulama:
             wav = is_.kaynak.with_suffix(".wav")
             try:
                 await asyncio.to_thread(ses_cikar, is_.kaynak, is_.ofset, is_.sure, wav)
-                return await asyncio.wait_for(asyncio.to_thread(self.yaziya.coz, wav, is_.kanal.dil), 240)
+                return await asyncio.wait_for(asyncio.to_thread(self.yaziya.coz, wav, is_.kanal.dil, True,
+                                                                is_.kanal.gorunen), 240)
             except asyncio.TimeoutError:
                 alt_not.append(f"altyazı aracı yetişmedi ({self.yaziya.durum})")
                 return None
@@ -1126,13 +1156,19 @@ class Uygulama:
         kaynak_dil = cozum.dil if cozum else ""
         zoom = float((self.cfg.get("klip") or {}).get("zoom", 1.3))
         ce = self.cfg.get("chat_ekrani") or {}
+        # asıl olayın anı: chat 2-5 sn geç tepki verir; sesin zirvesi (bağırma/patlama/çarpma) olayı daha doğru gösterir
+        zirve_t, zirve_db = await asyncio.to_thread(ses_zirvesi, is_.kaynak, is_.ofset, is_.sure, is_.an)
+        if zirve_db >= 7 and abs(zirve_t - is_.an) > 0.5:
+            log.info("🎯 olayın anı sesten bulundu: %.1f sn → %.1f sn (+%.0f dB)", is_.an, zirve_t, zirve_db)
+            is_.an = zirve_t
         ses_tepki = await asyncio.to_thread(puan.an_tepkisi, is_.kaynak, is_.ofset, is_.sure, is_.an)
         duran = await asyncio.to_thread(hareketsiz_oran, is_.kaynak, is_.ofset, is_.sure, analiz.facecam)
         yuz_t = await asyncio.to_thread(yuz_tepkisi, is_.kaynak, is_.ofset, is_.sure, analiz.facecam, is_.an)
         # komik olan oyundaki karakter mi, yayıncı mı? (yayıncı coşmuyorsa ve oyunda biri bağırıyorsa: oyun anı)
         oyun_ani = self._oyun_ani_mi(is_, ses_tepki, oyun_anlari) and yuz_t < 2.0
         aksiyon = await asyncio.to_thread(oyun_aksiyonu, is_.kaynak, is_.ofset, is_.sure, analiz.facecam, is_.an)
-        kalite, kalite_neden = self.kalite_puani(is_, ses_tepki, yuz_t, oyun_ani, duran, bool(segler), aksiyon)
+        kalite, kalite_neden = self.kalite_puani(is_, ses_tepki, yuz_t, oyun_ani, duran, bool(segler), aksiyon,
+                                                 segler)
         if duran >= 0.5:   # harita / menü / ayarlar: kimse izlemez
             log.info("klip elendi: oyun ekranı zamanın %%%d'inde duruyor (menü/harita) — %s", int(duran * 100), kid)
             self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
