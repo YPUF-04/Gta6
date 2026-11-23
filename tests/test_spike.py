@@ -230,25 +230,40 @@ def test_turkce_gulme():
         assert mesaj_puani(m)[0] == 1.0, m
 
 
-def test_kare_kaybinda_klip_atilmaz(tmp_path):
-    """Parça adları 4 sn arayla ama içleri 2 sn (kare kaybı): klip yine çıkmalı, patlama anı doğru yerde."""
+def _kayipli_kayit(tmp_path, ic_sn):
     import subprocess
     import time
     from datetime import datetime
-    from klipci.kayit import Kaydedici
-    k = Kaydedici("x", tmp_path, "best", 9999)
     simdi = int(time.time())
     kaynak = tmp_path / "k.ts"
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30", "-f", "lavfi",
-                    "-i", "sine", "-t", "2", "-c:v", "libx264", "-c:a", "aac", "-f", "mpegts", str(kaynak)], check=True)
+                    "-i", "sine", "-t", str(ic_sn), "-c:v", "libx264", "-c:a", "aac", "-f", "mpegts", str(kaynak)],
+                   check=True)
     for t in range(simdi - 80, simdi + 1, 4):
         (tmp_path / (datetime.fromtimestamp(t).strftime("%Y%m%d_%H%M%S") + ".ts")).write_bytes(kaynak.read_bytes())
     kaynak.unlink()
+    return simdi
+
+
+def test_az_kare_kaybinda_klip_atilmaz(tmp_path):
+    """Parça adları 4 sn arayla ama içleri 3.5 sn (az kare kaybı): klip çıkmalı, patlama anı doğru yerde."""
+    from klipci.kayit import Kaydedici
+    k = Kaydedici("x", tmp_path, "best", 9999)
+    simdi = _kayipli_kayit(tmp_path, 3.5)
     sonuc = k.kes(simdi - 70, simdi - 10, tmp_path / "out" / "o.ts", odak=simdi - 30)
     assert sonuc is not None
     _, ofset, bas, bit = sonuc
-    assert 25 <= bit - bas <= 35          # 60 sn zaman → ~30 sn görüntü
-    assert abs((simdi - 30 - bas) - 20) < 3   # patlama: 40. sn'nin yarısı ≈ 20. sn
+    assert 48 <= bit - bas <= 60
+    assert 34 <= simdi - 30 - bas <= 41
+
+
+def test_cok_kare_kaybinda_atlamali_klip_cikmaz(tmp_path):
+    """İçleri 2 sn (yarısı kayıp): video zıplaya zıplaya giderdi → klip yapılmaz, sağlık ayarı bunu görür."""
+    from klipci.kayit import Kaydedici
+    k = Kaydedici("x", tmp_path, "best", 9999)
+    simdi = _kayipli_kayit(tmp_path, 2)
+    assert k.kes(simdi - 70, simdi - 10, tmp_path / "out" / "o.ts", odak=simdi - 30) is None
+    assert k.son_kayip[1] < 0.6
 
 
 def test_yabanci_gulme():

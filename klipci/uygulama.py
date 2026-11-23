@@ -493,13 +493,21 @@ class Uygulama:
                 if len(olgun) < 3:
                     continue
                 saglikli = 0
+                kayipli = 0
                 for iz in olgun:
                     d = await asyncio.to_thread(iz.kayit.durum)
+                    # son 10 dk'da klip keserken kare kaybı görüldüyse o kayıt "akıyor" sayılmaz
+                    zk, oran_k = getattr(iz.kayit, "son_kayip", (0.0, 1.0))
+                    if simdi - zk < 600 and oran_k < 0.85:
+                        kayipli += 1
+                        continue
                     if d["son_parca_sn"] is not None and d["son_parca_sn"] < 30 and d["parca"] >= 5:
                         saglikli += 1
                 oran = saglikli / len(olgun)
                 eski = self._sinir()
                 if oran < 0.7:
+                    self.etkin_sinir = max(3, min(eski, len(self.izleyiciler)) - 2)
+                elif kayipli and self._sinir() > 3:   # kare kaybı var: büyütme, biraz küçült
                     self.etkin_sinir = max(3, min(eski, len(self.izleyiciler)) - 2)
                 elif oran >= 0.9 and self.etkin_sinir and self.etkin_sinir < self._ust_sinir():
                     self.etkin_sinir += 2
@@ -898,6 +906,15 @@ class Uygulama:
         if son - bas < 12:   # çok kısa kalmasın
             son = min(is_.sure, bas + 12)
             bas = max(0.0, son - 12)
+        # SON KONTROL: yayıncı konuşurken bitmesin. Cümle uzatılamıyorsa (kayıt bitiyor / çok uzun)
+        # cümlenin başından önce bitir — yarım kalan cümle "video yarıda bitti" hissi verir.
+        for b, e, _ in sorted(segler, reverse=True):
+            if b < son - 0.3 < e - 0.6:
+                if e + 0.3 <= is_.sure and e - son <= 5:
+                    son = e + 0.3
+                elif b - 0.15 >= max(bas + 10, is_.an + 3):
+                    son = b - 0.15
+                break
         return bas, son
 
     @staticmethod

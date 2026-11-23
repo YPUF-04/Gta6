@@ -267,6 +267,14 @@ class Kaydedici:
             return top
         mb, mbit = m(bas), m(bit)
         icerik = min(sure, mbit) - mb
+        self.son_kayip = (time.time(), icerik / max(1.0, bit - bas))   # sağlık ayarı bunu görür
+        if icerik < (bit - bas) * 0.75:
+            # çok kare kaybı = videoda sahne atlamaları (bir yerden bir yere zıplıyor) ve yarım kalan konuşmalar
+            self.son_neden = (f"kayıtta çok kare kaybı ({icerik:.0f} sn görüntü / {bit - bas:.0f} sn zaman): video "
+                              f"atlamalı olurdu — izlenen yayın sayısı otomatik azaltılıyor")
+            log.warning("klip atlandı: %s", self.son_neden)
+            hedef.unlink(missing_ok=True)
+            return None
         if icerik < en_az_sn:
             self.son_neden = (f"kayıtta çok kare kaybı var ({sure:.0f} sn görüntü / {bit - bas:.0f} sn zaman) — "
                               f"bilgisayar ya da internet yetişmiyor, /sinir ile yayın sayısını azalt")

@@ -75,6 +75,12 @@ def test_akilli_aralik_bos_kuyrugu_keser(tmp_path):
     # yayıncı tam bitişte konuşuyorsa cümlesini bitirsin
     bas2, son2 = Uygulama._akilli_aralik(is_, [(18.0, 23.0, "abi bu ne ya")])
     assert abs(son2 - 23.3) < 0.01
+    # kayıt yayıncı konuşurken bitiyor (cümle 27-34, kayıt 30 sn): yarım cümle yerine cümleden önce bitsin
+    is_.sure = 30
+    chat3 = [(9 + i * 0.25, "a", "KEKW") for i in range(24)] + [(15 + i * 0.5, f"k{i}", "KEKW") for i in range(30)]
+    is_.chat = chat3
+    _, son3 = Uygulama._akilli_aralik(is_, [(27.0, 34.0, "ve sonra adam dedi ki")])
+    assert son3 <= 27.0
 
 
 def test_aksiyon_puani_yukseltir():
