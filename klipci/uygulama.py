@@ -388,7 +388,7 @@ class Uygulama:
     def _aralik(self) -> float:
         """Kaç saatte bir paylaşım (varsayılan 3). 0 = eski usul günlük adet (/gunluk)."""
         try:
-            return float(self._durum_oku().get("aralik", self.cfg.get("paylasim_araligi_saat", 3)))
+            return float(self._durum_oku().get("aralik", self.cfg.get("paylasim_araligi_saat", 5)))
         except (TypeError, ValueError):
             return 3.0
 
@@ -1241,6 +1241,8 @@ class Uygulama:
                 log.warning("çıkan video boş/bozuk, atlandı: %s", hid)
                 shutil.rmtree(klasor, ignore_errors=True)
                 continue
+            soz = (veri.get("aciklama") or "") if (veri.get("aciklama") or "").startswith("“") else ""
+            await asyncio.to_thread(self._kapak, mp4, soz or is_.kanal.gorunen, is_.an, is_.sure, "GTA 6", dil)
             metin = paylasim_metni(veri, is_.kanal, dil)
             pm = platform_metinleri(veri, is_.kanal, dil)
             (klasor / "aciklama.txt").write_text(
@@ -2018,6 +2020,12 @@ class Uygulama:
                     log.warning("%s videosu yapılamadı: %r", tur, e)
                     shutil.rmtree(klasor, ignore_errors=True)
                     continue
+                kapak_baslik = {"merge": ("Boss'a kadar izle", "Wait for the boss"),
+                                "sekme": ("Kaç topa ulaşacak?", "How many balls?"),
+                                "sarkac": ("Kaç blok yapışacak?", "How many will stick?")}[tur][0 if h["dil"] == "tr" else 1]
+                ad_k = {"sekme": ("SEKME", "BOUNCE"), "sarkac": ("SARKAÇ", "PENDULUM")}.get(
+                    tur, ("MERGE", "MERGE"))[0 if h["dil"] == "tr" else 1]
+                await asyncio.to_thread(self._kapak, mp4, kapak_baslik, 40.0, 50.0, f"{ad_k} #{bolum}", h["dil"])
                 ac = r["aciklama"]
                 ad_ = {"sekme": ("SEKME", "BOUNCE"), "sarkac": ("SARKAÇ", "PENDULUM")}.get(
                     tur, ("MERGE", "MERGE"))[0 if h["dil"] == "tr" else 1]
@@ -2189,6 +2197,34 @@ class Uygulama:
                 "Şimdi yaz:  /bagla youtube TR   (EN için /bagla youtube EN)")
 
     # ---------- anında paylaşım (çok yüksek puan) ----------
+    def _kapak(self, mp4: Path, baslik: str, an: float, sure: float, etiket: str, dil: str) -> None:
+        """Kapak resmi (kapak.jpg) + kapak karesinin zamanı (kapak.json). Olmazsa sessizce geç."""
+        from .kapak import kapak_yap
+        try:
+            r = kapak_yap(mp4, mp4.parent / "kapak.jpg", baslik, an, sure, etiket, dil)
+            if r:
+                (mp4.parent / "kapak.json").write_text(json.dumps({"ms": int(r[1] * 1000)}), encoding="utf-8")
+        except Exception as e:  # noqa: BLE001
+            log.debug("kapak yapılamadı: %r", e)
+
+    # platform başına günlük paylaşım sınırı (araştırma: Reels günde 1-3, Shorts'ta günün 2.'si sonrası düşer)
+    GUNLUK_SINIR = {"instagram": 3, "facebook": 3, "threads": 3, "youtube": 2}
+
+    def _platform_sinir(self, plat: str) -> int:
+        ayar = self._durum_oku().get("gunluk_sinir") or self.cfg.get("gunluk_sinir") or {}
+        return int(ayar.get(plat, self.GUNLUK_SINIR.get(plat, 3)))
+
+    def _platform_sayi(self, hesap: str, plat: str, artir: bool = False) -> int:
+        d = self._durum_oku()
+        bugun = tarih.today().isoformat()
+        sayac = {k: v for k, v in (d.get("plat_sayac") or {}).items() if k.startswith(bugun)}
+        anahtar = f"{bugun}_{hesap}_{plat}"
+        if artir:
+            sayac[anahtar] = sayac.get(anahtar, 0) + 1
+            d["plat_sayac"] = sayac
+            self._durum_yaz(d)
+        return sayac.get(anahtar, 0)
+
     def _anlik_esik(self) -> float:
         return float(self._durum_oku().get("anlik_esik", self.cfg.get("anlik_paylasim_puani", 8.5)))
 
@@ -2393,6 +2429,17 @@ class Uygulama:
             kalan = int((engel - time.time()) / 3600) + 1
             h = {**h, "instagram_token": "", "facebook_token": "", "threads_token": ""}
             log.info("Meta (Instagram/Facebook/Threads) erişimi engelli, ~%d saat daha denenmeyecek", kalan)
+        # günlük sınırı dolan platform bugün atlanır (hesabı spam gibi göstermesin; fazla video TikTok'a kalır)
+        dolu = {p_: self._platform_sayi(hesap, p_) >= self._platform_sinir(p_)
+                for p_ in ("instagram", "facebook", "threads", "youtube")}
+        if dolu["instagram"]:
+            h = {**h, "instagram_token": ""}
+        if dolu["facebook"]:
+            h = {**h, "facebook_token": ""}
+        if dolu["threads"]:
+            h = {**h, "threads_token": ""}
+        if dolu["youtube"]:
+            h = {**h, "youtube": False}
         isler = [self._ig_paylas, self._fb_paylas, self._yt_paylas]
         sonuc: dict = {}
         with ThreadPoolExecutor(max_workers=3) as ex:
@@ -2416,6 +2463,12 @@ class Uygulama:
                 sonuc["threads"] = f"HATA: {e}"[:200]
         sonuc.pop("_ig_adres", None)
         sonuc.pop("_fb_id", None)
+        for p_, v in sonuc.items():
+            if p_ in self.GUNLUK_SINIR and str(v).startswith("http"):
+                self._platform_sayi(hesap, p_, artir=True)
+        for p_ in ("instagram", "facebook", "youtube"):
+            if dolu[p_] and p_ not in sonuc:
+                sonuc[p_] = f"SINIR: bugünkü {p_} sınırı ({self._platform_sinir(p_)}) doldu, hesap korunuyor"
         if any("api access blocked" in str(v).lower() for v in sonuc.values()):
             d = self._durum_oku()
             d["meta_engel"] = time.time() + 12 * 3600
@@ -2439,7 +2492,11 @@ class Uygulama:
                 if video is None:   # ilk deneme reddedildiyse: Instagram'ın kurallarına tam uygun kopya ile tekrar
                     video = guvenli_kopya(mp4)
                     log.info("Instagram videoyu reddetti, uyumlu kopya ile tekrar deneniyor (%s)", hesap)
-                link = ig.reels(video, pm.get("instagram", "")) or "paylaşıldı"
+                try:
+                    kapak_ms = json.loads((Path(mp4).parent / "kapak.json").read_text(encoding="utf-8"))["ms"]
+                except (OSError, ValueError, KeyError):
+                    kapak_ms = None
+                link = ig.reels(video, pm.get("instagram", ""), kapak_ms) or "paylaşıldı"
                 log.info("📸 Instagram'a paylaşıldı (%s): %s", hesap, link)
                 return {"instagram": link, "_instagram_id": ig.son_medya_id, "_ig_adres": ig.son_video_adresi}
             except Exception as e:  # noqa: BLE001
@@ -2475,6 +2532,10 @@ class Uygulama:
         try:
             etiket = [t for t in pm.get("youtube_aciklama", "").split() if t.startswith("#")]
             link = yt.yukle(mp4, pm.get("youtube_baslik", ""), pm.get("youtube_aciklama", ""), etiket)
+            kapak = Path(mp4).parent / "kapak.jpg"
+            if kapak.exists():   # Shorts kapağı: YouTube videoyu işledikten sonra kabul eder, arka planda dener
+                import threading
+                threading.Thread(target=yt.kapak_koy, args=(link.rsplit("/", 1)[-1], kapak), daemon=True).start()
             d = self._durum_oku()
             sayac = {k: v for k, v in (d.get("yt_sayac") or {}).items() if k.startswith(tarih.today().isoformat())}
             sayac[anahtar] = sayac.get(anahtar, 0) + 1
@@ -2509,10 +2570,11 @@ class Uygulama:
         for ad_, ikon in (("instagram", "📸 Instagram"), ("facebook", "📘 Facebook"), ("threads", "🧵 Threads"),
                           ("youtube", "▶️ YouTube")):
             if ad_ in oto:
-                durum_satir.append(f"{ikon}: " + ("⚠️ " + oto[ad_][6:] if oto[ad_].startswith("HATA") else
-                                                  "✅ paylaşıldı " + oto[ad_]))
+                v_ = oto[ad_]
+                durum_satir.append(f"{ikon}: " + ("⚠️ " + v_[6:] if v_.startswith("HATA") else
+                                                  "⏸ " + v_[7:] if v_.startswith("SINIR") else "✅ paylaşıldı " + v_))
         elle = [p for p in ("instagram", "tiktok", "youtube") if p == "tiktok" or not oto.get(p)
-                or str(oto.get(p, "")).startswith("HATA")]
+                or str(oto.get(p, "")).startswith(("HATA", "SINIR"))]
         bot = self._paylas_botu()
         try:
             await bot.video_gonder(mp4, f"📤 {hesap} — {it['saat']}  ({planmod.yayinci_adi(it['hid'])})\n"
@@ -2530,6 +2592,12 @@ class Uygulama:
                 if pm.get(anahtar) and plat in elle:
                     parca.append(f"{baslik}:\n<code>{escape(pm[anahtar])}</code>")
             await bot.html("\n\n".join(parca))
+            kapak = k / "kapak.jpg"
+            if kapak.exists() and "tiktok" in elle:
+                try:
+                    await bot.foto_gonder(kapak, "🖼 Kapak — TikTok'a yüklerken: Kapak → Fotoğraf yükle / bu kareyi seç")
+                except Exception as e:  # noqa: BLE001
+                    log.debug("kapak gönderilemedi: %r", e)
             return True
         except Exception as e:  # noqa: BLE001
             log.warning("paylaşım hatırlatması gönderilemedi: %r", e)

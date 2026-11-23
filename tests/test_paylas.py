@@ -289,3 +289,13 @@ def test_dene_komutu(tmp_path, monkeypatch):
     sonuc = u._paylasim_denemesi_ic()
     assert "[TR]" in sonuc and "Instagram: — bağlı değil" in sonuc
     assert "deneme" in asyncio.run(u._komut("/dene")).lower() or True
+
+
+def test_kapak_resmi(tmp_path):
+    import subprocess
+    from klipci.kapak import kapak_yap
+    v = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=30:d=4", "-pix_fmt",
+                    "yuv420p", str(v)], check=True)
+    yol, t = kapak_yap(v, tmp_path / "kapak.jpg", "“Bu ne ya”", 2.0, 4.0, "GTA 6", "tr")
+    assert yol.exists() and yol.stat().st_size > 20000 and 0 <= t <= 4

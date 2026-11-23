@@ -172,14 +172,16 @@ class Instagram:
             time.sleep(self.bekle)
         raise PaylasimHatasi("Instagram videoyu 5 dakikada işleyemedi")
 
-    def reels(self, mp4: Path, aciklama: str) -> str:
-        """Reels paylaş, gönderinin linkini döndür."""
+    def reels(self, mp4: Path, aciklama: str, kapak_ms: int | None = None) -> str:
+        """Reels paylaş, gönderinin linkini döndür. kapak_ms: kapak olarak kullanılacak karenin zamanı (ms)."""
         self.tazele()
         uid = self.hesap()["id"]
         api = self.api
-        j = _json(self.http.post(f"{api}/{uid}/media", data={
-            "media_type": "REELS", "upload_type": "resumable", "caption": aciklama[:2200],
-            "share_to_feed": "true", "access_token": self.token}))
+        veri_ = {"media_type": "REELS", "upload_type": "resumable", "caption": aciklama[:2200],
+                 "share_to_feed": "true", "access_token": self.token}
+        if kapak_ms is not None:
+            veri_["thumb_offset"] = str(int(max(0, kapak_ms)))
+        j = _json(self.http.post(f"{api}/{uid}/media", data=veri_))
         cid = j["id"]
         adres = j.get("uri") or IG_YUKLEME.format(cid=cid)
         veri = Path(mp4).read_bytes()
@@ -456,6 +458,24 @@ class YouTube:
         j = _json(self.http.put(adres, content=veri, headers={"Authorization": f"Bearer {erisim}",
                                                               "Content-Type": "video/mp4"}))
         return f"https://youtube.com/shorts/{j['id']}"
+
+    def kapak_koy(self, video_id: str, jpg: Path, deneme: int = 6, bekle: float = 40.0) -> bool:
+        """Shorts kapağı (YouTube video işlendikten sonra kabul eder: birkaç kez dener)."""
+        veri = Path(jpg).read_bytes()
+        for i in range(deneme):
+            try:
+                r = self.http.post("https://www.googleapis.com/upload/youtube/v3/thumbnails/set",
+                                   params={"videoId": video_id, "uploadType": "media"}, content=veri,
+                                   headers={"Authorization": f"Bearer {self._erisim()}", "Content-Type": "image/jpeg"})
+                if r.status_code < 300:
+                    return True
+                if r.status_code == 403:   # kanal doğrulanmamış (telefon doğrulaması gerekir) ya da yetki yok
+                    log.warning("YouTube kapak kabul edilmedi (403): kanalda telefon doğrulaması gerekebilir")
+                    return False
+            except Exception as e:  # noqa: BLE001
+                log.debug("kapak denemesi: %r", e)
+            time.sleep(bekle * (1 + i))
+        return False
 
     def kanal(self) -> str:
         j = _json(self.http.get("https://www.googleapis.com/youtube/v3/channels", params={"part": "snippet", "mine": "true"},

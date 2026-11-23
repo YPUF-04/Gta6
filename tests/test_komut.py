@@ -323,7 +323,7 @@ def test_hemen_paylas_begendim_ve_ozet(tmp_path, monkeypatch):
     asyncio.run(u._buton(f"tt:{kid}"))
     ozet = u._paylasim_ozeti(datetime.now().date(), "Bugün")
     assert "kai [TR]" in ozet and "🎵✅" in ozet
-    assert u._aralik() == 3 and u._gunluk() == 5
+    assert u._aralik() == 5 and u._gunluk() == 3
     assert "BotFather" in asyncio.run(u._komut("/ikinci_bot"))
 
 
@@ -429,3 +429,20 @@ def test_anlik_paylasim_bekleyendeki_klibi_bulur(tmp_path, monkeypatch):
     assert "Paylaşılıyor" in asyncio.run(u._hemen_paylas(kid))
     assert giden and (u.klasor / "hazir" / "EN" / kid).exists()
     assert u.plan.bul(kid)[2]["durum"] == "gonderildi"
+
+
+
+def test_gunluk_platform_siniri(tmp_path, monkeypatch):
+    u = _app(tmp_path, monkeypatch)
+    cagri = []
+    monkeypatch.setattr(u, "_ig_paylas", lambda h, *a: (cagri.append(bool(h.get("instagram_token"))),
+                                                         {"instagram": "https://instagram.com/reel/x"}
+                                                         if h.get("instagram_token") else {})[1])
+    monkeypatch.setattr(u, "_fb_paylas", lambda h, *a: {})
+    monkeypatch.setattr(u, "_yt_paylas", lambda h, *a: {})
+    d = u._durum_oku()
+    d["ig_token"] = {"EN": "T"}
+    u._durum_yaz(d)
+    sonuc = [u._otomatik_paylas("EN", tmp_path / "a.mp4", {}) for _ in range(4)]
+    assert cagri == [True, True, True, False]          # günde en fazla 3 Instagram
+    assert sonuc[3]["instagram"].startswith("SINIR")

@@ -70,6 +70,13 @@ class Bot:
                 "width": "1080", "height": "1920", "reply_markup": json.dumps(klavye),
             }, files={"video": (yol.name, f, "video/mp4")})
 
+    async def foto_gonder(self, yol: Path, aciklama: str = "") -> None:
+        if not self.chat_id:
+            return
+        with open(yol, "rb") as f:
+            await self._api("sendPhoto", data={"chat_id": self.chat_id, "caption": aciklama[:1024]},
+                            files={"photo": (Path(yol).name, f, "image/jpeg")})
+
     async def komut_menusu(self) -> None:
         """Telegram'da / yazınca çıkan komut listesi."""
         komutlar = [("info", "📋 Tüm komutların listesi"), ("durum", "Neler izleniyor, kaç klip çıktı"), ("sira", "Hazırlanan klipler, hangi aşamada"), ("kayit", "Her yayının kayıt durumu"), ("yayinlar", "Şu an açık yayınlar — dokun, seç"),

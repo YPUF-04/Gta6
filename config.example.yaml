@@ -153,7 +153,12 @@ tam_otomatik: true          # saat gelince onayını beklemeden en iyi klibi ken
 anlik_paylasim_puani: 8.5   # bu puan ve üstü klip saat beklemeden HEMEN paylaşılır (Telegram: /anlik 9)
 anlik_aralik_dk: 45         # aynı hesaba iki anlık paylaşım arası en az bu kadar dakika
 oto_en_dusuk_puan: 7        # tam otomatikte paylaşılacak klibin en az puanı (en yüksek puanlı seçilir)
-paylasim_araligi_saat: 3    # kaç saatte bir paylaşılsın (Telegram: /aralik 3). 0 = gunluk_paylasim kullanılır
+paylasim_araligi_saat: 5    # araştırma: günde 2-3 kaliteli Reels en iyisi (fazlası her videonun izlenmesini düşürür)
+gunluk_sinir:               # platform başına hesap başına günde en fazla (hesabı spam gibi göstermesin)
+  instagram: 3
+  facebook: 3
+  threads: 3
+  youtube: 2                # Shorts'ta günün 2.'sinden sonrası genelde öne çıkmıyor    # kaç saatte bir paylaşılsın (Telegram: /aralik 3). 0 = gunluk_paylasim kullanılır
 gunluk_paylasim: 25         # her hesap için günde kaç video (TR 25 + EN 25). Telegram: /gunluk 25
 hedef_stok: 20              # her hesapta hazır bekleyen video hedefi
 gunluk_merge: true          # her gün TR + EN simülasyon videoları (seslendirmeli, seri numaralı). Telegram: /merge /sekme
