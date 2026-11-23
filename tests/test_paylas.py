@@ -299,3 +299,16 @@ def test_kapak_resmi(tmp_path):
                     "yuv420p", str(v)], check=True)
     yol, t = kapak_yap(v, tmp_path / "kapak.jpg", "“Bu ne ya”", 2.0, 4.0, "GTA 6", "tr")
     assert yol.exists() and yol.stat().st_size > 20000 and 0 <= t <= 4
+
+
+def test_kapak_videonun_basinda(tmp_path):
+    import subprocess
+    from klipci.kapak import kapak_basa_ekle, kapak_yap
+    from klipci.kayit import sure_olc
+    v = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=1080x1920:r=30:d=3", "-f", "lavfi",
+                    "-i", "sine=d=3", "-shortest", "-pix_fmt", "yuv420p", "-c:a", "aac", str(v)], check=True)
+    jpg, _ = kapak_yap(v, tmp_path / "kapak.jpg", "Başlık", 1.0, 3.0)
+    once = sure_olc(v)
+    assert kapak_basa_ekle(v, jpg)
+    assert abs(sure_olc(v) - once - 0.1) < 0.08 and sure_olc(v, "a:0") > 2.9

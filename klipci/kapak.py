@@ -128,3 +128,32 @@ def _yazi_cv2(img: np.ndarray, satirlar: list[str], etiket: str) -> np.ndarray:
     cv2.rectangle(img, (44, 120), (290, 190), (228, 63, 124), -1)
     cv2.putText(img, etiket, (66, 172), cv2.FONT_HERSHEY_DUPLEX, 1.5, (255, 255, 255), 3, cv2.LINE_AA)
     return img
+
+
+def kapak_basa_ekle(video: Path, jpg: Path, sure: float = 0.1) -> bool:
+    """Kapak resmini videonun en başına ~0.1 sn koy: TikTok/Instagram ilk kareyi kapak olarak alır,
+    izleyici neredeyse fark etmez. Video yerinde güncellenir. Olmazsa dokunmaz (False)."""
+    video, jpg = Path(video), Path(jpg)
+    gecici = video.with_name(video.stem + "_kapakli.mp4")
+    try:
+        subprocess.run(
+            [arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
+             "-loop", "1", "-framerate", "30", "-t", f"{sure:.2f}", "-i", str(jpg.resolve()),
+             "-f", "lavfi", "-t", f"{sure:.2f}", "-i", "anullsrc=r=48000:cl=stereo",
+             "-i", str(video.resolve()),
+             "-filter_complex",
+             f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps=30,format=yuv420p[k];"
+             "[2:v]setsar=1,fps=30,format=yuv420p[v];[2:a]aresample=48000,aformat=channel_layouts=stereo[a];"
+             "[k][1:a][v][a]concat=n=2:v=1:a=1[ov][oa]",
+             "-map", "[ov]", "-map", "[oa]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+             "-maxrate", "6M", "-bufsize", "12M", "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+             "-movflags", "+faststart", str(gecici.resolve())],
+            check=True, creationflags=_PENCERESIZ, timeout=600)
+        if gecici.stat().st_size < 10000:
+            raise RuntimeError("çıktı boş")
+        gecici.replace(video)
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("kapak videonun başına eklenemedi: %r", e)
+        gecici.unlink(missing_ok=True)
+        return False

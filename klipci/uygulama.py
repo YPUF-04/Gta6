@@ -2255,11 +2255,15 @@ class Uygulama:
     # ---------- anında paylaşım (çok yüksek puan) ----------
     def _kapak(self, mp4: Path, baslik: str, an: float, sure: float, etiket: str, dil: str) -> None:
         """Kapak resmi (kapak.jpg) + kapak karesinin zamanı (kapak.json). Olmazsa sessizce geç."""
-        from .kapak import kapak_yap
+        from .kapak import kapak_basa_ekle, kapak_yap
         try:
             r = kapak_yap(mp4, mp4.parent / "kapak.jpg", baslik, an, sure, etiket, dil)
             if r:
-                (mp4.parent / "kapak.json").write_text(json.dumps({"ms": int(r[1] * 1000)}), encoding="utf-8")
+                ms = int(r[1] * 1000)
+                # kapak videonun ilk anı olsun: TikTok/Instagram ilk kareyi kapak alır
+                if self.cfg.get("kapak_basta", True) and kapak_basa_ekle(mp4, mp4.parent / "kapak.jpg"):
+                    ms = 0
+                (mp4.parent / "kapak.json").write_text(json.dumps({"ms": ms}), encoding="utf-8")
         except Exception as e:  # noqa: BLE001
             log.debug("kapak yapılamadı: %r", e)
 
