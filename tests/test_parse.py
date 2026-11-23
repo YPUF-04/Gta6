@@ -129,3 +129,34 @@ def test_profesyonel_aciklama():
                                                     "patla", "koptu", "lost it"))
     assert a.tr_ek("Kai Cenat", "in") == "Kai Cenat'ın" and a.tr_ek("Jynxzi", "a") == "Jynxzi'ye"
     assert a.an_turu(0.5, 1.0, 3, False, False) == "komik" and a.an_turu(0.1, 3.0, 3, False, False) == "aksiyon"
+
+
+def test_ceviri_429_bekler(monkeypatch):
+    from klipci import ceviri
+    sayac = {"n": 0}
+
+    class C:
+        status_code = 429
+
+    def get(*a, **k):
+        sayac["n"] += 1
+        return C()
+    monkeypatch.setattr(ceviri, "_bekle_bitis", 0.0)
+    monkeypatch.setattr(ceviri.httpx, "get", get)
+    assert ceviri.cevir(["hola"], "en", "es") is None
+    assert ceviri.cevir(["hola"], "en", "es") is None
+    assert sayac["n"] == 1   # ikinci seferde hiç denemedi
+
+
+def test_plan_platform_sonucu_listeyle_cakismaz(tmp_path):
+    from datetime import date, datetime
+    from klipci.plan import Planlayici
+    p = Planlayici(tmp_path)
+    gun = date(2026, 11, 23)
+    p.plan_yap(gun, ["EN"], 1, datetime(2026, 11, 23, 0, 0), otomatik=True,
+               sabit={"EN": [("15:00", ["instagram", "threads"])]})
+    p.ata(gun.isoformat(), "EN", "15:00", "klip1")
+    p.platform_isaretle("klip1", "threads", "hata")   # eskiden TypeError veriyordu
+    _, _, it = p.bul("klip1")
+    assert it["platformlar"] == ["instagram", "threads"]
+    assert it["sonuclar"]["threads"] == "hata"

@@ -14,15 +14,37 @@ ADRES = "https://translate.googleapis.com/translate_a/single"
 _AYRAC = "\n"
 
 
+_bekle_bitis = 0.0   # "çok fazla istek" (429) gelince bir süre hiç deneme
+
+
 def cevir(metinler: list[str], hedef: str, kaynak: str = "auto") -> list[str] | None:
     """Her satırı ayrı çevirir (sıra ve sayı korunur). Olmazsa None."""
+    global _bekle_bitis
+    import time
     if not metinler:
         return []
+    if time.time() < _bekle_bitis:
+        return None
+    try:
+        return _cevir(metinler, hedef, kaynak)
+    except _CokIstek:
+        _bekle_bitis = time.time() + 30 * 60
+        log.warning("çeviri servisi 'çok fazla istek' dedi: 30 dk çeviri yapılmayacak (İngilizce için yedek çeviri kullanılır)")
+        return None
+
+
+class _CokIstek(Exception):
+    pass
+
+
+def _cevir(metinler: list[str], hedef: str, kaynak: str = "auto") -> list[str] | None:
     temiz = [m.replace("\n", " ").strip() for m in metinler]
     try:
         r = httpx.get(ADRES, params={"client": "gtx", "sl": kaynak or "auto", "tl": hedef, "dt": "t",
                                      "q": _AYRAC.join(temiz)},
                       headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        if getattr(r, "status_code", 200) == 429:
+            raise _CokIstek()
         r.raise_for_status()
         j = r.json()
         cikti = "".join(parca[0] for parca in (j[0] or []) if parca and parca[0])
@@ -36,6 +58,8 @@ def cevir(metinler: list[str], hedef: str, kaynak: str = "auto") -> list[str] | 
                     return None
                 satirlar.append(tek)
         return satirlar
+    except _CokIstek:
+        raise
     except Exception as e:  # noqa: BLE001
         log.warning("çeviri yapılamadı (%s→%s): %r", kaynak, hedef, e)
         return None

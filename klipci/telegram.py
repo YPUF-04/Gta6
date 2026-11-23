@@ -16,6 +16,25 @@ log = logging.getLogger("telegram")
 API = "https://api.telegram.org/bot{token}/{metod}"
 
 
+def telegram_kopyasi(yol: Path, sinir_mb: float = 48.0) -> Path:
+    """Telegram botları en fazla 50 MB video kabul eder: büyükse 720p hafif bir önizleme kopyası yap."""
+    try:
+        if yol.stat().st_size <= sinir_mb * 1024 * 1024:
+            return yol
+        import subprocess
+        from .kayit import _PENCERESIZ, arac
+        kucuk = yol.with_name(yol.stem + "_tg.mp4")
+        if not kucuk.exists():
+            subprocess.run([arac("ffmpeg"), "-y", "-v", "error", "-i", str(yol), "-vf", "scale=720:-2",
+                            "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-maxrate", "3M", "-bufsize", "6M",
+                            "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(kucuk)],
+                           check=True, timeout=600, creationflags=_PENCERESIZ)
+        return kucuk
+    except Exception as e:  # noqa: BLE001
+        log.warning("telegram için küçük kopya yapılamadı: %r", e)
+        return yol
+
+
 class Bot:
     def __init__(self, token: str, chat_id: str, chat_id_kaydet: Callable[[str], None]):
         self.token = token
@@ -58,6 +77,7 @@ class Bot:
     async def video_gonder(self, yol: Path, aciklama: str, klip_id: str, butonlar: list | None = None) -> None:
         if not self.chat_id:
             raise RuntimeError("Telegram chat_id yok — botuna /start yaz")
+        yol = telegram_kopyasi(Path(yol))
         klavye = {"inline_keyboard": butonlar or [
             [{"text": "📤 Hemen paylaş", "callback_data": f"hp:{klip_id}"[:64]},
              {"text": "✅ Sıraya ekle", "callback_data": f"ok:{klip_id}"[:64]}],

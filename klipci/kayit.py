@@ -154,7 +154,12 @@ class Kaydedici:
     def durum(self) -> dict:
         """/kayit için: kayıt çalışıyor mu, kaç parça var, en yeni parça kaç sn önce."""
         parca = self.parcalar() if self.klasor.exists() else []
-        yeni = max((p.stat().st_mtime for p, _ in parca), default=0)
+        def mtime(p):
+            try:
+                return p.stat().st_mtime
+            except OSError:   # o an silinmiş parça (eski parçalar sürekli temizleniyor)
+                return 0
+        yeni = max((mtime(p) for p, _ in parca), default=0)
         ad_saat = parca[-1][1] if parca else 0
         return {"calisiyor": self.calisiyor_mu(), "parca": len(parca),
                 "son_parca_sn": int(time.time() - yeni) if yeni else None,

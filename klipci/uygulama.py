@@ -201,7 +201,7 @@ class Uygulama:
                 if it.get("durum") not in ("gonderildi", "paylasildi"):
                     continue
                 n += 1
-                pf = it.get("platformlar") or {}
+                pf = it.get("sonuclar") or (it.get("platformlar") if isinstance(it.get("platformlar"), dict) else {}) or {}
 
                 def ik(p: str, e: str) -> str:
                     v = str(pf.get(p, ""))
@@ -2047,8 +2047,12 @@ class Uygulama:
                         self._hazira_al(hid)
                         self.plan.ata(simdi.date().isoformat(), hesap, it["saat"], hid)
                         it = {**it, "hid": hid}
-                    if await self._paylasim_hatirlat(hesap, it):
-                        self.plan.isaretle(it["hid"], "gonderildi", simdi.date().isoformat())
+                    # ÖNCE işaretle: arada bir hata olsa bile aynı saat ikinci kez paylaşılmasın
+                    self.plan.isaretle(it["hid"], "gonderildi", simdi.date().isoformat())
+                    try:
+                        await self._paylasim_hatirlat(hesap, it)
+                    except Exception:  # noqa: BLE001
+                        log.exception("paylaşım sırasında hata (%s %s) — bu saat tekrar denenmeyecek", hesap, it["saat"])
                 if simdi.hour >= 10 and self._durum_oku().get("son_ozet") != simdi.date().isoformat():
                     d = self._durum_oku()
                     d["son_ozet"] = simdi.date().isoformat()
@@ -2577,7 +2581,7 @@ class Uygulama:
             for r in ex.map(lambda f: f(h, hesap, mp4, pm), isler):
                 sonuc.update(r)
         # Threads videoyu bir adresten alır: önce Instagram'ın, olmazsa Facebook'un kopyası
-        if h.get("threads_token"):
+        if h.get("threads_token") and (sonuc.get("_ig_adres") or sonuc.get("_fb_id")):
             from . import paylas
             adresler = [sonuc.pop("_ig_adres", "")]
             if sonuc.get("_fb_id"):
@@ -2688,7 +2692,8 @@ class Uygulama:
             pm = json.loads((k / "aciklama.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pm = {}
-        oto = await asyncio.to_thread(self._otomatik_paylas, hesap, mp4, pm, it.get("platformlar"))
+        izinli = it.get("platformlar") if isinstance(it.get("platformlar"), list) else None
+        oto = await asyncio.to_thread(self._otomatik_paylas, hesap, mp4, pm, izinli)
         kimlik = {"instagram": oto.pop("_instagram_id", ""),
                   "youtube": oto["youtube"].rsplit("/", 1)[-1] if str(oto.get("youtube", "")).startswith("http") else ""}
         if any(kimlik.values()):
@@ -2704,7 +2709,6 @@ class Uygulama:
                 v_ = oto[ad_]
                 durum_satir.append(f"{ikon}: " + ("⚠️ " + v_[6:] if v_.startswith("HATA") else
                                                   "⏸ " + v_[7:] if v_.startswith("SINIR") else "✅ paylaşıldı " + v_))
-        izinli = it.get("platformlar")
         elle = [p for p in ("instagram", "tiktok", "youtube") if p == "tiktok" or (
                 (izinli is None or p in izinli) and (not oto.get(p) or str(oto.get(p, "")).startswith(("HATA", "SINIR"))))]
         bot = self._paylas_botu()

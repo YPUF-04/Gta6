@@ -203,7 +203,10 @@ class Planlayici:
             for lst in g.values():
                 for it in lst:
                     if it["hid"] == hid:
-                        it.setdefault("platformlar", {})[platform] = deger
+                        sonuc = it.get("sonuclar")
+                        if not isinstance(sonuc, dict):
+                            sonuc = it["sonuclar"] = {}
+                        sonuc[platform] = deger
                         self._yaz(d)
                         return
 
