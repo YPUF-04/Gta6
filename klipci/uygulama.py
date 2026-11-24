@@ -31,6 +31,7 @@ from .spike import Spike, SpikeDetector, mesaj_puani, yazi_dili
 from .ceviri import cevir as ceviri_yap
 from .oyunsesi import bagirma_mi, oyun_aksiyonu, parca_sesi, ses_zirvesi
 from .oyunsesi import hareketsiz_oran, oyun_altyazi_anlari, oyun_konusmasi_mi, yuz_tepkisi
+from .oyunsesi import karanlik_anlar, karanliktan_kirp
 from .telegram import Bot
 from .yazar import Yazar, paylasim_metni, platform_metinleri, trend_arastir
 
@@ -910,6 +911,20 @@ class Uygulama:
         if aksiyon >= 2.0:
             neden.append("aksiyon")
         p -= 2.0 * duran
+        # DÜZGÜN PUAN: yüksek puan için birden fazla BAĞIMSIZ işaret gerekir. Tek bir işaret (sadece chat,
+        # sadece ses...) yanıltıcı olabilir: oyunun kendi sesi, chat spam'i, ara sahne vb.
+        isaret = sum([gulme >= 0.3 or klip >= 2 or is_.spike.neden == "tekrar",   # izleyiciler
+                      ses_tepki >= 6,                                             # yayıncı sesi
+                      yuz_t >= 1.6,                                               # yayıncı yüzü
+                      bool(yakin) and sum(len(t.split()) for _, _, t in yakin) >= 6,  # yayıncı anlatıyor
+                      aksiyon >= 2.0])                                            # oyunda aksiyon
+        if isaret <= 1:
+            p = min(p, 7.2)
+        elif isaret == 2:
+            p = min(p, 8.6)
+        # yayıncı klipte neredeyse hiç konuşmuyorsa izleyici bağ kuramaz
+        if sum(max(0.0, e - b) for b, e, _ in (segler or [])) < 3:
+            p -= 0.8
         return round(max(0.0, min(10.0, p)), 1), ", ".join(neden)
 
     @staticmethod
@@ -948,9 +963,9 @@ class Uygulama:
             for b, e, _ in segler:
                 if b < son < e and e - son <= 2:
                     son = e + 0.3
-        if son - bas < 12:   # çok kısa kalmasın
-            son = min(is_.sure, bas + 12)
-            bas = max(0.0, son - 12)
+        if son - bas < 15:   # çok kısa kalmasın ("yarıda kalmış" gibi durur)
+            son = min(is_.sure, bas + 15)
+            bas = max(0.0, son - 15)
         # SON KONTROL: yayıncı konuşurken bitmesin. Cümle uzatılamıyorsa (kayıt bitiyor / çok uzun)
         # cümlenin başından önce bitir — yarım kalan cümle "video yarıda bitti" hissi verir.
         for b, e, _ in sorted(segler, reverse=True):
@@ -1235,8 +1250,42 @@ class Uygulama:
             log.info("klip elendi: oyun ekranı zamanın %%%d'inde duruyor (menü/harita) — %s", int(duran * 100), kid)
             self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
             return
+        # yayıncı tepkisiz + sadece oyun (ara sahne / sinematik): izleyici için boş, puan ne olursa olsun atla
+        konusma_sn = sum(max(0.0, e - b) for b, e, _ in segler)
+        genel_oyun = (sum(1 for _, v in oyun_anlari if v) / len(oyun_anlari)) if oyun_anlari else 0.0
+        if (konusma_sn < 2.0 and yuz_t < 1.8 and ses_tepki < 8 and aksiyon < 2.5
+                and self._gulme_orani(is_) < 0.5):
+            log.info("klip elendi: yayıncı tepkisiz (konuşma %.0f sn, yüz %.1fx), sadece oyun görüntüsü — %s",
+                     konusma_sn, yuz_t, kid)
+            self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
+            return
+        if genel_oyun >= 0.4 and konusma_sn < 4.0 and yuz_t < 2.0:
+            log.info("klip elendi: oyunun ara sahnesi (%%%d), yayıncı neredeyse hiç konuşmuyor — %s",
+                     int(genel_oyun * 100), kid)
+            self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
+            return
         # akıllı başlangıç/bitiş: tepki sönünce bitir, cümleyi bölme; boş kuyruk ve uzun giriş kesilir
         kb, ke = self._akilli_aralik(is_, segler)
+        # kapkara kısımlar (yükleme ekranı, sahne geçişi) klipte kalmasın; çoğu karanlıksa hiç yapma
+        karanlik = await asyncio.to_thread(karanlik_anlar, is_.kaynak, is_.ofset, is_.sure, analiz.facecam)
+        if karanlik:
+            kb2, ke2 = karanliktan_kirp(karanlik, kb, ke, is_.an)
+            if (kb2, ke2) != (kb, ke):
+                log.info("kapkara kısım kesildi: %.0f-%.0f → %.0f-%.0f sn", kb, ke, kb2, ke2)
+                kb, ke = kb2, ke2
+                for b, e, _ in sorted(segler, reverse=True):   # yeni bitişte de cümle bölünmesin
+                    if b < ke - 0.3 < e - 0.6 and b - 0.15 > kb + 8:
+                        ke = b - 0.15
+                        break
+            parca = karanlik[int(kb):int(ke)]
+            if parca and sum(parca) / len(parca) > 0.3:
+                log.info("klip elendi: görüntünün %%%d'i kapkara — %s", int(100 * sum(parca) / len(parca)), kid)
+                self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
+                return
+        if ke - kb < 15:   # 15 sn'den kısa klipler "yarıda kalmış" gibi duruyor
+            log.info("klip elendi: kırpınca çok kısa kaldı (%.0f sn) — %s", ke - kb, kid)
+            self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
+            return
         if kb > 0.5 or ke < is_.sure - 0.5:
             log.info("klip kırpıldı: %.0f sn → %.0f sn (baştan %.0f, sondan %.0f)", is_.sure, ke - kb, kb,
                      is_.sure - ke)

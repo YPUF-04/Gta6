@@ -78,6 +78,55 @@ def hareketsiz_oran(video: Path, ofset: float, sure: float, facecam=None) -> flo
         return 0.0
 
 
+def karanlik_anlar(video: Path, ofset: float, sure: float, facecam=None) -> list[bool]:
+    """Her saniye için: oyun görüntüsü kapkara mı? (yükleme ekranı, sahne geçişi, gece ara sahnesi)
+    Yayıncının kamerası ve en alttaki altyazı bandı hesaba katılmaz."""
+    try:
+        import numpy as np
+        w, h = 90, 160
+        ham = subprocess.run(
+            [arac("ffmpeg"), "-v", "error", "-ss", f"{ofset:.2f}", "-t", f"{sure:.2f}", "-i", str(video),
+             "-vf", f"fps=1,scale={w}:{h},format=gray", "-f", "rawvideo", "-"],
+            capture_output=True, timeout=120, creationflags=_PENCERESIZ).stdout
+        n = len(ham) // (w * h)
+        if n < 2:
+            return []
+        k = np.frombuffer(ham[:n * w * h], np.uint8).reshape(n, h, w).astype(np.float32)
+        maske = np.ones((h, w), bool)
+        maske[int(h * 0.8):, :] = False            # altyazı bandı
+        if facecam:
+            fx, fy, fw, fh = facecam
+            maske[max(0, int(fy * h) - 2):int((fy + fh) * h) + 2, max(0, int(fx * w) - 2):int((fx + fw) * w) + 2] = False
+        sonuc = []
+        for kare in k:
+            alan = kare[maske]
+            sonuc.append(bool(float(alan.mean()) < 35 and float(np.percentile(alan, 95)) < 70))
+        return sonuc
+    except Exception as e:  # noqa: BLE001
+        log.debug("karanlık ölçülemedi: %r", e)
+        return []
+
+
+def karanliktan_kirp(karanlik: list[bool], bas: float, son: float, an: float) -> tuple[float, float]:
+    """Klibin başındaki/sonundaki kapkara kısımları (yükleme ekranı, sahne geçişi) at.
+    Olaydan sonra 2+ sn süren karanlık başlıyorsa klip orada biter (sahne bitmiştir)."""
+    if not karanlik:
+        return bas, son
+    # sondan: olaydan sonra ilk uzun karanlık
+    i = int(max(bas, an + 1))
+    while i < min(len(karanlik), int(son)) - 1:
+        if karanlik[i] and karanlik[i + 1]:
+            son = max(bas + 1, float(i))
+            break
+        i += 1
+    # baştan: olaydan önceki son uzun karanlığın bitişi
+    for j in range(int(min(an, son)) - 1, int(bas), -1):
+        if 0 <= j < len(karanlik) and karanlik[j] and j - 1 >= 0 and karanlik[j - 1]:
+            bas = float(j + 1)
+            break
+    return bas, son
+
+
 def yuz_tepkisi(video: Path, ofset: float, sure: float, facecam, an: float) -> float:
     """Yayıncı patlama anında kamerada ne kadar hareketlendi? (normaline göre kat; elleri başında, zıplıyor...)
     Kamera yoksa 0."""

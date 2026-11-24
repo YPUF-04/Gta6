@@ -142,3 +142,26 @@ def test_ses_zirvesi_olayin_anini_bulur(tmp_path):
                     str(v)], check=True)
     t, db = ses_zirvesi(v, 0, 20, an=16.0)      # chat 16. sn'de tepki verdi
     assert 11.5 <= t <= 13.0 and db > 7
+
+
+def test_kapkara_son_kesilir():
+    from klipci.oyunsesi import karanliktan_kirp
+    # 0-10 sn oyun, 11. sn'den sonra yükleme ekranı (kapkara)
+    k = [False] * 11 + [True] * 11
+    bas, son = karanliktan_kirp(k, 0.0, 22.0, 6.0)
+    assert bas == 0.0 and son == 11.0
+    # başta sahne geçişi
+    k2 = [True] * 4 + [False] * 20
+    bas2, son2 = karanliktan_kirp(k2, 0.0, 24.0, 10.0)
+    assert bas2 == 4.0 and son2 == 24.0
+
+
+def test_karanlik_anlar_siyah_videoyu_bulur(tmp_path):
+    import subprocess
+    from klipci.oyunsesi import karanlik_anlar
+    v = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x568:rate=30:d=3",
+                    "-f", "lavfi", "-i", "color=black:size=320x568:rate=30:d=3",
+                    "-filter_complex", "[0:v][1:v]concat=n=2:v=1[o]", "-map", "[o]", str(v)], check=True)
+    k = karanlik_anlar(v, 0, 6)
+    assert k[:2] == [False, False] and all(k[4:])
