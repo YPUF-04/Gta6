@@ -941,10 +941,12 @@ class Uygulama:
             if b < bas < e and bas - b <= 5:
                 bas = max(0.0, b - 0.2)
         # izlenme süresi: kısa ve dolu klipler sonuna kadar izlenir (algoritmanın en önemli sinyali)
-        if son - bas > 60:   # uzun olabilir; boş kuyruk zaten tepki sönünce kesiliyor
-            son = bas + 60
+        # en fazla ~58 sn: Facebook 60 sn'yi geçen videoyu Reels değil normal GÖNDERİ yapıyor
+        # (YouTube Shorts ve Instagram Reels için de en güvenli süre)
+        if son - bas > 56:   # uzun olabilir; boş kuyruk zaten tepki sönünce kesiliyor
+            son = bas + 56
             for b, e, _ in segler:
-                if b < son < e and e - son <= 3:
+                if b < son < e and e - son <= 2:
                     son = e + 0.3
         if son - bas < 12:   # çok kısa kalmasın
             son = min(is_.sure, bas + 12)
@@ -953,7 +955,7 @@ class Uygulama:
         # cümlenin başından önce bitir — yarım kalan cümle "video yarıda bitti" hissi verir.
         for b, e, _ in sorted(segler, reverse=True):
             if b < son - 0.3 < e - 0.6:
-                if e + 0.3 <= is_.sure and e - son <= 5:
+                if e + 0.3 <= is_.sure and e - son <= 5 and e + 0.3 - bas <= 58.5:
                     son = e + 0.3
                 elif b - 0.15 >= max(bas + 10, is_.an + 3):
                     son = b - 0.15
@@ -2708,8 +2710,9 @@ class Uygulama:
         if not h.get("facebook_token"):
             return {}
         try:
+            from .kurgu import facebook_kopya
             fb = paylas.Facebook(h["facebook_token"])
-            link = fb.reels(mp4, pm.get("instagram", ""))
+            link = fb.reels(facebook_kopya(mp4), pm.get("instagram", ""))
             log.info("📘 Facebook'a paylaşıldı (%s): %s", hesap, link)
             return {"facebook": link, "_fb_id": fb.son_video_id}
         except Exception as e:  # noqa: BLE001

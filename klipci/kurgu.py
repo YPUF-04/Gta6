@@ -2,10 +2,13 @@
 + ortada büyük altyazı + altta yayıncı adı. Hepsi tek ffmpeg komutu."""
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
 
 from .kayit import _PENCERESIZ, arac
+
+log = logging.getLogger("kurgu")
 
 W, H = 1080, 1920
 CHAT_Y, CHAT_ARALIK = 600, 52   # chat: oyun görüntüsünün sol alt köşesinde, küçük ve sade
@@ -386,6 +389,30 @@ def ses_cikar(kaynak: Path, baslangic: float, sure: float, cikti: Path) -> Path:
                     "-ss", f"{baslangic:.2f}", "-t", f"{sure:.2f}", "-i", str(kaynak),
                     "-vn", "-ac", "1", "-ar", "16000", str(cikti)], check=True, creationflags=_PENCERESIZ)
     return cikti
+
+
+def facebook_kopya(kaynak: Path) -> Path:
+    """Facebook'un Reels kurallarına birebir uyan kopya. Uymazsa Facebook videoyu Reels değil normal GÖNDERİ
+    yapıyor. Kurallar: 9:16 1080x1920, sabit 30 fps, 2 sn'de bir kapalı anahtar kare (GOP), H.264 + yuv420p,
+    AAC 48 kHz stereo 128k+, 3-60 sn arası, faststart."""
+    cikti = Path(kaynak).with_name(Path(kaynak).stem + "_fb.mp4")
+    if cikti.exists() and cikti.stat().st_size > 0:
+        return cikti
+    try:
+        subprocess.run([arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", "-i", str(kaynak),
+                        "-t", "59.5",
+                        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,"
+                               "pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p",
+                        "-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-preset", "veryfast",
+                        "-crf", "19", "-maxrate", "10M", "-bufsize", "16M",
+                        "-g", "60", "-keyint_min", "60", "-sc_threshold", "0", "-bf", "2",
+                        "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2",
+                        "-movflags", "+faststart", str(cikti)], check=True, creationflags=_PENCERESIZ, timeout=600)
+        return cikti
+    except Exception as e:  # noqa: BLE001
+        log.warning("Facebook kopyası yapılamadı, asıl video gönderiliyor: %r", e)
+        cikti.unlink(missing_ok=True)
+        return Path(kaynak)
 
 
 def guvenli_kopya(kaynak: Path) -> Path:

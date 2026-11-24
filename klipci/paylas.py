@@ -283,6 +283,20 @@ class Facebook:
             "upload_phase": "finish", "video_id": vid, "video_state": "PUBLISHED",
             "description": aciklama[:2200], "access_token": tok}))
         self.son_video_id = vid
+        # Facebook Reels mi yaptı, normal gönderi mi? (kalıcı adresinde /reel/ var mı)
+        for _ in range(6):
+            try:
+                pj = _json(self.http.get(f"{FB_API}/{vid}", params={"fields": "permalink_url",
+                                                                     "access_token": tok}))
+                kalici = str(pj.get("permalink_url") or "")
+            except PaylasimHatasi:
+                kalici = ""
+            if kalici:
+                if "/reel" not in kalici:
+                    log.warning("Facebook bu videoyu Reels yerine normal gönderi olarak yayınladı: %s", kalici)
+                    return ("https://www.facebook.com" + kalici) if kalici.startswith("/") else kalici
+                break
+            time.sleep(self.bekle)
         return f"https://www.facebook.com/reel/{vid}"
 
     def video_adresi(self, vid: str) -> str:
