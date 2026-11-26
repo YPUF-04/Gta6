@@ -165,3 +165,20 @@ def test_karanlik_anlar_siyah_videoyu_bulur(tmp_path):
                     "-filter_complex", "[0:v][1:v]concat=n=2:v=1[o]", "-map", "[o]", str(v)], check=True)
     k = karanlik_anlar(v, 0, 6)
     assert k[:2] == [False, False] and all(k[4:])
+
+
+def test_ciplak_kelime_yedegi(monkeypatch):
+    from klipci import ciplak
+    monkeypatch.setattr(ciplak, "_model", lambda: None)
+    chat = [(1.0, f"u{i}", "omg boobs lol") for i in range(3)]
+    assert ciplak.ciplak_mi(None, 0, 10, chat, [])[0]
+    assert not ciplak.ciplak_mi(None, 0, 10, [(1.0, "a", "KEKW")], [])[0]
+
+
+def test_ciplak_model_temiz_videoda_bir_sey_bulmaz(tmp_path):
+    import subprocess
+    from klipci import ciplak
+    v = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:d=3", str(v)],
+                   check=True)
+    assert ciplak.ciplak_mi(v, 0, 3, [], []) == (False, "")

@@ -1300,6 +1300,14 @@ class Uygulama:
                                    if kb <= w.bas < ke]
                 cozum.en_segler = [(b - kb, e - kb, t) for b, e, t in cozum.en_segler if e > kb and b < ke]
             oyun_anlari = [(t - kb, v) for t, v in oyun_anlari if kb <= t <= ke]
+        # çıplaklık (GTA 6'da var): paylaşılırsa video kaldırılır, hesap ceza yer → asla paylaşma
+        if self.cfg.get("ciplak_filtre", True):
+            from .ciplak import ciplak_mi
+            var, ne = await asyncio.to_thread(ciplak_mi, is_.kaynak, is_.ofset, is_.sure, is_.chat, segler)
+            if var:
+                log.info("klip elendi: çıplaklık var — %s — %s", ne, kid)
+                self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
+                return
         chat_pop = (chat_sec(is_.chat, is_.sure, 1, float(ce.get("sure_sn", 1.8)),
                              en_fazla=int(ce.get("en_fazla_mesaj", 5)), an=is_.an)
                     if ce.get("acik", True) else [])
