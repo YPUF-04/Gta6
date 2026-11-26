@@ -123,6 +123,22 @@ class Yaziya:
             log.warning("altyazı modeli şimdilik hazırlanamadı (%r) — sonra tekrar denenecek", e)
             return False
 
+    @staticmethod
+    def _dil_uyuyor(m, ses, bas: float, bit: float, beklenen: str) -> bool:
+        """Bu konuşma parçası beklenen dilde mi? Kısa parçalarda (<1.2 sn) dil tahmini güvenilmez: kabul."""
+        if not beklenen or bit - bas < 1.2:
+            return True
+        try:
+            parca = ses[int(bas * 16000):int(bit * 16000)]
+            dil, olas, hepsi = m.detect_language(parca)
+            if dil == beklenen:
+                return True
+            bek = dict(hepsi or []).get(beklenen, 0.0)
+            return not (olas >= 0.6 and bek < 0.15)
+        except Exception as e:  # noqa: BLE001
+            log.debug("parça dili ölçülemedi: %r", e)
+            return True
+
     def coz(self, wav: Path, dil: str = "", cevir: bool = True, ipucu: str = "") -> Cozum | None:
         """dil: yayının dili biliniyorsa ("tr"/"en") verilir — oyun sesi varken dili tahmin etmek zor."""
         try:
@@ -143,13 +159,34 @@ class Yaziya:
         if dil in ("tr", "en") and getattr(info, "language_probability", 1.0) < 0.6 and info.language != dil:
             segs, info = m.transcribe(ses, language=dil, **ayar)
         kaynak = info.language
-        segler, kelimeler = [], []
+        beklenen = dil if dil in ("tr", "en") else kaynak
+        ham = []
         for s in segs:
-            if not gercek_konusma_mi(s.text, getattr(s, "no_speech_prob", 0.0), getattr(s, "avg_logprob", 0.0)):
+            if not gercek_konusma_mi(s.text, getattr(s, "no_speech_prob", 0.0), getattr(s, "avg_logprob", 0.0),
+                                     getattr(s, "compression_ratio", 1.0)):
+                continue
+            ham.append(s)
+        # şarkı sözleri: aynı satır klipte 3+ kez geçiyorsa müziktir (yayıncı aynı cümleyi 3 kez kurmaz)
+        sayac: dict[str, int] = {}
+        for s in ham:
+            k = _sade(s.text)
+            sayac[k] = sayac.get(k, 0) + 1
+        segler, kelimeler = [], []
+        atilan = 0
+        for s in ham:
+            if sayac.get(_sade(s.text), 0) >= 3 and len(_sade(s.text)) > 3:
+                atilan += 1
+                continue
+            # bu parçadaki ses YAYINCININ dilinde mi? (TR yayıncının arkasında çalan İngilizce şarkı, oyundaki
+            # İngilizce diyalog vb. ayrı dilde olur → yayıncının konuşması değil, altyazıya girmez)
+            if not self._dil_uyuyor(m, ses, s.start, s.end, beklenen):
+                atilan += 1
                 continue
             segler.append((s.start, s.end, s.text.strip()))
             for w in (s.words or []):
                 kelimeler.append(Kelime(w.start, w.end, w.word.strip()))
+        if atilan:
+            log.info("altyazı: %d parça yayıncının konuşması değil (müzik / oyun / başka dil), alınmadı", atilan)
         c = Cozum(kaynak, segler, kelimeler, float(getattr(info, "language_probability", 0.0)))
         c.asil_dil = kaynak
         # Türkçe/İngilizce değilse: yedek olarak Whisper'ın kendi İngilizce çevirisi (internet çevirisi olmazsa)
@@ -164,18 +201,27 @@ class Yaziya:
         return c
 
 
+def _sade(t: str) -> str:
+    import re
+    return re.sub(r"[^\w ]+", "", (t or "").lower()).strip()
+
+
 # Whisper müzik/oyun sesinde bazen olmayan cümleler uydurur; bunlar altyazıya girmesin
 _UYDURMA = ("thank you for watching", "thanks for watching", "subscribe", "altyazı m.k", "altyazı:",
             "izlediğiniz için teşekkür", "abone ol", "www.", ".com", "♪")
 
 
-def gercek_konusma_mi(metin: str, sessizlik: float, guven: float) -> bool:
+def gercek_konusma_mi(metin: str, sessizlik: float, guven: float, sikisma: float = 1.0) -> bool:
     t = (metin or "").strip().lower()
     if not t:
         return False
     if any(u in t for u in _UYDURMA):
         return False
-    if sessizlik > 0.6 and guven < -0.8:   # büyük ihtimalle konuşma yok, sadece ses
+    if sessizlik > 0.5 and guven < -0.6:   # büyük ihtimalle konuşma yok, sadece ses / müzik
+        return False
+    if guven < -1.0:                        # Whisper emin değil: müzik/oyun sesinden uydurma metin
+        return False
+    if sikisma > 2.4:                       # kendini tekrar eden metin (şarkı nakaratı, "la la la")
         return False
     return True
 

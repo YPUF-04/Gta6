@@ -140,7 +140,7 @@ yuz_icin_en_az_izleyici: 2000   # bundan küçük (otomatik bulunan) yayıncıla
 # Yüz yoksa: "tweet" = beyaz zemin, üstte sayfa profili + büyük başlık, ortada kare video
 #            "tek"   = ortada oyun, arkası bulanık
 # Tweet tarzının adı/başlığı/fotoğrafı Telegram'dan: /ad, /ustyazi, fotoğraf + "/profil"
-yuzlu_duzen: "pip"          # pip = oyun tam ekran, kamera sol üstte kutu · yuz = üstte kamera, altta oyun
+yuz_duzeni: "yarim"         # yarim = üst yarı yüz, ortada beyaz bant + başlık, alt yarı oyun · pip = oyun tam ekran, kamera köşede · yuz
 yuzsuz_duzen: "tweet"
 yakinlasma: true            # chat'in patladığı an ani yakınlaşma (editörlerin yaptığı gibi)
 ilerleme_cubugu: false      # altta sarı ilerleme çubuğu

@@ -1398,8 +1398,12 @@ class Uygulama:
             an = is_.an if self.cfg.get("yakinlasma", True) else None
             # yüz varsa: üstte yüz, altta oyun. Yoksa: tweet tarzı (ayardan "tek" de seçilebilir)
             # yüz varsa: varsayılan "pip" (oyun tam ekran, kamera sol üstte kutu); "yuz" = üstte kamera altta oyun
-            duzen = (str(self.cfg.get("yuzlu_duzen", "pip")) if facecam
+            # (eski kurulumların config.yaml dosyasında yuzlu_duzen: "pip" yazıyor: yeni tarz için yeni ayar adı)
+            duzen = (str(self.cfg.get("yuz_duzeni", "yarim")) if facecam
                      else str(self.cfg.get("yuzsuz_duzen", "tweet")))
+            if duzen == "yarim" and not veri.get("baslik"):
+                # ortadaki beyaz bant boş kalmasın: gerçek bilgi ("Yayıncı · GTA 6"), uydurma cümle yok
+                veri["baslik"] = str(veri.get("aciklama") or f"{is_.kanal.gorunen} · GTA 6").strip("“”\"")[:48]
             tepki = None   # "chat koptu" gibi ekrana yazı ASLA basılmaz (kullanıcı istemedi)
             if oyun_ani and not facecam and self.cfg.get("pov_duzeni", True):
                 # karakter anı (kamerası olmayan yayın): oyun tam ekran, üstte GTA VI + pembe POV yazısı,
@@ -1418,7 +1422,7 @@ class Uygulama:
                                             sayfa.get("profil_yol"), an)
                 else:
                     ass_yaz(ass, is_.sure, veri.get("baslik", ""), f"🎥 {is_.kanal.kredi}", h.get("imza", ""), alt,
-                            [] if duzen in ("pip", "pov") else chat_pop, duzen, None, tepki)
+                            [] if duzen in ("pip", "pov", "yarim") else chat_pop, duzen, None, tepki)
                     await asyncio.to_thread(dikey_video, is_.kaynak, is_.ofset, is_.sure, mp4, ass, zoom,
                                             None if duzen == "pov" else facecam,
                                             an, bool(self.cfg.get("ilerleme_cubugu", False)), duzen)

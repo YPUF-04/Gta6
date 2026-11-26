@@ -71,6 +71,8 @@ DUZEN = {
     # oyun TAM EKRAN (boş yer yok), üstte GTA VI + pembe POV yazısı, altta yayıncının altyazısı
     "pov": {"alt_pos": (540, 1580), "chat_y": 1236, "kredi_mv": 0},
     "tweet": {"video_y": 400, "video_h": 1080, "alt_pos": (540, 1390), "baslik": (540, 560)},
+    # "yarim": viral edit tarzı — üst yarı yayıncının yüzü (büyük), ortada beyaz bant + siyah başlık, alt yarı oyun
+    "yarim": {"kam_h": 820, "bant_h": 130, "alt_pos": (540, 1600), "chat_y": 1236},
 }
 MOR = "&H00E43F7B&"   # (eski mor kutu — artık kullanılmıyor)
 VURGU = "&H004BE1FF&"  # söylenen kelime: sarı (#FFE14B, ASS'de BGR) — kutu yok, sade ve şık
@@ -112,7 +114,7 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
     import random
     rnd = random.Random(yol.parent.name)   # her videoda biraz farklı: hepsi aynı şablondan çıkmış gibi durmasın
     alt_font = "Arial Black"   # her videoda aynı, kalın ve okunaklı (tutarlı marka görünümü)
-    alt_boy = {"yuz": 70, "tek": 74, "tweet": 60, "pip": 76, "pov": 70}[duzen] + rnd.choice([-4, 0, 4])
+    alt_boy = {"yuz": 70, "tek": 74, "tweet": 60, "pip": 76, "pov": 70, "yarim": 72}[duzen] + rnd.choice([-4, 0, 4])
     stiller = [
         # Altyazı: beyaz kalın + siyah kenar (söylenen kelime mor kutuda)
         # beyaz kalın yazı, ince siyah kenar + yumuşak gölge (kutu yok)
@@ -196,6 +198,22 @@ def ass_yaz(yol: Path, sure: float, baslik: str, kredi: str, imza: str,
                             f"{_ass_metin(kredi)}")
         if imza:
             satirlar.append(f"Dialogue: 1,0:00:00.00,{son},ImzaYuz,,0,0,0,,{{\\pos(540,325)\\fs30}}{_ass_metin(imza)}")
+        satirlar += _altyazi_olaylari(altyazilar, sure, ax, ay)
+        yol.write_text("\n".join(satirlar) + "\n", encoding="utf-8")
+        return
+
+    if duzen == "yarim":
+        kh, bh = d["kam_h"], d["bant_h"]
+        if baslik:   # beyaz bantta siyah, kalın başlık (yayıncının gerçek sözü ya da "Yayıncı · GTA 6")
+            boy = 58 if len(baslik) <= 24 else 50 if len(baslik) <= 32 else 42
+            satirlar.append(f"Dialogue: 5,0:00:00.00,{son},Baslik,,0,0,0,,{{\\pos(540,{kh + bh // 2})"
+                            f"\\fnArial Black\\fs{boy}\\c&H00000000&\\bord0\\shad0}}{_ass_metin(baslik)}")
+        if kredi:
+            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},Kredi,,0,0,0,,{{\\an9\\pos({W - 28},30)\\fs26\\alpha&H40&}}"
+                            f"{_ass_metin(kredi)}")
+        if imza:
+            satirlar.append(f"Dialogue: 1,0:00:00.00,{son},ImzaYuz,,0,0,0,,{{\\pos({W // 2},{kh - 40})\\fs30}}"
+                            f"{_ass_metin(imza)}")
         satirlar += _altyazi_olaylari(altyazilar, sure, ax, ay)
         yol.write_text("\n".join(satirlar) + "\n", encoding="utf-8")
         return
@@ -287,6 +305,21 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
             f"[oyun][kam]overlay={kx - cer}:{ky - cer},fps=30,format=yuv420p[v0]"
         )
         cubuk = True   # bu tarzda altta ince ilerleme çubuğu var
+    elif facecam and duzen == "yarim":
+        fx, fy, fw, fh = facecam
+        kh, bh = DUZEN["yarim"]["kam_h"], DUZEN["yarim"]["bant_h"]
+        oh = H - kh - bh
+        filtre = (
+            f"[0:v]setpts=PTS-STARTPTS,split=2[a][b];"
+            f"[a]crop=iw*{fw:.4f}:ih*{fh:.4f}:iw*{fx:.4f}:ih*{fy:.4f},"
+            f"scale={W}:{kh}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{kh},setsar=1,fps=30"
+            f"{GRADE}[kam];"
+            f"color=c=white:s={W}x{bh}:r=30:d={sure + 1:.2f},setsar=1[bant];"
+            f"[b]crop=min(iw\\,ih*{W}/{oh}):ih:(iw-min(iw\\,ih*{W}/{oh}))/2:0,"
+            f"scale={W}:{oh}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{oh},setsar=1,fps=30"
+            f"{GRADE}{_yakinlas(W, oh, an, sure)}[oyun];"
+            f"[kam][bant][oyun]vstack=inputs=3:shortest=1,fps=30,format=yuv420p[v0]"
+        )
     elif facecam:
         fx, fy, fw, fh = facecam
         kh = DUZEN["yuz"]["kam_h"]
