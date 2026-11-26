@@ -6,3 +6,4 @@ anthropic>=2.10
 numpy
 opencv-python-headless>=4.8,<5
 edge-tts>=6
+Pillow>=10.0            # kapak yazısı (Türkçe harfler: ş ğ ı İ)

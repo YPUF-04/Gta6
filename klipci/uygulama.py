@@ -1423,9 +1423,17 @@ class Uygulama:
                 else:
                     ass_yaz(ass, is_.sure, veri.get("baslik", ""), f"🎥 {is_.kanal.kredi}", h.get("imza", ""), alt,
                             [] if duzen in ("pip", "pov", "yarim") else chat_pop, duzen, None, tepki)
+                    # dramatik geçiş (siyah-beyaz + uğursuz ton): sadece ANİ şok/aksiyon anlarında, her videoda değil
+                    from . import aciklama as _ac
+                    _tur = _ac.an_turu(self._gulme_orani(is_), aksiyon, ses_tepki, oyun_ani,
+                                       is_.spike.neden == "tekrar")
+                    dram = bool(self.cfg.get("dram_efekt", True) and an is not None and zirve_db >= 10
+                                and _tur in ("sok", "aksiyon"))
+                    if dram:
+                        log.info("🎬 dramatik geçiş eklendi (ani %s anı, +%.0f dB): %s", _tur, zirve_db, hid)
                     await asyncio.to_thread(dikey_video, is_.kaynak, is_.ofset, is_.sure, mp4, ass, zoom,
                                             None if duzen == "pov" else facecam,
-                                            an, bool(self.cfg.get("ilerleme_cubugu", False)), duzen)
+                                            an, bool(self.cfg.get("ilerleme_cubugu", False)), duzen, dram)
             finally:
                 ass.unlink(missing_ok=True)
             if not await asyncio.to_thread(video_saglam_mi, mp4):

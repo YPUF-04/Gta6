@@ -279,8 +279,10 @@ def _yakinlas(genislik: int, yukseklik: int, an: float | None, sure: float | Non
 
 def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: Path | None,
                 zoom: float = 1.3, facecam: tuple[float, float, float, float] | None = None,
-                an: float | None = None, cubuk: bool = False, duzen: str = "yuz") -> Path:
-    """facecam (0-1 arası x,y,w,h) verilirse: üstte yayıncının kamerası, altta oyun.
+                an: float | None = None, cubuk: bool = False, duzen: str = "yuz", dram: bool = False) -> Path:
+    """dram: olayın anında "dramatik" geçiş — görüntü siyah-beyaza döner ve alttan uğursuz, uzayan bir ton
+    girer (viral "olaylar kötüye gidiyor" editleri gibi). Müzik telifli değil: ses burada üretilir.
+    facecam (0-1 arası x,y,w,h) verilirse: üstte yayıncının kamerası, altta oyun.
     an: klipte chat'in patladığı saniye (o anda kısa yakınlaşma). cubuk: altta ilerleme çubuğu."""
     if duzen == "pov":   # oyun tam ekran, kamera yok
         filtre = (f"[0:v]setpts=PTS-STARTPTS,crop=min(iw\\,ih*{W}/{H}):ih:(iw-min(iw\\,ih*{W}/{H}))/2:0,"
@@ -351,18 +353,41 @@ def dikey_video(kaynak: Path, baslangic: float, sure: float, cikti: Path, ass: P
                    f"[v0][bar]overlay=x='-w+w*t/{max(sure, 0.1):.2f}':y=H-{kalin}:shortest=1[v1]")
     else:
         filtre += ";[v0]null[v1]"
+    dram = bool(dram and an is not None and 1.0 <= an <= sure - 2.0)
+    if dram:
+        a0 = an + 0.15
+        # görüntü: olaydan hemen sonra ~0.3 sn içinde renk çekilir, siyah-beyaz kalır
+        filtre += (f";[v1]hue=s='if(lt(t\\,{a0:.2f})\\,1\\,max(0\\,1-(t-{a0:.2f})*3.5))'[v1d]")
+        vgir = "[v1d]"
+    else:
+        vgir = "[v1]"
     if ass is not None:
-        filtre += (f";[v1]ass={ass.name},fade=t=out:st={max(0.0, sure - 0.3):.2f}:d=0.3[v]")   # cwd=ass klasörü
+        filtre += (f";{vgir}ass={ass.name},fade=t=out:st={max(0.0, sure - 0.3):.2f}:d=0.3[v]")   # cwd=ass klasörü
         son = "[v]"
     else:
-        son = "[v1]"
+        son = vgir
+    ses_son = f"afade=t=in:d=0.05,afade=t=out:st={max(0.0, sure - 0.35):.2f}:d=0.35"
+    if dram:
+        a0 = an + 0.15
+        # uğursuz ton: 220 Hz (+110 / 330 Hz) hafif titreşimli, olayda 0.25 sn'de girer, sona kadar sürer
+        filtre += (
+            f";[0:a]asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,"
+            f"loudnorm=I=-15:TP=-2:LRA=11,"
+            f"volume='if(lt(t\\,{a0:.2f})\\,1\\,0.8)':eval=frame[oa];"
+            f"aevalsrc='(0.16*sin(2*PI*220*t)+0.09*sin(2*PI*110*t)+0.05*sin(2*PI*330*t))"
+            f"*(0.8+0.2*sin(2*PI*4.5*t))':s=48000:c=stereo:d={sure + 0.5:.2f},"
+            f"volume='if(lt(t\\,{a0:.2f})\\,0\\,min(1\\,(t-{a0:.2f})/0.25))':eval=frame[ton];"
+            f"[oa][ton]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.9,{ses_son}[ao]")
+        ses_harita, ses_af = "[ao]", []
+    else:
+        ses_harita = "0:a:0?"
+        ses_af = ["-af", f"asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11,{ses_son}"]
     cmd = [arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error",
            "-ss", f"{baslangic:.2f}", "-t", f"{sure:.2f}", "-i", str(Path(kaynak).resolve()),
-           "-filter_complex", filtre, "-map", son, "-map", "0:a:0?",
+           "-filter_complex", filtre, "-map", son, "-map", ses_harita,
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-maxrate", "6M", "-bufsize", "12M",
            "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
-           "-af", f"asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=11,afade=t=in:d=0.05,"
-                  f"afade=t=out:st={max(0.0, sure - 0.35):.2f}:d=0.35", "-t", f"{sure:.2f}",
+           *ses_af, "-t", f"{sure:.2f}",
            "-movflags", "+faststart", str(Path(cikti).resolve())]
     subprocess.run(cmd, check=True, cwd=str(ass.parent) if ass else None, creationflags=_PENCERESIZ)
     return cikti

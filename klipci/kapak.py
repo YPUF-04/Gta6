@@ -72,6 +72,9 @@ def kapak_yap(video: Path, cikti: Path, baslik: str, an: float, sure: float, eti
     golge = np.clip((gecis - 0.35) / 0.4, 0, 1) ** 1.2 * 0.78
     img = (img * (1 - golge)).astype(np.uint8)
     baslik = (baslik or "").strip().strip("“”\"")
+    from .aciklama import KABA
+    if any(x in baslik.lower().replace("i̇", "i") for x in KABA):   # küfürlü söz kapağa yazılmaz (erişimi düşürür)
+        baslik = ""
     buyuk = baslik.replace("i", "İ").replace("ı", "I").upper() if dil == "tr" else baslik.upper()
     satirlar = textwrap.wrap(buyuk, width=16)[:3] if baslik else []
     if pil:
@@ -102,11 +105,11 @@ def _yazi_pil(img: np.ndarray, satirlar: list[str], etiket: str) -> np.ndarray:
     boy = 112 if all(len(s) <= 12 for s in satirlar) else 94
     f = _font(boy)
     blok = len(satirlar) * (boy + 16)
-    y = int(H * 0.60 - blok / 2)
+    y = int(H * 0.68 - blok / 2)   # orta bandın (yarim düzeni, 820-950 px) altında kalsın
     # etiket: başlığın hemen üstünde, ortada, mor kutu
     fe = _font(46)
     g = d.textlength(etiket, font=fe)
-    ey = y - 100 if satirlar else int(H * 0.60)
+    ey = y - 100 if satirlar else int(H * 0.68)
     d.rounded_rectangle(((W - g) / 2 - 26, ey, (W + g) / 2 + 26, ey + 72), radius=20, fill=(228, 63, 124)[::-1])
     d.text(((W - g) / 2, ey + 8), etiket, font=fe, fill=(255, 255, 255))
     for s in satirlar:
@@ -116,8 +119,13 @@ def _yazi_pil(img: np.ndarray, satirlar: list[str], etiket: str) -> np.ndarray:
     return np.array(im)[:, :, ::-1].copy()
 
 
+_ASCII = str.maketrans("İIıŞşĞğÜüÖöÇç", "IIiSsGgUuOoCc")
+
+
 def _yazi_cv2(img: np.ndarray, satirlar: list[str], etiket: str) -> np.ndarray:
+    """Yedek (Pillow yoksa): OpenCV Türkçe harf çizemez ('?' basar) → harfleri en yakın Latin harfe çevir."""
     import cv2
+    satirlar = [s.translate(_ASCII) for s in satirlar]
     y = H - 330 - (len(satirlar) - 1) * 110
     for s in satirlar:
         (g, _), _ = cv2.getTextSize(s, cv2.FONT_HERSHEY_DUPLEX, 2.8, 8)

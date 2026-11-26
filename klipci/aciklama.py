@@ -47,7 +47,8 @@ ETIKET = {
 }
 PLATFORM_ETIKET = {"twitch": "#twitchclips", "kick": "#kickclips", "youtube": "#youtubegaming"}
 # alıntı yapılmayacak kelimeler (hakaret / nefret)
-KABA = ("nigg", "fagg", "retard", "orospu", "amk", "sik", "piç", "yarrak", "kahpe", "fuck", "bitch", "whore", "cunt")
+KABA = ("nigg", "fagg", "retard", "orospu", "rosp", "orspu", "amk", "amına", "amina", "aminako", "sik", "piç", "pic ",
+        "yarra", "kahpe", "gavat", "pezevenk", "ibne", "göt", "siktir", "fuck", "bitch", "whore", "cunt", "slut")
 
 
 def tr_ek(ad: str, ek: str) -> str:
