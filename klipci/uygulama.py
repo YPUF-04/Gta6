@@ -995,8 +995,8 @@ class Uygulama:
         # izlenme süresi: kısa ve dolu klipler sonuna kadar izlenir (algoritmanın en önemli sinyali)
         # en fazla ~58 sn: Facebook 60 sn'yi geçen videoyu Reels değil normal GÖNDERİ yapıyor
         # (YouTube Shorts ve Instagram Reels için de en güvenli süre)
-        if son - bas > 56:   # uzun olabilir; boş kuyruk zaten tepki sönünce kesiliyor
-            son = bas + 56
+        if son - bas > 45:   # kısa ve dolu = sonuna kadar izlenir (Shorts/Reels'in en önemli sinyali)
+            son = bas + 45
             for b, e, _ in segler:
                 if b < son < e and e - son <= 2:
                     son = e + 0.3
@@ -1485,8 +1485,14 @@ class Uygulama:
                 log.warning("çıkan video boş/bozuk, atlandı: %s", hid)
                 shutil.rmtree(klasor, ignore_errors=True)
                 continue
+            # ilk saniye kancası: olay 3. sn'den sonraysa, en çarpıcı an videonun başında bir kez gösterilir
+            ek = 0.0
+            if self.cfg.get("ilk_saniye_kancasi", True) and is_.an >= 3.0 and is_.sure - is_.an >= 1.5:
+                from .kurgu import on_izleme
+                ek = await asyncio.to_thread(on_izleme, mp4, is_.an)
             soz = (veri.get("aciklama") or "") if (veri.get("aciklama") or "").startswith("“") else ""
-            await asyncio.to_thread(self._kapak, mp4, soz or is_.kanal.gorunen, is_.an, is_.sure, "GTA 6", dil)
+            await asyncio.to_thread(self._kapak, mp4, soz or is_.kanal.gorunen, is_.an + ek, is_.sure + ek,
+                                    "GTA 6", dil)
             metin = paylasim_metni(veri, is_.kanal, dil)
             # en çok izlenen GTA 6 Shorts'larındaki popüler etiket (GTA ile ilgili olan) açıklamaya eklenir
             tr_et = [e for e in self.trend.populer_etiketler(6) if "gta" in e and e not in veri.get("hashtagler", [])]
@@ -2519,7 +2525,8 @@ class Uygulama:
             log.debug("kapak yapılamadı: %r", e)
 
     # platform başına günlük paylaşım sınırı (araştırma: Reels günde 1-3, Shorts'ta günün 2.'si sonrası düşer)
-    GUNLUK_SINIR = {"instagram": 3, "facebook": 4, "threads": 3, "youtube": 2}
+    # büyümek için daha sık paylaşım (API'lerin izin verdiği güvenli sınırlar: IG 50/gün, YouTube ~6/gün kota)
+    GUNLUK_SINIR = {"instagram": 6, "facebook": 6, "threads": 5, "youtube": 5}
 
     def _platform_sinir(self, plat: str) -> int:
         ayar = self._durum_oku().get("gunluk_sinir") or self.cfg.get("gunluk_sinir") or {}

@@ -449,6 +449,36 @@ def ses_cikar(kaynak: Path, baslangic: float, sure: float, cikti: Path) -> Path:
     return cikti
 
 
+def on_izleme(video: Path, an: float, uzun: float = 1.3) -> float:
+    """İLK SANİYE KANCASI: olayın en çarpıcı ~1.3 sn'si videonun en başında bir kez gösterilir, ardından
+    video baştan (olayın öncesinden) başlar. İzleyici ilk saniyede "ne olacak?" der ve kaydırmaz —
+    kısa videoda izlenme süresini en çok artıran numara. Geçişte kısa beyaz flaş. Dönüş: eklenen saniye."""
+    video = Path(video)
+    bas = max(0.0, an - 0.25)
+    gecici = video.with_name(video.stem + "_kanca.mp4")
+    try:
+        subprocess.run(
+            [arac("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", "-i", str(video.resolve()),
+             "-filter_complex",
+             f"[0:v]trim={bas:.2f}:{bas + uzun:.2f},setpts=PTS-STARTPTS[tv];"
+             f"[0:a]atrim={bas:.2f}:{bas + uzun:.2f},asetpts=PTS-STARTPTS,afade=t=out:st={uzun - 0.12:.2f}:d=0.12[ta];"
+             f"[0:v]setpts=PTS-STARTPTS,fade=t=in:st=0:d=0.18:color=white[av];"
+             f"[0:a]asetpts=PTS-STARTPTS[aa];"
+             f"[tv][ta][av][aa]concat=n=2:v=1:a=1[v][a]",
+             "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+             "-maxrate", "6M", "-bufsize", "12M", "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+             "-movflags", "+faststart", str(gecici.resolve())],
+            check=True, creationflags=_PENCERESIZ, timeout=600)
+        if gecici.stat().st_size < 10000:
+            raise RuntimeError("çıktı boş")
+        gecici.replace(video)
+        return uzun
+    except Exception as e:  # noqa: BLE001
+        log.warning("ilk saniye kancası eklenemedi: %r", e)
+        gecici.unlink(missing_ok=True)
+        return 0.0
+
+
 def facebook_kopya(kaynak: Path) -> Path:
     """Facebook'un Reels kurallarına birebir uyan kopya. Uymazsa Facebook videoyu Reels değil normal GÖNDERİ
     yapıyor. Kurallar: 9:16 1080x1920, sabit 30 fps, 2 sn'de bir kapalı anahtar kare (GOP), H.264 + yuv420p,

@@ -113,7 +113,7 @@ def test_klip_en_fazla_60_sn(tmp_path):
     chat = [(10 + i * 0.25, "a", "KEKW") for i in range(320)]     # chat 80 sn boyunca gülüyor
     is_ = Is(kesif.Kanal("kick", "x"), Spike(0, 0, 1, 1), tmp_path / "a.ts", 0, 90, chat, False, 12.0, "x")
     bas, son = Uygulama._akilli_aralik(is_, [])
-    assert bas == 6.0 and 55 <= son - bas <= 60.5
+    assert bas == 6.0 and 44 <= son - bas <= 46
 
 
 def test_spam_ve_hep_gulen_chat_puani_sisirmez(tmp_path):

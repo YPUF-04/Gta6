@@ -444,9 +444,9 @@ def test_gunluk_platform_siniri(tmp_path, monkeypatch):
     d = u._durum_oku()
     d["ig_token"] = {"EN": "T"}
     u._durum_yaz(d)
-    sonuc = [u._otomatik_paylas("EN", tmp_path / "a.mp4", {}) for _ in range(4)]
-    assert cagri == [True, True, True, False]          # günde en fazla 3 Instagram
-    assert sonuc[3]["instagram"].startswith("SINIR")
+    sonuc = [u._otomatik_paylas("EN", tmp_path / "a.mp4", {}) for _ in range(7)]
+    assert cagri == [True] * 6 + [False]                # günde en fazla 6 Instagram
+    assert sonuc[6]["instagram"].startswith("SINIR")
 
 
 
