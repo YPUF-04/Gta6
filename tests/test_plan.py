@@ -20,7 +20,7 @@ def _klip(kok, hesap, ad, puan):
     k = kok / "hazir" / hesap / ad
     k.mkdir(parents=True)
     (k / f"{ad}.mp4").write_bytes(b"x")
-    (k / "bilgi.json").write_text(json.dumps({"puan": puan}))
+    (k / "bilgi.json").write_text(json.dumps({"puan": puan, "surum": "t", "sure": 30}))
 
 
 def test_plan_en_iyileri_secer(tmp_path):
@@ -51,7 +51,7 @@ def test_tam_otomatik_en_iyiyi_secer(tmp_path, monkeypatch):
         k = (u.klasor / yer / ad) if yer == "bekleyen" else (u.klasor / "hazir" / "EN" / ad)
         k.mkdir(parents=True)
         (k / "a.mp4").write_bytes(b"x")
-        (k / "bilgi.json").write_text(json.dumps({"puan": puan}))
+        (k / "bilgi.json").write_text(json.dumps({"puan": puan, "surum": "t", "sure": 30}))
     klip("bekleyen", "20261122_100000_kai_EN", 9.1)      # onaylanmamış ama çok iyi
     klip("hazir", "20261122_100100_xqc_EN", 8.0)         # senin ✅ bastığın (+0.5 = 8.5)
     klip("bekleyen", "20261122_100200_abc_EN", 6.0)      # 7'nin altı: asla
@@ -99,9 +99,23 @@ def test_en_guzel_secim_ayni_yayinciyi_art_arda_vermez(tmp_path, monkeypatch):
         k = u.klasor / "bekleyen" / ad
         k.mkdir(parents=True)
         (k / "a.mp4").write_bytes(b"x")
-        (k / "bilgi.json").write_text(json.dumps({"puan": puan}))
+        (k / "bilgi.json").write_text(json.dumps({"puan": puan, "surum": "t", "sure": 30}))
     assert u._en_iyi_aday("EN") == "20261122_100000_kai_EN"
     gun = datetime.now().date().isoformat()
     u.plan.ekle(datetime.now().date(), "EN", "20261122_090000_kai_EN", "09:00", "gonderildi")
     hid, neden = u._en_iyi_aday("EN", True)
     assert hid == "20261122_100100_xqc_EN" and gun
+
+
+def test_eski_surum_ve_kisa_klip_secilmez(tmp_path, monkeypatch):
+    import json
+    from tests.test_komut import _app
+    u = _app(tmp_path, monkeypatch)
+    for ad, b in (("20261122_100000_eski_EN", {"puan": 9.5}),
+                  ("20261122_100100_kisa_EN", {"puan": 9.4, "surum": "x", "sure": 13.9}),
+                  ("20261122_100200_iyi_EN", {"puan": 8.0, "surum": "x", "sure": 30})):
+        k = u.klasor / "bekleyen" / ad
+        k.mkdir(parents=True)
+        (k / "a.mp4").write_bytes(b"x")
+        (k / "bilgi.json").write_text(json.dumps(b))
+    assert u._en_iyi_aday("EN") == "20261122_100200_iyi_EN"

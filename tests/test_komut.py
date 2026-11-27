@@ -481,7 +481,7 @@ def test_bayildim_ogrenir_ve_one_alir(tmp_path, monkeypatch):
         k = u.klasor / "bekleyen" / kid
         k.mkdir(parents=True)
         (k / "a.mp4").write_bytes(b"x")
-        (k / "bilgi.json").write_text(json.dumps({"puan": puan}))
+        (k / "bilgi.json").write_text(json.dumps({"puan": puan, "surum": "t", "sure": 30}))
         u.ogrenci.puanla(kid, y, {"chat": 0.9, "tepki": 0.8, "ses": 0.7, "aksiyon": 0.2, "konusma": 0.3, "yuz": 0.0,
                                   "yz": 0.5})
     giden = []

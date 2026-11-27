@@ -451,6 +451,10 @@ class Uygulama:
             p = float(b.get("puan", 0))
             if p < en_az:
                 continue
+            # eski sürümlerin yaptığı klipler (mor altyazı, yarım/kısa, ara sahne...) artık paylaşılmaz;
+            # 15 sn'den kısa klip de yarım gibi durur
+            if not b.get("surum") or float(b.get("sure", 99)) < 15:
+                continue
             kayit = self.ogrenci.kayitlar.get(k.name) or {}
             karar = kayit.get("karar")
             if karar == "sil":
@@ -1461,6 +1465,7 @@ class Uygulama:
             (klasor / "bilgi.json").write_text(json.dumps({
                 "kanal": is_.kanal.anahtar, "yayinci": is_.kanal.gorunen, "platform": is_.kanal.platform,
                 "hesap": ad, "dil": dil, "puan": skor, "neden": neden, "ozellikler": oz,
+                "surum": SURUM, "sure": round(is_.sure, 1),
                 "facecam": bool(facecam), "chat_kat": round(is_.spike.kat, 1), "kelimeler": is_.spike.kelimeler,
                 "transkript": [t for _, _, t in segler],
                 "altyazi_notu": "; ".join(dict.fromkeys(alt_not)) or (f"{len(alt)} satır altyazı" if alt else "")}, ensure_ascii=False, indent=1), encoding="utf-8")
