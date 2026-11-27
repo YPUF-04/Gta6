@@ -119,3 +119,27 @@ def test_eski_surum_ve_kisa_klip_secilmez(tmp_path, monkeypatch):
         (k / "a.mp4").write_bytes(b"x")
         (k / "bilgi.json").write_text(json.dumps(b))
     assert u._en_iyi_aday("EN") == "20261122_100200_iyi_EN"
+
+
+def test_trend_yayinci_puani_ve_etiketler(tmp_path):
+    import httpx
+    from klipci.trend import Trend
+
+    def cevap(req):
+        if req.url.path.endswith("/search"):
+            return httpx.Response(200, json={"items": [{"id": {"videoId": "a"}}, {"id": {"videoId": "b"}}]})
+        return httpx.Response(200, json={"items": [
+            {"id": "a", "snippet": {"title": "Kai Cenat loses it in GTA 6 #gta6 #kaicenat", "channelTitle": "Clips",
+                                    "description": "", "tags": []},
+             "statistics": {"viewCount": "2500000"}, "contentDetails": {"duration": "PT34S"}},
+            {"id": "b", "snippet": {"title": "cooking video", "channelTitle": "x", "description": ""},
+             "statistics": {"viewCount": "9"}, "contentDetails": {"duration": "PT20S"}}]})
+    t = Trend(tmp_path / "trend.json")
+    assert t.eski_mi()
+    n = t.guncelle("tok", sorgular=("GTA 6",), http=httpx.Client(transport=httpx.MockTransport(cevap)))
+    assert n == 1 and not t.eski_mi()
+    assert t.yayinci_puani("kaicenat", "Kai Cenat") == 1.0
+    assert t.yayinci_puani("xqc") == 0.0
+    assert "#gta6" in t.populer_etiketler()
+    assert "34 sn" in t.ozet(["kaicenat"])
+    assert Trend(tmp_path / "trend.json").videolar   # diske yazıldı

@@ -91,6 +91,8 @@ class Uygulama:
         self.bot2: Bot | None = None
         from .performans import Performans
         self.performans = Performans(self.klasor / "istatistik.json")
+        from .trend import Trend
+        self.trend = Trend(self.kok / "trend.json")
         self._bot2_kur(tg.get("paylasim_bot_token") or durum.get("bot2_token", ""))
         self.yazar = Yazar(cfg.get("anthropic_api_key", ""), cfg.get("claude_model", "claude-opus-5-5"))
         a = cfg.get("altyazi") or {}
@@ -315,7 +317,8 @@ class Uygulama:
                 continue
             log.info("%s: %d %s yayını bulundu", ad, len(r), OYUN.kisa)
             out += r
-        out.sort(key=lambda x: -x[1])
+        # YouTube Shorts'larda klipleri patlayan yayıncılar öne (izleyici sayısı x 1.5'e kadar)
+        out.sort(key=lambda x: -x[1] * (1 + 0.5 * min(1.0, self.trend.yayinci_puani(x[0].ad, x[0].gorunen))))
         self.son_bulunan, self.son_tarama = out, time.time()
         return out
 
@@ -475,6 +478,10 @@ class Uygulama:
                 notlar.append(f"{yay} bu hesapta x{c:.2f}")
             fav = (self._durum_oku().get("favori") or {}).get(yay, 0)
             p *= min(1.2, 1 + 0.05 * fav)                     # 😍 bastığın yayıncılar öne
+            tp = self.trend.yayinci_puani(yay, str(b.get("yayinci") or ""))
+            if tp > 0:                                        # Shorts'larda şu an patlayan yayıncı
+                p += min(0.6, 0.3 * tp)
+                notlar.append(f"trend yayıncı +{min(0.6, 0.3 * tp):.1f}")
             if kayit.get("bayildi"):
                 p += 2.0                                      # 😍 bastığın klip ilk gider
                 notlar.append("😍")
@@ -524,6 +531,32 @@ class Uygulama:
         """Gerçekte uygulanan sınır: bilgisayar kaldıramıyorsa otomatik düşürülür (saglik_ayari)."""
         ust = self._ust_sinir()
         return min(ust, self.etkin_sinir) if self.etkin_sinir else ust
+
+    async def _trend_guncelle(self) -> bool:
+        """Bağlı bir YouTube hesabının anahtarıyla en çok izlenen GTA 6 Shorts'larını çek."""
+        from . import paylas
+        for h in self._hesaplar(hepsi=True):
+            yt = paylas.YouTube(self._yt_istemci(h["ad"]), self.kok / "youtube" / f"{h['ad']}.json")
+            if not yt.bagli_mi():
+                continue
+            try:
+                n = await asyncio.to_thread(lambda: self.trend.guncelle(yt._erisim()))
+                log.info("📈 YouTube trendleri güncellendi: %d popüler GTA 6 Shorts incelendi", n)
+                return True
+            except Exception as e:  # noqa: BLE001
+                log.warning("YouTube trendleri alınamadı (%s): %r", h["ad"], e)
+        return False
+
+    async def trend_dongu(self) -> None:
+        """12 saatte bir YouTube'daki popüler GTA 6 Shorts'larından öğren (hangi yayıncı/tarz tutuyor)."""
+        await asyncio.sleep(90)
+        while True:
+            try:
+                if self.trend.eski_mi(12):
+                    await self._trend_guncelle()
+            except Exception:  # noqa: BLE001
+                log.exception("trend hatası")
+            await asyncio.sleep(1800)
 
     async def saglik_ayari(self) -> None:
         """Her 2 dk: kayıtların ne kadarı akıyor? Çoğu takılıyorsa izlenen yayın sayısını düşür,
@@ -1455,6 +1488,10 @@ class Uygulama:
             soz = (veri.get("aciklama") or "") if (veri.get("aciklama") or "").startswith("“") else ""
             await asyncio.to_thread(self._kapak, mp4, soz or is_.kanal.gorunen, is_.an, is_.sure, "GTA 6", dil)
             metin = paylasim_metni(veri, is_.kanal, dil)
+            # en çok izlenen GTA 6 Shorts'larındaki popüler etiket (GTA ile ilgili olan) açıklamaya eklenir
+            tr_et = [e for e in self.trend.populer_etiketler(6) if "gta" in e and e not in veri.get("hashtagler", [])]
+            if tr_et and veri.get("hashtagler"):
+                veri["hashtagler"] = veri["hashtagler"][:3] + tr_et[:1] + veri["hashtagler"][3:]
             pm = platform_metinleri(veri, is_.kanal, dil)
             (klasor / "aciklama.txt").write_text(
                 f"INSTAGRAM:\n{pm['instagram']}\n\nTIKTOK:\n{pm['tiktok']}\n\n"
@@ -1766,6 +1803,12 @@ class Uygulama:
         if komut in ("/performans", "/izlenme"):
             await asyncio.to_thread(self.performans.guncelle, self._istatistik_cek)
             return self.performans.rapor()
+        if komut in ("/trend", "/trendler"):
+            if self.trend.eski_mi(1):
+                await self._trend_guncelle()
+            adlar = list({iz.kanal.gorunen or iz.kanal.ad for iz in self.izleyiciler.values()})
+            adlar += [planmod.yayinci_adi(x.name) for x in (self.klasor / "bekleyen").glob("*")][:50]
+            return self.trend.ozet(list(dict.fromkeys(adlar)))
         if komut in ("/bagla", "/bağla"):
             return await self._bagla(arg)
         if komut in ("/paylasim", "/paylaşım", "/otomatik"):
@@ -2962,6 +3005,7 @@ class Uygulama:
         gorevler.append(asyncio.create_task(self.planci()))
         gorevler.append(asyncio.create_task(self.hiz_ayari()))
         gorevler.append(asyncio.create_task(self.saglik_ayari()))
+        gorevler.append(asyncio.create_task(self.trend_dongu()))
         try:
             await self.bot.komut_menusu()
         except Exception:  # noqa: BLE001
