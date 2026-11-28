@@ -80,18 +80,35 @@ class Trend:
                     "izlenme": int(st.get("viewCount", 0)), "sure": _sure_sn((v.get("contentDetails") or {}).get("duration", "")),
                 })
         videolar.sort(key=lambda v: -v["izlenme"])
-        self.veri = {"t": time.time(), "videolar": videolar[:100]}
+        self.veri = {**self.veri, "t": time.time(), "videolar": videolar[:100]}
+        self._kaydet()
+        return len(videolar)
+
+    def _kaydet(self) -> None:
         self.yol.parent.mkdir(parents=True, exist_ok=True)
         self.yol.write_text(json.dumps(self.veri, ensure_ascii=False, indent=1), encoding="utf-8")
-        return len(videolar)
+
+    def yorumlardan_istek(self, yorumlar: list[str], adaylar: list[str]) -> dict[str, int]:
+        """İzleyicilerin yorumlarda istediği yayıncılar ("eray yap", "more kai cenat", "jynxzi pls").
+        Bilinen yayıncı adları içinde geçenler sayılır; son 7 günün sayısı saklanır."""
+        say: dict[str, int] = {}
+        temiz = [_sade(y) for y in yorumlar]
+        for ad in dict.fromkeys(a for a in adaylar if a and len(_sade(a)) >= 4):
+            n = sum(1 for y in temiz if _sade(ad) in y)
+            if n:
+                say[ad.lower()] = n
+        self.veri["istek"] = say
+        self.veri["istek_t"] = time.time()
+        self._kaydet()
+        return say
 
     def yayinci_puani(self, *adlar: str) -> float:
         """Bu yayıncının adı popüler GTA 6 Shorts'larında ne kadar geçiyor? (0 = hiç, 3'e kadar)
-        İzlenmeye göre ağırlıklı: 1M izlenen video 1 puan."""
+        İzlenmeye göre ağırlıklı: 1M izlenen video 1 puan. İzleyicilerimizin yorumda istediği yayıncı da +."""
         anahtarlar = {_sade(a) for a in adlar if a and len(_sade(a)) >= 4}
         if not anahtarlar:
             return 0.0
-        p = 0.0
+        p = sum(0.5 * n for ad, n in (self.veri.get("istek") or {}).items() if _sade(ad) in anahtarlar)
         for v in self.videolar:
             metin = _sade(f"{v['baslik']} {v['kanal']} {v['aciklama']} {' '.join(v['etiket'])}")
             if any(a in metin for a in anahtarlar):
@@ -120,6 +137,10 @@ class Trend:
         et = self.populer_etiketler(6)
         if et:
             satir += ["", "🏷 En çok kullanılan etiketler: " + " ".join(et)]
+        ist = self.veri.get("istek") or {}
+        if ist:
+            satir += ["", "💬 Yorumlarda istenen yayıncılar: " + ", ".join(f"{a} ({n})" for a, n in
+                                                                        sorted(ist.items(), key=lambda x: -x[1])[:6])]
         if yayincilar:
             sicak = sorted(((self.yayinci_puani(a), a) for a in yayincilar), reverse=True)
             sicak = [f"{a} ({p:.1f})" for p, a in sicak if p > 0][:6]

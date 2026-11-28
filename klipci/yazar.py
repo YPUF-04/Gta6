@@ -190,11 +190,13 @@ def platform_metinleri(veri: dict, kanal, dil: str) -> dict:
     if baglam:   # profesyonel düzen: söz / kanca, bağlam, kaynak, etiketler
         tum = [t if t.startswith("#") else "#" + t for t in veri.get("hashtagler", [])][:5]
         kaynak = f"🎮 {kanal.gorunen} · {kanal.platform.capitalize()}"
+        soru = (veri.get("soru") or "").strip()
+        s2 = f"\n\n{soru}" if soru else ""
         return {
-            "instagram": f"{cumle}\n{baglam}\n\n{kaynak}\n\n{' '.join(tum)}",
-            "tiktok": f"{cumle} {' '.join(tum[:4])}",
+            "instagram": f"{cumle}\n{baglam}{s2}\n\n{kaynak}\n\n{' '.join(tum)}",
+            "tiktok": f"{cumle} {soru} {' '.join(tum[:4])}".replace("  ", " "),
             "youtube_baslik": f"{yt_baslik} #shorts",
-            "youtube_aciklama": f"{cumle}\n{baglam}\n\n{kaynak} — {kanal.kredi}\n\n{' '.join(tum)} #shorts",
+            "youtube_aciklama": f"{cumle}\n{baglam}{s2}\n\n{kaynak} — {kanal.kredi}\n\n{' '.join(tum)} #shorts",
         }
     return {
         "instagram": f"{cumle} {' '.join(tags)}\n\n{kredi}".strip(),

@@ -143,3 +143,23 @@ def test_trend_yayinci_puani_ve_etiketler(tmp_path):
     assert "#gta6" in t.populer_etiketler()
     assert "34 sn" in t.ozet(["kaicenat"])
     assert Trend(tmp_path / "trend.json").videolar   # diske yazıldı
+
+
+def test_yorum_istekleri_puani_artirir(tmp_path):
+    from klipci.trend import Trend
+    t = Trend(tmp_path / "trend.json")
+    say = t.yorumlardan_istek(["Eray yap lütfen", "more ERAY", "kai cenat pls", "güzel"], ["Eray", "Kai Cenat", "xqc"])
+    assert say == {"eray": 2, "kai cenat": 1}
+    assert t.yayinci_puani("eray") == 1.0
+    t.veri["videolar"] = [{"baslik": "x", "kanal": "y", "aciklama": "", "etiket": [], "izlenme": 5, "sure": 30}]
+    assert "Yorumlarda istenen" in t.ozet()
+
+
+def test_aciklamada_etkilesim_sorusu_var():
+    from klipci import aciklama
+    from klipci.kesif import Kanal
+    from klipci.yazar import platform_metinleri
+    v = aciklama.yaz("tr", "Eray", "kick", [], 5.0, "komik", "x")
+    assert v["soru"] in aciklama.SORU["tr"]
+    pm = platform_metinleri(v, Kanal("kick", "eray", "Eray"), "tr")
+    assert v["soru"] in pm["instagram"]

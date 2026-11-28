@@ -41,6 +41,14 @@ BAGLAM = {
                    "The standout moment of the stream."],
            "chat": ["The moment everyone was talking about.", "One of today's standout GTA 6 moments."]},
 }
+# Etkileşim cümlesi: olay uydurmaz, izleyiciyi PAYLAŞMAYA (DM ile göndermeye) ve yorum yazmaya çağırır.
+# Instagram'ın 1 numaralı sinyali "sends per reach" (birine gönderilme), YouTube'da yorum/etkileşim.
+SORU = {
+    "tr": ["Bunu kime atardın? 😂👇", "Part 2 gelsin mi? 👇", "Sen olsan ne yapardın? 👇",
+           "GTA 6 oynayan arkadaşına gönder 😂", "Hangi yayıncıyı görmek istersin? Yorumlara yaz 👇"],
+    "en": ["Send this to someone who plays GTA 6 😂", "Part 2? 👇", "What would you have done? 👇",
+           "Tag someone who needs to see this 😂", "Which streamer should we clip next? 👇"],
+}
 ETIKET = {
     "tr": ["#gta6", "#gtavi", "#gta6türkiye", "#oyun"],
     "en": ["#gta6", "#gtavi", "#gaming", "#gtaclips"],
@@ -127,6 +135,7 @@ def yaz(dil: str, yayinci: str, platform: str, segler: list[tuple[float, float, 
         "baslik": soz if soz and len(soz) <= 48 else "",
         "aciklama": ana,
         "baglam": baglam,
+        "soru": rnd.choice(SORU[dil]),
         "youtube_baslik": yt,
         "hashtagler": list(dict.fromkeys(etiketler)),
     }

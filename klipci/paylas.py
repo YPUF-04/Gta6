@@ -497,6 +497,14 @@ class YouTube:
         it = (j.get("items") or [{}])[0]
         return (it.get("snippet") or {}).get("title", "") or "bağlı"
 
+    def yorumlar(self, video_id: str, adet: int = 50) -> list[str]:
+        j = _json(self.http.get("https://www.googleapis.com/youtube/v3/commentThreads",
+                                params={"part": "snippet", "videoId": video_id, "maxResults": adet,
+                                        "textFormat": "plainText", "order": "relevance"},
+                                headers={"Authorization": f"Bearer {self._erisim()}"}))
+        return [((x.get("snippet") or {}).get("topLevelComment") or {}).get("snippet", {}).get("textDisplay", "")
+                for x in j.get("items") or []]
+
     def istatistik(self, video_id: str) -> dict:
         j = _json(self.http.get("https://www.googleapis.com/youtube/v3/videos",
                                 params={"part": "statistics", "id": video_id},

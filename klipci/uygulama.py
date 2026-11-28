@@ -547,6 +547,32 @@ class Uygulama:
                 log.warning("YouTube trendleri alınamadı (%s): %r", h["ad"], e)
         return False
 
+    def _yorum_istekleri(self) -> dict:
+        """Son 7 günde YouTube'a yüklediğimiz Shorts'ların yorumlarında hangi yayıncılar isteniyor?"""
+        from . import paylas
+        yorumlar: list[str] = []
+        kayit = self.performans._oku()
+        for hid, r in kayit.items():
+            vid = (r.get("kimlik") or {}).get("youtube")
+            if not vid or time.time() - r.get("t", 0) > 7 * 86400:
+                continue
+            yt = paylas.YouTube(self._yt_istemci(r.get("hesap", "")), self.kok / "youtube" / f"{r.get('hesap', '')}.json")
+            if not yt.bagli_mi():
+                continue
+            try:
+                yorumlar += yt.yorumlar(str(vid))
+            except Exception as e:  # noqa: BLE001
+                log.debug("yorumlar alınamadı (%s): %r", vid, e)
+        if not yorumlar:
+            return {}
+        adaylar = [k.gorunen or k.ad for k, _ in (self.son_bulunan or [])]
+        adaylar += [k.ad for k, _ in (self.son_bulunan or [])]
+        adaylar += [str(r.get("yayinci") or "") for r in kayit.values()]
+        say = self.trend.yorumlardan_istek(yorumlar, adaylar)
+        if say:
+            log.info("💬 yorumlarda istenen yayıncılar: %s", say)
+        return say
+
     async def trend_dongu(self) -> None:
         """12 saatte bir YouTube'daki popüler GTA 6 Shorts'larından öğren (hangi yayıncı/tarz tutuyor)."""
         await asyncio.sleep(90)
@@ -554,6 +580,7 @@ class Uygulama:
             try:
                 if self.trend.eski_mi(12):
                     await self._trend_guncelle()
+                    await asyncio.to_thread(self._yorum_istekleri)
             except Exception:  # noqa: BLE001
                 log.exception("trend hatası")
             await asyncio.sleep(1800)
