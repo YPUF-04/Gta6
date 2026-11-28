@@ -573,6 +573,76 @@ class Uygulama:
             log.info("💬 yorumlarda istenen yayıncılar: %s", say)
         return say
 
+    async def izleyici_klip_dongu(self) -> None:
+        """30 dk'da bir: Kick/Twitch'te izleyicilerin son 24 saatte kestiği en çok izlenen GTA 6 klipleri.
+        Yeni olanları indirip normal klip gibi işle (bizim edit + bütün filtreler)."""
+        from .izleyici_klip import indir, kick_klipleri, twitch_klipleri
+        from .kayit import sure_olc
+        from .spike import Spike
+        await asyncio.sleep(180)
+        while True:
+            try:
+                if self.cfg.get("izleyici_klipleri", True) and not self.duraklat and self.kuyruk.qsize() < 6:
+                    await self._izleyici_klip_tara(indir, kick_klipleri, twitch_klipleri, sure_olc, Spike)
+            except Exception:  # noqa: BLE001
+                log.exception("izleyici klipleri hatası")
+            await asyncio.sleep(1800)
+
+    async def _izleyici_klip_tara(self, indir, kick_klipleri, twitch_klipleri, sure_olc, Spike) -> int:
+        bulunan = {k.ad.lower(): k for k, _ in (self.son_bulunan or [])}
+        kick_kanallar = [k.ad for k, _ in (self.son_bulunan or []) if k.platform == "kick"]
+        klipler: list[dict] = []
+        async with httpx.AsyncClient(timeout=25, follow_redirects=True) as c:
+            for ad, f in (("twitch", lambda: twitch_klipleri(c, self.kesifler["twitch"].oyun_adi
+                                                              if "twitch" in self.kesifler else OYUN.ad)),
+                          ("kick", lambda: kick_klipleri(c, OYUN.ad, kick_kanallar))):
+                if not self._platform_acik_mi(ad):
+                    continue
+                try:
+                    klipler += await f()
+                except Exception as e:  # noqa: BLE001
+                    log.info("%s izleyici klipleri alınamadı: %r", ad, e)
+        d = self._durum_oku()
+        gorulen = set(d.get("gorulen_klip") or [])
+        yasak = self._yasaklar()
+        en_az = {"twitch": int(self.cfg.get("izleyici_klip_en_az_twitch", 300)),
+                 "kick": int(self.cfg.get("izleyici_klip_en_az_kick", 100))}
+        secilen = []
+        for k in sorted(klipler, key=lambda x: -x["izlenme"]):
+            anahtar = f"{k['platform']}:{k['id']}"
+            if (anahtar in gorulen or k["izlenme"] < en_az.get(k["platform"], 100) or k["sure"] < 12
+                    or k["kanal_ad"] in yasak or f"{k['platform']}:{k['kanal_ad']}" in self._yabanci
+                    or (k["dil"] and k["dil"] in self._atlanan_diller())):
+                continue
+            secilen.append(k)
+            if len(secilen) >= int(self.cfg.get("izleyici_klip_tur_basi", 3)):
+                break
+        for k in secilen:
+            gorulen.add(f"{k['platform']}:{k['id']}")
+        d = self._durum_oku()
+        d["gorulen_klip"] = list(gorulen)[-3000:]
+        self._durum_yaz(d)
+        n = 0
+        for k in secilen:
+            ad = re.sub(r"[^a-z0-9_]", "", k["kanal_ad"])[:30] or "klip"
+            yol = self.klasor / "izleyici_tampon" / f"{zaman.now().strftime('%Y%m%d_%H%M%S')}_{ad}.mp4"
+            if not await asyncio.to_thread(indir, k, yol):
+                continue
+            sure = await asyncio.to_thread(sure_olc, yol) or k["sure"]
+            bilinen = bulunan.get(k["kanal_ad"])
+            dil = k["dil"] or (bilinen.dil if bilinen else "")
+            kanal = kesif.Kanal(k["platform"], k["kanal_ad"], k["kanal_gorunen"], dil=dil,
+                                izleyici=bilinen.izleyici if bilinen else 0)
+            simdi = time.time()
+            tid = f"izl_{k['platform']}_{k['id']}"[:60]
+            self._asama(tid, f"⏳ izleyici klibi sırada ({k['izlenme']} izlenme)", kanal)
+            log.info("🎞 izleyici klibi alındı: %s (%s, %d izlenme, %.0f sn) — %s", kanal.gorunen, k["platform"],
+                     k["izlenme"], sure, k["baslik"][:60])
+            await self.kuyruk.put(Is(kanal, Spike(simdi, simdi, float(k["izlenme"]), 1.0, neden="izleyici"),
+                                     yol, 0.0, float(sure), [], True, float(sure) * 0.5, tid))
+            n += 1
+        return n
+
     async def trend_dongu(self) -> None:
         """12 saatte bir YouTube'daki popüler GTA 6 Shorts'larından öğren (hangi yayıncı/tarz tutuyor)."""
         await asyncio.sleep(90)
@@ -1317,19 +1387,32 @@ class Uygulama:
         # yayıncı tepkisiz + sadece oyun (ara sahne / sinematik): izleyici için boş, puan ne olursa olsun atla
         konusma_sn = sum(max(0.0, e - b) for b, e, _ in segler)
         genel_oyun = (sum(1 for _, v in oyun_anlari if v) / len(oyun_anlari)) if oyun_anlari else 0.0
-        if (konusma_sn < 2.0 and yuz_t < 1.8 and ses_tepki < 8 and aksiyon < 2.5
+        harici = is_.spike.neden == "izleyici"   # izleyicilerin Kick/Twitch'te kestiği klip (insanlar seçmiş)
+        if harici:
+            from .izleyici_klip import harici_puan
+            hp = harici_puan(int(is_.spike.puan), is_.kanal.platform)
+            if hp > kalite:
+                kalite = hp
+            kalite_neden = ", ".join(x for x in (f"izleyiciler klipledi ({int(is_.spike.puan)} izlenme)",
+                                                kalite_neden) if x)
+        if (not harici and konusma_sn < 2.0 and yuz_t < 1.8 and ses_tepki < 8 and aksiyon < 2.5
                 and self._gulme_orani(is_) < 0.5):
             log.info("klip elendi: yayıncı tepkisiz (konuşma %.0f sn, yüz %.1fx), sadece oyun görüntüsü — %s",
                      konusma_sn, yuz_t, kid)
             self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
             return
-        if genel_oyun >= 0.4 and konusma_sn < 4.0 and yuz_t < 2.0:
+        if genel_oyun >= (0.7 if harici else 0.4) and konusma_sn < 4.0 and yuz_t < 2.0:
             log.info("klip elendi: oyunun ara sahnesi (%%%d), yayıncı neredeyse hiç konuşmuyor — %s",
                      int(genel_oyun * 100), kid)
             self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
             return
         # akıllı başlangıç/bitiş: tepki sönünce bitir, cümleyi bölme; boş kuyruk ve uzun giriş kesilir
         kb, ke = self._akilli_aralik(is_, segler)
+        if harici:   # klibi izleyici zaten kesmiş: başını koru, sadece 45 sn'yi geçerse olay çevresini al
+            kb, ke = 0.0, min(is_.sure, 45.0)
+            if is_.an > 38:
+                kb = max(0.0, is_.an - 25)
+                ke = min(is_.sure, kb + 45)
         # kapkara kısımlar (yükleme ekranı, sahne geçişi) klipte kalmasın; çoğu karanlıksa hiç yapma
         karanlik = await asyncio.to_thread(karanlik_anlar, is_.kaynak, is_.ofset, is_.sure, analiz.facecam)
         if karanlik:
@@ -1456,7 +1539,8 @@ class Uygulama:
             # sadece iyi anlar video olur: yapay zekâ "boş an" dediyse ya da son kliplerin zayıf yarısındaysa atla
             yz = veri.get("puan") if self.yazar.client else None
             elendi = self._kalite_eler(skor, yz) or (
-                "" if yz is not None else self._bos_an_mi(is_, ses_tepki, oyun_anlari, yuz_t, oyun_ani, aksiyon))
+                "" if (yz is not None or harici) else
+                self._bos_an_mi(is_, ses_tepki, oyun_anlari, yuz_t, oyun_ani, aksiyon))
             if elendi:
                 log.info("klip elendi (%s): %s — puan %.1f", elendi, hid, skor)
                 self.sayac["elenen"] = self.sayac.get("elenen", 0) + 1
@@ -1535,7 +1619,7 @@ class Uygulama:
             (klasor / "bilgi.json").write_text(json.dumps({
                 "kanal": is_.kanal.anahtar, "yayinci": is_.kanal.gorunen, "platform": is_.kanal.platform,
                 "hesap": ad, "dil": dil, "puan": skor, "neden": neden, "ozellikler": oz,
-                "surum": SURUM, "sure": round(is_.sure, 1),
+                "surum": SURUM, "sure": round(is_.sure, 1), "an_video": round(is_.an + ek + 0.1, 2),
                 "facecam": bool(facecam), "chat_kat": round(is_.spike.kat, 1), "kelimeler": is_.spike.kelimeler,
                 "transkript": [t for _, _, t in segler],
                 "altyazi_notu": "; ".join(dict.fromkeys(alt_not)) or (f"{len(alt)} satır altyazı" if alt else "")}, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -1762,6 +1846,18 @@ class Uygulama:
             g = asyncio.create_task(self.bot2.dinle())
             self._arka.add(g)
             return "✅ Paylaşım botu kuruldu. Şimdi YENİ bota gidip /start yaz."
+        if komut in ("/duello", "/düello", "/hangisi"):
+            g = asyncio.create_task(self.duello_uret())
+            self._arka.add(g)
+            g.add_done_callback(self._arka.discard)
+            return "🥊 'Hangisi daha komik? 1 mi 2 mi?' videosu hazırlanıyor (1-2 dk), bitince buraya gelecek."
+        if komut in ("/izleyici", "/klipler"):
+            from .izleyici_klip import indir, kick_klipleri, twitch_klipleri
+            from .kayit import sure_olc
+            from .spike import Spike
+            n = await self._izleyici_klip_tara(indir, kick_klipleri, twitch_klipleri, sure_olc, Spike)
+            return (f"🎞 {n} izleyici klibi indirildi, kurguya girdi (2-3 dk içinde gelir)." if n else
+                    "🎞 Şu an yeni, yeterince izlenmiş izleyici klibi yok (30 dk'da bir kendisi tekrar bakıyor).")
         if komut in ("/merge", "/sekme", "/sarkac"):
             g = asyncio.create_task(self.merge_uret([komut.strip("/")]))
             self._arka.add(g)
@@ -2296,6 +2392,15 @@ class Uygulama:
                     self._durum_yaz(d)
                     n = await self.merge_uret()
                     log.info("🫧 günün simülasyon videoları hazır: %d", n)
+                if (self.cfg.get("gunluk_duello", True) and simdi.hour >= int(self.cfg.get("duello_saati", 17))
+                        and self._durum_oku().get("son_duello_gun") != simdi.date().isoformat()):
+                    d = self._durum_oku()
+                    d["son_duello_gun"] = simdi.date().isoformat()
+                    self._durum_yaz(d)
+                    try:
+                        await self.duello_uret()
+                    except Exception:  # noqa: BLE001
+                        log.exception("düello hatası")
                 if simdi.hour >= 10 and son_meme != simdi.date().isoformat():
                     son_meme = simdi.date().isoformat()
                     d = self._durum_oku()
@@ -2375,7 +2480,7 @@ class Uygulama:
                 (klasor / "aciklama.txt").write_text(ac, encoding="utf-8")
                 (klasor / "bilgi.json").write_text(json.dumps({
                     "yayinci": tur, "platform": tur, "hesap": h["ad"], "dil": h["dil"],
-                    "puan": float(self.cfg.get("merge_puan", 8.0)),
+                    "puan": float(self.cfg.get("merge_puan", 8.0)), "surum": SURUM, "sure": 40,
                     "neden": f"günlük {ad_} #{bolum} (seslendirme: "
                              f"{'var' if r['seslendirme'] else 'yok — internet?'})"}, ensure_ascii=False, indent=1),
                     encoding="utf-8")
@@ -2386,6 +2491,101 @@ class Uygulama:
                 d[f"{tur}_bolum"] = bolum
                 self._durum_yaz(d)
             yapilan += tur_yapilan
+        return yapilan
+
+    def _duello_adaylari(self, hesap: str) -> list[tuple[float, Path, dict]]:
+        """Son 36 saatte bu hesap için yapılmış en iyi yayın klipleri (her aşamadan), en yüksek puan önce."""
+        yerler = list((self.klasor / "bekleyen").glob(f"*_{hesap}")) + list((self.klasor / "hazir" / hesap).glob("*"))
+        yerler += list((self.klasor / "paylasildi" / hesap).glob("*"))
+        out = []
+        for k in yerler:
+            try:
+                b = json.loads((k / "bilgi.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            mp4 = next(iter(sorted(k.glob(f"{k.name}.mp4"))), None)
+            if (not mp4 or not b.get("surum") or b.get("an_video") is None or b.get("tur") == "duello"
+                    or time.time() - k.stat().st_mtime > 36 * 3600):
+                continue
+            out.append((float(b.get("puan", 0)), mp4, b))
+        return sorted(out, key=lambda x: -x[0])
+
+    async def duello_uret(self) -> int:
+        """Günlük etkileşimli video: "Hangisi daha komik? 1 mi 2 mi?" — farklı iki yayıncının en iyi anı.
+        Dünkü düellonun kazananı (YouTube yorumlarından) açıklamada yazar."""
+        from . import paylas
+        from .duello import duello_video, oy_say
+        yapilan = 0
+        d = self._durum_oku()
+        bolum = int(d.get("duello_bolum", 0)) + 1
+        for h in self._hesaplar():
+            adaylar = self._duello_adaylari(h["ad"])
+            secim = []
+            for p, mp4, b in adaylar:
+                if all(str(b.get("yayinci")) != str(x[2].get("yayinci")) for x in secim):
+                    secim.append((p, mp4, b))
+                if len(secim) == 2:
+                    break
+            if len(secim) < 2:
+                log.info("düello (%s): yeterince iyi iki farklı klip yok, bugün atlandı", h["ad"])
+                continue
+            dil = h["dil"]
+            # dünün kazananı (yorumlardan)
+            kazanan = ""
+            onceki = (d.get("son_duello") or {}).get(h["ad"]) or {}
+            vid = ((self.performans._oku().get(onceki.get("hid", "")) or {}).get("kimlik") or {}).get("youtube")
+            if vid:
+                try:
+                    yt = paylas.YouTube(self._yt_istemci(h["ad"]), self.kok / "youtube" / f"{h['ad']}.json")
+                    bir, iki = await asyncio.to_thread(lambda: oy_say(yt.yorumlar(str(vid), 100)))
+                    if bir + iki >= 3 and bir != iki:
+                        ad_k = onceki.get("adlar", ["", ""])[0 if bir > iki else 1]
+                        kazanan = (f"🏆 Dünün kazananı: {1 if bir > iki else 2} ({ad_k}) — {max(bir, iki)} oy"
+                                   if dil == "tr" else
+                                   f"🏆 Yesterday's winner: {1 if bir > iki else 2} ({ad_k}) — {max(bir, iki)} votes")
+                except Exception as e:  # noqa: BLE001
+                    log.debug("düello oyları sayılamadı: %r", e)
+            hid = f"{zaman.now().strftime('%Y%m%d_%H%M%S')}_duello_{h['ad']}"
+            klasor = self.klasor / "bekleyen" / hid
+            klasor.mkdir(parents=True, exist_ok=True)
+            mp4 = klasor / f"{hid}.mp4"
+            adlar = (str(secim[0][2].get("yayinci") or ""), str(secim[1][2].get("yayinci") or ""))
+            try:
+                await asyncio.to_thread(duello_video, secim[0][1], float(secim[0][2]["an_video"]),
+                                        secim[1][1], float(secim[1][2]["an_video"]), mp4, dil, adlar)
+            except Exception as e:  # noqa: BLE001
+                log.warning("düello videosu yapılamadı: %r", e)
+                shutil.rmtree(klasor, ignore_errors=True)
+                continue
+            await asyncio.to_thread(self._kapak, mp4, "1 mi 2 mi?" if dil == "tr" else "1 or 2?", 2.0, 20.0,
+                                    f"#{bolum}", dil)
+            if dil == "tr":
+                ac = (f"Hangisi daha komik? 1 mi 2 mi? 👇\n1️⃣ {adlar[0]}  2️⃣ {adlar[1]}"
+                      + (f"\n\n{kazanan}" if kazanan else "") + "\n\n#gta6 #gtavi #gta6türkiye #oyun")
+                yt_b = f"Hangisi daha komik? {adlar[0]} vs {adlar[1]} | GTA 6 #{bolum} #shorts"
+            else:
+                ac = (f"Which one is funnier? 1 or 2? 👇\n1️⃣ {adlar[0]}  2️⃣ {adlar[1]}"
+                      + (f"\n\n{kazanan}" if kazanan else "") + "\n\n#gta6 #gtavi #gaming #gtaclips")
+                yt_b = f"Which is funnier? {adlar[0]} vs {adlar[1]} | GTA 6 #{bolum} #shorts"
+            pm = {"instagram": ac, "tiktok": ac.replace("\n", " "), "youtube_baslik": yt_b[:100],
+                  "youtube_aciklama": f"{ac}\n#shorts"}
+            (klasor / "aciklama.json").write_text(json.dumps(pm, ensure_ascii=False, indent=1), encoding="utf-8")
+            (klasor / "aciklama.txt").write_text(ac, encoding="utf-8")
+            (klasor / "bilgi.json").write_text(json.dumps({
+                "yayinci": "duello", "platform": "duello", "hesap": h["ad"], "dil": dil, "tur": "duello",
+                "puan": float(self.cfg.get("duello_puan", 8.6)), "surum": SURUM, "sure": 22,
+                "neden": f"günlük etkileşimli video #{bolum}: {adlar[0]} vs {adlar[1]}"}, ensure_ascii=False,
+                indent=1), encoding="utf-8")
+            d = self._durum_oku()
+            d.setdefault("son_duello", {})[h["ad"]] = {"hid": hid, "adlar": list(adlar)}
+            self._durum_yaz(d)
+            yapilan += 1
+            log.info("🥊 etkileşimli video hazır (%s): %s vs %s", h["ad"], *adlar)
+            await self._gonder(klasor)
+        if yapilan:
+            d = self._durum_oku()
+            d["duello_bolum"] = bolum
+            self._durum_yaz(d)
         return yapilan
 
     async def meme_uret(self, adet: int | None = None) -> int:
@@ -2417,7 +2617,7 @@ class Uygulama:
                 (klasor / "aciklama.json").write_text(json.dumps(pm, ensure_ascii=False, indent=1), encoding="utf-8")
                 (klasor / "aciklama.txt").write_text(pm["instagram"], encoding="utf-8")
                 (klasor / "bilgi.json").write_text(json.dumps({
-                    "yayinci": "meme", "platform": "meme", "hesap": h["ad"], "dil": h["dil"], "puan": 6.0,
+                    "yayinci": "meme", "platform": "meme", "hesap": h["ad"], "dil": h["dil"], "puan": 6.0, "surum": SURUM, "sure": 20,
                     "neden": "günlük meme", "meme": yazi}, ensure_ascii=False, indent=1), encoding="utf-8")
                 kullanilan.add(yazi)
                 yapilan += 1
@@ -2766,11 +2966,43 @@ class Uygulama:
         ozel = self.kok / "youtube" / f"client_secret_{hesap}.json"
         return ozel if hesap and ozel.exists() else self.kok / "youtube" / "client_secret.json"
 
+    def _part_metni(self, hesap: str, hid: str, pm: dict) -> dict:
+        """PART serisi: aynı yayıncının bu hesapta son 18 saatte paylaşılmış klipleri varsa bu "Part N" olur.
+        Takip ettiren format: "Part 1'i gördüm, Part 2'yi de izleyeyim" + "Part N+1 gelsin mi?" sorusu."""
+        yay = planmod.yayinci_adi(hid)
+        if not yay or yay in ("merge", "sekme", "sarkac", "duello") or "meme" in yay:
+            return pm
+        try:
+            kayit = self.performans._oku()
+        except Exception:  # noqa: BLE001
+            return pm
+        onceki = [r for k, r in kayit.items() if k != hid and r.get("hesap") == hesap
+                  and planmod.yayinci_adi(k) == yay and time.time() - r.get("t", 0) < 18 * 3600]
+        if not onceki:
+            return pm
+        n = len(onceki) + 1
+        from .aciklama import SORU
+        dil = next((x.get("dil", "") for x in self._hesaplar(hepsi=True) if x["ad"] == hesap), "")
+        sonraki = f"Part {n + 1} gelsin mi? 👇" if dil == "tr" else f"Part {n + 1}? 👇"
+        yeni = dict(pm)
+        for anahtar in ("instagram", "tiktok", "youtube_aciklama"):
+            metin = str(pm.get(anahtar) or "")
+            for soru in SORU["tr"] + SORU["en"]:
+                metin = metin.replace(soru, sonraki)
+            if sonraki not in metin:
+                metin = f"{metin}\n\n{sonraki}" if anahtar != "tiktok" else f"{metin} {sonraki}"
+            yeni[anahtar] = f"Part {n} 🎬 {metin}"
+        yb = str(pm.get("youtube_baslik") or "")
+        yeni["youtube_baslik"] = f"Part {n}: {yb}"[:100]
+        log.info("🎬 seri: %s %s için Part %d", hesap, yay, n)
+        return yeni
+
     def _otomatik_paylas(self, hesap: str, mp4: Path, pm: dict, izinli: list | None = None) -> dict:
         """Bağlı platformlara AYNI ANDA yükle (Instagram→Threads zinciri, Facebook, YouTube paralel).
         {platform: link ya da 'HATA: ...'}"""
         from concurrent.futures import ThreadPoolExecutor
         h = next((x for x in self._hesaplar(hepsi=True) if x["ad"] == hesap), {})
+        pm = self._part_metni(hesap, Path(mp4).parent.name, pm)
         # Meta "API erişimi engellendi" dediyse bir süre Meta platformlarını hiç deneme (durumu kötüleştirmesin)
         engel = float(self._durum_oku().get("meta_engel", 0))
         if time.time() < engel:
@@ -3040,6 +3272,7 @@ class Uygulama:
         gorevler.append(asyncio.create_task(self.hiz_ayari()))
         gorevler.append(asyncio.create_task(self.saglik_ayari()))
         gorevler.append(asyncio.create_task(self.trend_dongu()))
+        gorevler.append(asyncio.create_task(self.izleyici_klip_dongu()))
         try:
             await self.bot.komut_menusu()
         except Exception:  # noqa: BLE001

@@ -507,3 +507,45 @@ def test_sade_mod(tmp_path, monkeypatch):
     assert u._baslik_metni(b, "açıklama", "h") == "★★★½☆  7.4/10"
     asyncio.run(u._komut("/detay"))
     assert "Kai" in u._baslik_metni(b, "açıklama", "h")
+
+
+def test_part_serisi_numarasi(tmp_path, monkeypatch):
+    import time
+    u = _app(tmp_path, monkeypatch)
+    pm = {"instagram": "“Abi bu ne”\nGünün anı\n\nPart 2 gelsin mi? 👇", "tiktok": "x", "youtube_baslik": "Abi | GTA 6",
+          "youtube_aciklama": "y"}
+    assert u._part_metni("EN", "20261128_100000_eray_EN", pm) == pm           # ilk klip: değişmez
+    u.performans.kaydet("20261128_090000_eray_EN", "EN", "eray", {"youtube": "a"})
+    u.performans.kaydet("20261128_080000_kai_EN", "EN", "kai", {"youtube": "b"})
+    yeni = u._part_metni("EN", "20261128_100000_eray_EN", pm)
+    assert yeni["instagram"].startswith("Part 2 🎬") and yeni["youtube_baslik"].startswith("Part 2:")
+    assert "Part 3" in yeni["instagram"] and "Part 2 gelsin" not in yeni["instagram"]
+    assert time.time()
+
+
+def test_duello_oy_sayimi_ve_video(tmp_path):
+    import subprocess
+    from klipci.duello import duello_video, oy_say
+    assert oy_say(["1", "1 😂", "ikinci", "2", "bence 1", "First!"]) == (3, 2)
+    vs = []
+    for i in range(2):
+        v = tmp_path / f"k{i}.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=540x960:rate=30:d=8",
+                        "-f", "lavfi", "-i", "sine=d=8", "-shortest", str(v)], check=True)
+        vs.append(v)
+    out = duello_video(vs[0], 4, vs[1], 4, tmp_path / "d.mp4", "tr", ("Eray", "Kai"), parca=4, son_sn=1.5)
+    from klipci.kayit import sure_olc
+    assert 9 <= sure_olc(out) <= 10.5
+
+
+def test_izleyici_klip_ayiklama():
+    from klipci.izleyici_klip import harici_puan, kick_ayikla, twitch_ayikla
+    k = kick_ayikla({"clips": [{"id": "clip_1", "title": "LMAO", "clip_url": "https://clips.kick.com/a/playlist.m3u8",
+                                "views": 900, "duration": 30, "channel": {"slug": "eray", "username": "Eray"},
+                                "category": {"name": "Grand Theft Auto VI"}}, {"id": "x"}]})
+    assert len(k) == 1 and k[0]["kanal_ad"] == "eray" and k[0]["izlenme"] == 900
+    t = twitch_ayikla({"data": {"game": {"clips": {"edges": [{"node": {
+        "slug": "Abc", "title": "t", "viewCount": 5000, "durationSeconds": 28, "language": "en",
+        "broadcaster": {"login": "KaiCenat", "displayName": "Kai Cenat"}}}]}}}})
+    assert t[0]["kanal_ad"] == "kaicenat" and t[0]["dil"] == "en"
+    assert harici_puan(150, "twitch") == 7.2 and harici_puan(150000, "twitch") == 9.5
