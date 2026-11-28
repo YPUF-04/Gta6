@@ -549,3 +549,20 @@ def test_izleyici_klip_ayiklama():
         "broadcaster": {"login": "KaiCenat", "displayName": "Kai Cenat"}}}]}}}})
     assert t[0]["kanal_ad"] == "kaicenat" and t[0]["dil"] == "en"
     assert harici_puan(150, "twitch") == 7.2 and harici_puan(150000, "twitch") == 9.5
+
+
+def test_uretim_kapatma(tmp_path, monkeypatch):
+    import json
+    u = _app(tmp_path, monkeypatch)
+    assert "✅ açık — SARKAÇ" in u._uretim_komutu("")
+    assert "❌ kapalı — SARKAÇ" in u._uretim_komutu("kapat sarkac")
+    assert not u._uretim_acik("sarkac") and u._uretim_acik("merge")
+    k = u.klasor / "bekleyen" / "20261128_100000_sarkac_EN"
+    k.mkdir(parents=True)
+    (k / "a.mp4").write_bytes(b"x")
+    (k / "bilgi.json").write_text(json.dumps({"puan": 9.9, "yayinci": "sarkac", "surum": "x", "sure": 40}))
+    assert u._en_iyi_aday("EN") == ""                 # kapalı tür stoktan da paylaşılmaz
+    u._uretim_komutu("kapat hepsi")
+    assert not any(u._uretim_acik(t) for t in ("merge", "sekme", "meme", "duello"))
+    u._uretim_komutu("ac hepsi")
+    assert u._uretim_acik("sarkac")

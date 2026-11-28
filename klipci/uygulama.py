@@ -41,6 +41,11 @@ log = logging.getLogger("klipci")
 YENI_KALITE = "720p,720p60,best"
 
 
+# kapatılıp açılabilen otomatik video türleri (yayın klipleri hariç)
+URETIM_TURLERI = {"merge": "MERGE (birleşen toplar)", "sekme": "SEKME / BOUNCE (top)", "sarkac": "SARKAÇ",
+                  "meme": "Meme videoları", "duello": "'1 mi 2 mi?' etkileşimli video"}
+
+
 @dataclass
 class Is:
     kanal: kesif.Kanal
@@ -457,6 +462,9 @@ class Uygulama:
             # eski sürümlerin yaptığı klipler (mor altyazı, yarım/kısa, ara sahne...) artık paylaşılmaz;
             # 15 sn'den kısa klip de yarım gibi durur
             if not b.get("surum") or float(b.get("sure", 99)) < 15:
+                continue
+            tur_ = str(b.get("tur") or b.get("yayinci") or "")
+            if tur_ in URETIM_TURLERI and not self._uretim_acik(tur_):   # /uretim ile kapattığın tür paylaşılmaz
                 continue
             kayit = self.ogrenci.kayitlar.get(k.name) or {}
             karar = kayit.get("karar")
@@ -1846,6 +1854,8 @@ class Uygulama:
             g = asyncio.create_task(self.bot2.dinle())
             self._arka.add(g)
             return "✅ Paylaşım botu kuruldu. Şimdi YENİ bota gidip /start yaz."
+        if komut in ("/uretim", "/üretim", "/simulasyon", "/simülasyon"):
+            return self._uretim_komutu(arg)
         if komut in ("/duello", "/düello", "/hangisi"):
             g = asyncio.create_task(self.duello_uret())
             self._arka.add(g)
@@ -2392,7 +2402,7 @@ class Uygulama:
                     self._durum_yaz(d)
                     n = await self.merge_uret()
                     log.info("🫧 günün simülasyon videoları hazır: %d", n)
-                if (self.cfg.get("gunluk_duello", True) and simdi.hour >= int(self.cfg.get("duello_saati", 17))
+                if (self.cfg.get("gunluk_duello", True) and self._uretim_acik("duello") and simdi.hour >= int(self.cfg.get("duello_saati", 17))
                         and self._durum_oku().get("son_duello_gun") != simdi.date().isoformat()):
                     d = self._durum_oku()
                     d["son_duello_gun"] = simdi.date().isoformat()
@@ -2444,7 +2454,10 @@ class Uygulama:
         from . import merge as mg
         from . import sarkac as sr
         from . import sekme as sk
+        elle = bool(turler)   # /merge /sekme /sarkac ile elle istendiyse kapalı olsa da yapılır
         turler = turler or list(self.cfg.get("gunluk_simulasyonlar") or ["merge", "sekme", "sarkac"])
+        if not elle:
+            turler = [t for t in turler if self._uretim_acik(t)]
         yapilan = 0
         for tur in turler:
             uret, baslik = {"merge": (mg.merge_video, "MERGE"), "sekme": (sk.sekme_video, "BOUNCE"),
@@ -2492,6 +2505,31 @@ class Uygulama:
                 self._durum_yaz(d)
             yapilan += tur_yapilan
         return yapilan
+
+    def _uretim_acik(self, tur: str) -> bool:
+        """Simülasyon / meme / düello türü açık mı? (Telegram: /uretim kapat sarkac)"""
+        return tur not in set(self._durum_oku().get("uretim_kapali") or [])
+
+    def _uretim_komutu(self, arg: str) -> str:
+        p = arg.lower().replace("ç", "c").replace("ü", "u").split()
+        d = self._durum_oku()
+        kapali = set(d.get("uretim_kapali") or [])
+        if len(p) >= 1 and p[0] in ("ac", "aç", "kapat", "kapa"):
+            hedef = [x for x in p[1:] if x in URETIM_TURLERI] or (list(URETIM_TURLERI) if not p[1:] or "hepsi" in p
+                                                                 else [])
+            if not hedef:
+                return "Hangisi? Örnek: /uretim kapat sarkac  ·  türler: " + ", ".join(URETIM_TURLERI) + ", hepsi"
+            if p[0].startswith("kapa"):
+                kapali |= set(hedef)
+            else:
+                kapali -= set(hedef)
+            d["uretim_kapali"] = sorted(kapali)
+            self._durum_yaz(d)
+        satir = ["🎛 Otomatik videolar (/uretim kapat sarkac · /uretim ac sarkac · /uretim kapat hepsi):"]
+        for t, ad in URETIM_TURLERI.items():
+            satir.append(f"{'❌ kapalı' if t in kapali else '✅ açık'} — {ad}  ({t})")
+        satir.append("\nKapalı türler hem üretilmez hem stoktakiler paylaşılmaz. Yayın klipleri her zaman açık.")
+        return "\n".join(satir)
 
     def _duello_adaylari(self, hesap: str) -> list[tuple[float, Path, dict]]:
         """Son 36 saatte bu hesap için yapılmış en iyi yayın klipleri (her aşamadan), en yüksek puan önce."""
@@ -2590,6 +2628,8 @@ class Uygulama:
 
     async def meme_uret(self, adet: int | None = None) -> int:
         """Her açık hesap için meme videosu yap ve onaya yolla. Kaç tane yapıldığını döndürür."""
+        if adet is None and not self._uretim_acik("meme"):
+            return 0
         adet = int(self.cfg.get("gunluk_meme", 2)) if adet is None else adet
         hamlar = sorted((self.klasor / "ham").glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)[:40]
         if not hamlar or adet <= 0:
